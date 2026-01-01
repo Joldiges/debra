@@ -28,6 +28,7 @@ fi
 
 say ""
 say "Core settings"
+# TODO: Move configs to their respective modules.  (or make them a function and only called if needed..?)
 DEBRA_TIMEZONE="${DEBRA_TIMEZONE:-$(prompt_string 'Timezone' 'America/Detroit')}"
 SNAPSERVER_HOST="${SNAPSERVER_HOST:-$(prompt_string 'Snapserver host/IP (usually Music Assistant host)' 'homeassistant.local')}"
 SNAPSERVER_PORT="${SNAPSERVER_PORT:-$(prompt_string 'Snapserver port (snapclient stream port)' '1704')}"

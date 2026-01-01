@@ -61,11 +61,6 @@ CFG=/boot/firmware/config.txt
 if [[ "$RE_SPEAKER_VER" == "v1" ]]; then
   say "Using ReSpeaker v1 installation instructions"
   # From: https://wiki.seeedstudio.com/ReSpeaker_2_Mics_Pi_HAT_Raspberry/
-    #     CFG=/boot/firmware/config.txt
-    #     [ -f "$CFG" ] || CFG=/boot/config.txt
-    #
-    #     grep -q '^dtoverlay=seeed-2mic-voicecard' "$CFG" \
-    #       || echo 'dtoverlay=seeed-2mic-voicecard' >> "$CFG"
   ./install.sh
   # TODO: Second run since the first failed once... and I don't want to debug right now
   ./install.sh

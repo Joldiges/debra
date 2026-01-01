@@ -13,10 +13,15 @@ apt-get install -y --no-install-recommends \
   ccache \
   python3 python3-venv python3-pip \
   alsa-utils \
-  avahi-daemon \
-  chrony \
   build-essential pkg-config
 
+# TODO: Remove.  Timezone to be configured from the imager
 timedatectl set-timezone "${DEBRA_TIMEZONE}" || true
+
+# Install and enable avahi-daemon for network service discovery (mDNS/Zeroconf)
+apt-get install -y --no-install-recommends avahi-daemon
 systemctl enable --now avahi-daemon
+
+# Install and enable chrony for time synchronization
+apt-get install -y --no-install-recommends chrony
 systemctl enable --now chrony || systemctl enable --now chronyd || true

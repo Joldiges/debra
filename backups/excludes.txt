@@ -10,6 +10,8 @@
 /swapfile
 /sys/*
 /tmp/*
+/usr/share/doc/*
+/usr/share/man/*
 /var/cache/*
 /var/cache/apt/archives/*
 /var/lib/apt/lists/*
@@ -20,3 +22,4 @@
 /var/spool/*
 /var/swap
 /var/tmp/*
+**/__pycache__/
