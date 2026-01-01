@@ -13,7 +13,6 @@ apt-get install -y --no-install-recommends \
   ccache \
   python3 python3-venv python3-pip \
   alsa-utils \
-  build-essential pkg-config
 
 # TODO: Remove.  Timezone to be configured from the imager
 timedatectl set-timezone "${DEBRA_TIMEZONE}" || true

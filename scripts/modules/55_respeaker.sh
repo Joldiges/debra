@@ -59,10 +59,12 @@ CFG=/boot/firmware/config.txt
 [ -f "$CFG" ] || CFG=/boot/config.txt
 
 if [[ "$RE_SPEAKER_VER" == "v1" ]]; then
-  say "Using ReSpeaker v1 installation instructions"
   # From: https://wiki.seeedstudio.com/ReSpeaker_2_Mics_Pi_HAT_Raspberry/
+  # TODO: Why can't I just compile the [dts](https://github.com/respeaker/seeed-voicecard/blob/master/seeed-2mic-voicecard-overlay.dts)?
+  say "Using ReSpeaker v1 installation instructions"
   ./install.sh
   # TODO: Second run since the first failed once... and I don't want to debug right now
+  # TODO: We can probably remove.  I don't think we tested in a working environment before - takes a long time on the Raspi 0 v1.
   ./install.sh
 
   # Manually add the dtoverlay line since the script didn't seem to?
@@ -77,10 +79,10 @@ if [[ "$RE_SPEAKER_VER" == "v1" ]]; then
     linux-headers-$K \
     linux-headers-${K%%-*}-common-rpi 2>/dev/null || true
 elif [[ "$RE_SPEAKER_VER" == "v2" ]]; then
+  # From (not really): https://wiki.seeedstudio.com/respeaker_2_mics_pi_hat_raspberry_v2/
   say "Using ReSpeaker v2 installation instructions"
   # v2 has alternate setup in upstream scripts
   # TODO: Differs from V1?
-  # From (not really): https://wiki.seeedstudio.com/respeaker_2_mics_pi_hat_raspberry_v2/
   #     ./install.sh
   curl https://raw.githubusercontent.com/Seeed-Studio/seeed-linux-dtoverlays/refs/heads/master/overlays/rpi/respeaker-2mic-v2_0-overlay.dts -o respeaker-2mic-v2_0-overlay.dts
   dtc -I dts respeaker-2mic-v2_0-overlay.dts -o respeaker-2mic-v2_0-overlay.dtbo

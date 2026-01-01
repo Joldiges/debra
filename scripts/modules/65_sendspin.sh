@@ -11,6 +11,8 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get install -y --no-install-recommends python3-venv
+# TODO: Refine this.  Issue building CFFI (missing Python.h).
+apt-get install -y --no-install-recommends libffi-dev python3-dev pkg-config build-essential
 
 VENV="/opt/debra/sendspin-venv"
 mkdir -p /opt/debra
