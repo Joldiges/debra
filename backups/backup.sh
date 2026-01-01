@@ -10,6 +10,6 @@ RSYNC_EXCLUDES=""
 while IFS= read -r line; do
     RSYNC_EXCLUDES+="--exclude=\"$line\" "
 done < "$EXCLUDES_FILE"
-RSYNC_COMMAND="rsync $RSYNC_OPTIONS $RSYNC_EXCLUDES \"$SOURCE\" \"$DESTINATION\""
+RSYNC_COMMAND=" sudo rsync $RSYNC_OPTIONS $RSYNC_EXCLUDES \"$SOURCE\" \"$DESTINATION\""
 eval "$RSYNC_COMMAND"
 echo "Backup completed successfully."
