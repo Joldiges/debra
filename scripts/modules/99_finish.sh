@@ -5,6 +5,10 @@ CFG_FILE="${1:?config file required}"
 # shellcheck disable=SC1090
 source "${CFG_FILE}"
 
+DEBRA_ID="$("${SCRIPT_DIR}/python/get_unique_id.py" --short 6)"
+DEBRA_HOSTNAME="debra-${DEBRA_ID}"
+
+
 echo ""
 echo "================ Debra summary ================"
 echo "Hostname:   ${DEBRA_HOSTNAME}"

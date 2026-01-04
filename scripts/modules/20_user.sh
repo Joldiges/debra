@@ -7,6 +7,7 @@ NEW_PASS="${3:?new password required}"
 # shellcheck disable=SC1090
 source "${CFG_FILE}"
 
+
 # Create new user if it doesn't exist
 if id -u "${NEW_USER}" >/dev/null 2>&1; then
   echo "User ${NEW_USER} already exists"

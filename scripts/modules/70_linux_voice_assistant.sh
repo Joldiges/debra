@@ -7,6 +7,8 @@ NEW_USER="${2:?new user required}"
 source "${CFG_FILE}"
 
 export DEBIAN_FRONTEND=noninteractive
+## TODO: Only for Raspi 0 V1.  Edit - we shouldn't be building for this.  Handle missing wheels by building them in docker on a performant machine.
+#export SKIP_CYTHON=1
 
 # -------- sanity --------
 if [[ -z "${NEW_USER:-}" ]]; then
@@ -35,6 +37,7 @@ apt-get install -y \
   pipewire \
   pipewire-pulse \
   wireplumber
+
 
 # -------- paths --------
 BASE="/opt/debra"

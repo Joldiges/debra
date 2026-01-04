@@ -13,7 +13,7 @@ source "${CFG_FILE}"
 
 
 # Conservative default: allow multiple playback streams via dmix.
-sudo tee /etc/asound.conf <<'EOF'
+tee /etc/asound.conf <<'EOF'
 pcm.!default {
   type plug
   slave.pcm "hw:0,0"
