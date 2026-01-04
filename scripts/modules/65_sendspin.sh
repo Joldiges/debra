@@ -9,6 +9,8 @@ if [[ ${ENABLE_SENDSPIN:-0} != "1" ]]; then
   exit 0
 fi
 
+# TODO: Completely shift to using the new (upcoming) daemon script - https://github.com/Sendspin/sendspin-cli/blob/main/scripts/systemd/install-systemd.sh
+# TODO: Ensure that uv/uvx there will respect piwheels for Raspi 0
 
 VENV="/opt/debra/sendspin-venv"
 mkdir -p /opt/debra
@@ -16,7 +18,7 @@ if [[ ! -d ${VENV} ]]; then
   python3 -m venv "${VENV}"
 fi
 "${VENV}/bin/pip" install --upgrade pip
-"${VENV}/bin/pip" install --upgrade sendspin
+"${VENV}/bin/pip" install --upgrade sendspin --only-binary=:all:
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEBRA_ID="$("${SCRIPT_DIR}/../python/get_unique_id.py" --short 6)"

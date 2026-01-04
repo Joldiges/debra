@@ -15,10 +15,12 @@ apt-get install -y --no-install-recommends \
   python3 python3-venv python3-pip \
   alsa-utils
 
-if grep -q "Raspberry Pi Zero W" /proc/device-tree/model 2>/dev/null; then
+if grep -q "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
   cat >/etc/pip.conf <<EOF
 [global]
-find-links = $GIT_ROOT/legacy/raspi0/wheels
+index-url = https://pypi.org/simple
+extra-index-url = https://www.piwheels.org/simple
+find-links = file:///$GIT_ROOT/legacy/raspi0/wheels
 EOF
 fi
 

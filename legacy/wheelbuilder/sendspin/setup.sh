@@ -24,12 +24,26 @@ apt install -y \
   pkg-config \
   zlib1g-dev \
 
-# TODO: Not sure which is actually needed - but one worked to multithread the build for numpy
-export NPY_NUM_BUILD_JOBS=$(nproc)
-export MAKEFLAGS="-j$(nproc)"
-export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+cat >/etc/pip.conf <<EOF
+[global]
+index-url = https://pypi.org/simple
+extra-index-url = https://www.piwheels.org/simple
+find-links = file:///$GIT_ROOT/legacy/raspi0/wheels
+EOF
 
-uvx pip install --find-links /work/legacy/raspi0/wheels sendspin
+# TODO: Not sure which is actually needed - but one worked to multithread the build for numpy
+export NPY_NUM_BUILD_JOBS="$(nproc)"
+export MAKEFLAGS="-j$(nproc)"
+export CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)"
+
+#uvx pip install --find-links /work/legacy/raspi0/wheels sendspin
+uvx pip install sendspin \
+  --index-url https://pypi.org/simple \
+  --extra-index-url https://www.piwheels.org/simple \
+  --find-links file:///work/legacy/raspi0/wheels \
+  --only-binary=:all:
+
+
 
 find /root/.cache/uv -path "*sdists-*" -type f -name "*.whl" \
   -exec cp -u -t /work/legacy/raspi0/wheels {} +
