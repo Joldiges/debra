@@ -2,6 +2,7 @@
 /etc/pip.conf
 /home/*/.cache/*
 /home/*/.ccache/*
+/home/*/.config/uv/*
 /home/*/.ssh/*
 /home/*/git/*
 /lost+found
