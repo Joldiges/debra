@@ -6,20 +6,15 @@ NEW_USER="${2:?new user required}"
 # shellcheck disable=SC1090
 source "${CFG_FILE}"
 
+: "${DEBRA_HOSTNAME:?DEBRA_HOSTNAME missing in ${CFG_FILE}}"
+
+NEW_USER=${SUDO_USER:-$(id -un)}
+
+
 export DEBIAN_FRONTEND=noninteractive
 ## TODO: Only for Raspi 0 V1.  Edit - we shouldn't be building for this.  Handle missing wheels by building them in docker on a performant machine.
 #export SKIP_CYTHON=1
 
-# -------- sanity --------
-if [[ -z "${NEW_USER:-}" ]]; then
-  echo "ERR: NEW_USER not set in config: ${NEW_USER}"
-  exit 1
-fi
-
-if ! id "${NEW_USER}" &>/dev/null; then
-  echo "ERR: NEW_USER '${NEW_USER}' does not exist yet"
-  exit 1
-fi
 
 # -------- deps (root only) --------
 apt-get update
@@ -50,9 +45,12 @@ if [[ ! -d "${LVA_DIR}" ]]; then
   git clone https://github.com/OHF-Voice/linux-voice-assistant.git "${LVA_DIR}"
 fi
 
+
 chown -R "${NEW_USER}:${NEW_USER}" "${LVA_DIR}"
 
 # -------- setup (as user) --------
+sudo -u "${NEW_USER}" git -C "${LVA_DIR}" pull --ff-only
+
 cd "${LVA_DIR}"
 git pull
 
@@ -69,6 +67,16 @@ if [[ -n "${LVA_WAKE_MODEL:-}" ]]; then
   LVA_ARGS+=( "--wake-model" "${LVA_WAKE_MODEL}" )
 fi
 
+if [[ -n "${LVA_AUDIO_INPUT:-}" ]]; then
+  LVA_ARGS+=( "--input-device" "${LVA_AUDIO_INPUT}" )
+fi
+
+if [[ -n "${LVA_AUDIO_OUTPUT:-}" ]]; then
+  LVA_ARGS+=( "--output-device" "${LVA_AUDIO_OUTPUT}" )
+fi
+
+LVA_EXEC_ARGS="${LVA_ARGS[*]}"
+
 # -------- user systemd --------
 USER_SYSTEMD_DIR="/home/${NEW_USER}/.config/systemd/user"
 install -d -m 755 "${USER_SYSTEMD_DIR}"
@@ -81,7 +89,7 @@ After=pipewire.service pipewire-pulse.service network-online.target
 
 [Service]
 WorkingDirectory=${LVA_DIR}
-ExecStart=${LVA_DIR}/script/run ${LVA_ARGS[*]}
+ExecStart=${LVA_DIR}/script/run ${LVA_EXEC_ARGS}
 Restart=always
 RestartSec=2
 

@@ -2,8 +2,11 @@
 set -euo pipefail
 
 CFG_FILE="${1:?config file required}"
-NEW_USER="${2:?new user required}"
-NEW_PASS="${3:?new password required}"
+
+NEW_USER="${NEW_USER:-$(prompt_string 'Create a new sudo username' "${SUDO_USER:-$(id -un)}")}"
+say "User is: ${NEW_USER}"
+NEW_PASS="${NEW_PASS:-$(prompt_string 'password....' 'N/A')}"
+
 # shellcheck disable=SC1090
 source "${CFG_FILE}"
 

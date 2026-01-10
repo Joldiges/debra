@@ -80,11 +80,6 @@ write_config "${CFG_FILE}" \
 say ""
 say "User setup"
 
-# NEW_USER="${NEW_USER:-$(prompt_string 'Create a new sudo username' 'debra')}"
-# NEW_PASS="$(prompt_secret 'Password for the new user')"
-NEW_USER="${NEW_USER:-$(prompt_string 'Create a new sudo username' "${SUDO_USER:-$(id -un)}")}"
-say "User is: ${NEW_USER}"
-NEW_PASS="${NEW_PASS:-$(prompt_string 'password....' 'N/A')}"
 
 
 # LOCK_DEFAULT_USER="$(prompt_yesno 'Lock the default user account after verification?' 'no' && echo 1 || echo 0)"
@@ -92,7 +87,7 @@ NEW_PASS="${NEW_PASS:-$(prompt_string 'password....' 'N/A')}"
 
 # --- Run modules ---
 run_module "${REPO_DIR}/scripts/modules/10_prereqs.sh" "${CFG_FILE}"
-run_module "${REPO_DIR}/scripts/modules/20_user.sh" "${CFG_FILE}" "${NEW_USER}" "${NEW_PASS}"
+#run_module "${REPO_DIR}/scripts/modules/20_user.sh" "${CFG_FILE}" "${NEW_USER}" "${NEW_PASS}"
 run_module "${REPO_DIR}/scripts/modules/30_hostname.sh" "${CFG_FILE}"
 run_module "${REPO_DIR}/scripts/modules/40_updates.sh" "${CFG_FILE}"
 run_module "${REPO_DIR}/scripts/modules/50_audio_base.sh" "${CFG_FILE}"
@@ -106,7 +101,7 @@ if [[ "${ENABLE_SENDSPIN}" == "1" ]]; then
   run_module "${REPO_DIR}/scripts/modules/65_sendspin.sh" "${CFG_FILE}"
 fi
 
-run_module "${REPO_DIR}/scripts/modules/70_linux_voice_assistant.sh" "${CFG_FILE}" "${NEW_USER}"
+run_module "${REPO_DIR}/scripts/modules/70_linux_voice_assistant.sh" "${CFG_FILE}"
 run_module "${REPO_DIR}/scripts/modules/99_finish.sh" "${CFG_FILE}"
 
 say ""
