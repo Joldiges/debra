@@ -34,11 +34,11 @@ export CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)"
 wget https://raw.githubusercontent.com/Sendspin/sendspin-cli/main/scripts/systemd/install-systemd.sh -O /tmp/install-sendspin.sh
 if [ "$(uname -m)" = "armv6l" ]; then
     sudo sed -i \
-'s|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin --index-url https://pypi.org/simple --extra-index-url https://www.piwheels.org/simple --find-links file://'"${PROJECT_ROOT}"'/legacy/raspi0/wheels" -- --only-binary=:all:|' \
+'s|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin --index-url https://pypi.org/simple --extra-index-url https://www.piwheels.org/simple --find-links file://'"${PROJECT_ROOT}"'/legacy/raspi0/wheels" -- --only-binary=:all:"|' \
 /tmp/install-sendspin.sh
 else
     sudo sed -i \
-'s|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin -- --only-binary=:all:|' \
+'s|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin -- --only-binary=:all:"|' \
 /tmp/install-sendspin.sh
 fi
 
