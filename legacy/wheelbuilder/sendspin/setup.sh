@@ -26,8 +26,8 @@ apt install -y \
 
 cat >/etc/pip.conf <<EOF
 [global]
+extra-index-url=https://www.piwheels.org/simple
 index-url = https://pypi.org/simple
-extra-index-url = https://www.piwheels.org/simple
 find-links = file:///$GIT_ROOT/legacy/raspi0/wheels
 EOF
 
@@ -39,7 +39,7 @@ export CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)"
 #uvx pip install --find-links /work/legacy/raspi0/wheels sendspin
 uvx pip install sendspin \
   --index-url https://pypi.org/simple \
-  --extra-index-url https://www.piwheels.org/simple \
+  --extra-index-url=https://www.piwheels.org/simple \
   --find-links file:///work/legacy/raspi0/wheels \
   --only-binary=:all:
 
