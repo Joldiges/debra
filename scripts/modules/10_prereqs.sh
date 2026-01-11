@@ -22,8 +22,6 @@ extra-index-url=https://www.piwheels.org/simple
 index-url = https://pypi.org/simple
 find-links = file:///${PROJECT_ROOT}/legacy/raspi0/wheels
 EOF
-fi
-
 fi  # The wheels are specifically for the Pi 0 W (V1), but won't hurt to include them on other Raspi models.
 
 
