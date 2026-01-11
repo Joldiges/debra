@@ -18,8 +18,9 @@ wget https://raw.githubusercontent.com/Sendspin/sendspin-cli/main/scripts/system
 # Have SendSpin use piwheels and local builds.  Neither will break anything if not on a Raspberry Pi.
 sudo sed -i \
 's|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin --index-url https://pypi.org/simple --extra-index-url https://www.piwheels.org/simple --find-links file:///home/'"$USER"'/git/debra/legacy/raspi0/wheels"|' \
-chmod +x /tmp/install-sendspin.sh
 /tmp/install-sendspin.sh
+
+chmod +x /tmp/install-sendspin.sh
 sudo bash /tmp/install-sendspin.sh
 rm /tmp/install-sendspin.sh
 
