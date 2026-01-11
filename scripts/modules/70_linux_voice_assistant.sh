@@ -1,24 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Prompt helpers
-prompt_string() {
-  local label="$1"
-  local default="${2:-}"
-  local val=""
-  if [[ -n "${default}" ]]; then
-    read -r -p "${label} [${default}]: " val
-    echo "${val:-${default}}"
-  else
-    read -r -p "${label}: " val
-    echo "${val}"
-  fi
-}
+# Source common libraries
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
+# shellcheck source=../lib/ui.sh
+source "${SCRIPT_DIR}/../lib/ui.sh"
 
 # Get unique ID and hostname
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEBRA_ID="$("${SCRIPT_DIR}/../python/get_unique_id.py" --short 6)"
-DEBRA_HOSTNAME="debra-${DEBRA_ID}"
+DEBRA_HOSTNAME="$(get_debra_hostname)"
 
 # Prompt for voice assistant settings
 echo ""

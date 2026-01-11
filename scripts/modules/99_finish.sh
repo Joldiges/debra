@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEBRA_ID="$("${SCRIPT_DIR}/../python/get_unique_id.py" --short 6)"
-DEBRA_HOSTNAME="debra-${DEBRA_ID}"
+# Source common libraries
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
+
+DEBRA_HOSTNAME="$(get_debra_hostname)"
 
 # Read snapclient config if available
 SNAPSERVER_HOST="(unknown)"
