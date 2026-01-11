@@ -9,7 +9,7 @@ source "${SCRIPT_DIR}/../lib/common.sh"
 source "${SCRIPT_DIR}/../lib/ui.sh"
 
 # Prompt to enable Sendspin
-if ! prompt_yesno 'Install/enable Sendspin receiver? (experimental)' 'no'; then
+if ! prompt_yesno 'Install/enable Sendspin receiver? (experimental)' 'yes'; then
   echo "Skipping Sendspin installation."
   exit 0
 fi
