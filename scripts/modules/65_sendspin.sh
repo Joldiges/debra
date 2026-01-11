@@ -34,6 +34,6 @@ if [ "$(uname -m)" = "armv6l" ]; then
 fi
 
 chmod +x /tmp/install-sendspin.sh
-sudo bash /tmp/install-sendspin.sh
+bash /tmp/install-sendspin.sh
 rm /tmp/install-sendspin.sh
 
