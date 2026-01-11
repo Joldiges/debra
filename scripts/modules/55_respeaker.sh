@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/../lib/ui.sh"
 
 detect_platform
 
-if [[ "${DEBRA_PLATFORM}" != "raspberrypi" ]]; then
+if [[ "${DEBRA_PLATFORM}" != "raspberrypi0" ]]; then
   echo "Not a Raspberry Pi; skipping ReSpeaker setup."
   exit 0
 fi

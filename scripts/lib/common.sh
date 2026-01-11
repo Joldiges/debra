@@ -57,8 +57,9 @@ detect_platform() {
   fi
 
   if [[ -f /sys/firmware/devicetree/base/model ]] && grep -qi "raspberry pi" /sys/firmware/devicetree/base/model; then
-    DEBRA_PLATFORM="raspberrypi"
-  fi
+      DEBRA_PLATFORM="raspberrypi"
+    fi
+
 
   export DEBRA_PLATFORM
 }

@@ -24,12 +24,14 @@ apt install -y \
   pkg-config \
   zlib1g-dev \
 
-cat >/etc/pip.conf <<EOF
+if [ "$(uname -m)" = "armv6l" ]; then
+    cat >/etc/pip.conf <<EOF
 [global]
 extra-index-url=https://www.piwheels.org/simple
 index-url = https://pypi.org/simple
 find-links = file:///$GIT_ROOT/legacy/raspi0/wheels
 EOF
+fi
 
 # TODO: Not sure which is actually needed - but one worked to multithread the build for numpy
 export NPY_NUM_BUILD_JOBS="$(nproc)"
@@ -37,12 +39,15 @@ export MAKEFLAGS="-j$(nproc)"
 export CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)"
 
 #uvx pip install --find-links /work/legacy/raspi0/wheels sendspin
-uvx pip install sendspin \
-  --index-url https://pypi.org/simple \
-  --extra-index-url=https://www.piwheels.org/simple \
-  --find-links file:///work/legacy/raspi0/wheels \
-  --only-binary=:all:
-
+if [ "$(uname -m)" = "armv6l" ]; then
+  uvx pip install sendspin \
+    --index-url https://pypi.org/simple \
+    --extra-index-url=https://www.piwheels.org/simple \
+    --find-links file:///work/legacy/raspi0/wheels \
+    --only-binary=:all:
+else
+  uvx pip install sendspin
+fi
 
 
 find /root/.cache/uv -path "*sdists-*" -type f -name "*.whl" \

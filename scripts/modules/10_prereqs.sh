@@ -15,14 +15,14 @@ apt-get install -y --no-install-recommends \
   python3 python3-venv python3-pip \
   alsa-utils
 
-if grep -q "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
+if [ "$(uname -m)" = "armv6l" ]; then
   cat >/etc/pip.conf <<EOF
 [global]
 extra-index-url=https://www.piwheels.org/simple
 index-url = https://pypi.org/simple
 find-links = file:///${PROJECT_ROOT}/legacy/raspi0/wheels
 EOF
-
+fi
 
 fi  # The wheels are specifically for the Pi 0 W (V1), but won't hurt to include them on other Raspi models.
 
