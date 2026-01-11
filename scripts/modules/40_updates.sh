@@ -33,9 +33,20 @@ if [[ "$is_debian_like" -eq 0 && "$is_fedora_like" -eq 0 ]]; then
   exit 0
 fi
 
-read -r -p "Enable unattended automatic updates (Sundays at 02:00)? [y/N] " ans
-ans="${ans:-N}"
-if [[ ! "$ans" =~ ^[Yy]$ ]]; then
+# Prompt (interactive) or skip (non-interactive) unless explicitly enabled via env var
+enable="${ENABLE_AUTO_UPDATES:-0}"
+if [[ "$enable" != "1" ]]; then
+  if [[ -t 0 ]]; then
+    read -r -p "Enable automatic updates (Sundays at 02:00)? [y/N] " ans
+    ans="${ans:-N}"
+    [[ "$ans" =~ ^[Yy]$ ]] && enable=1
+  else
+    echo "Non-interactive run: skipping (set ENABLE_AUTO_UPDATES=1 to enable)."
+    exit 0
+  fi
+fi
+
+if [[ "$enable" != "1" ]]; then
   echo "No changes made."
   exit 0
 fi
@@ -70,21 +81,15 @@ EOF
   systemctl daemon-reload
   systemctl enable --now unattended-upgrades-sunday.timer
 
-  echo "Enabled weekly unattended upgrades on Debian/Ubuntu (Sun 02:00). owo"
+  echo "Enabled weekly updates (Sun 02:00) on Debian/Ubuntu."
   exit 0
 fi
 
 if [[ "$is_fedora_like" -eq 1 ]]; then
-  # Install dnf-automatic
-  if command -v dnf >/dev/null 2>&1; then
-    dnf -y install dnf-automatic
-  else
-    echo "Skipping: expected dnf on '$distro_id' but it's not available."
-    exit 0
-  fi
+  command -v dnf >/dev/null 2>&1 || { echo "Skipping: dnf not found."; exit 0; }
 
-  # Configure to apply updates automatically
-  mkdir -p /etc/dnf
+  dnf -y install dnf-automatic
+
   cat >/etc/dnf/automatic.conf <<'EOF'
 [commands]
 upgrade_type = default
@@ -96,21 +101,18 @@ random_sleep = 0
 emit_via = stdio
 EOF
 
-  # Pick an available timer unit (varies by distro/version)
   timer_unit=""
-  for candidate in dnf-automatic-install.timer dnf-automatic.timer; do
-    if systemctl list-unit-files --type=timer | awk '{print $1}' | grep -qx "$candidate"; then
-      timer_unit="$candidate"
-      break
-    fi
-  done
+  while read -r unit _; do
+    case "$unit" in
+      dnf-automatic-install.timer|dnf-automatic.timer) timer_unit="$unit"; break;;
+    esac
+  done < <(systemctl list-unit-files --type=timer --no-legend --no-pager)
 
   if [[ -z "$timer_unit" ]]; then
-    echo "Installed dnf-automatic, but couldn't find a dnf-automatic*.timer unit to enable."
+    echo "Installed dnf-automatic, but no dnf-automatic*.timer unit found to enable."
     exit 1
   fi
 
-  # Override schedule to Sundays at 02:00 (clears any default OnCalendar)
   mkdir -p "/etc/systemd/system/${timer_unit}.d"
   cat >"/etc/systemd/system/${timer_unit}.d/override.conf" <<'EOF'
 [Timer]
