@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CFG_FILE="${1:?config file required}"
-# shellcheck disable=SC1090
-source "${CFG_FILE}"
 
 export DEBIAN_FRONTEND=noninteractive
 GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 1

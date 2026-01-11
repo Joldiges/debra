@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CFG_FILE="${1:?config file required}"
-# shellcheck disable=SC1090
-source "${CFG_FILE}"
+# Detect platform
+detect_platform() {
+  if [[ -f /proc/device-tree/model ]] && grep -qi "raspberry pi" /proc/device-tree/model; then
+    echo "raspberrypi"
+    return
+  fi
+  if [[ -f /sys/firmware/devicetree/base/model ]] && grep -qi "raspberry pi" /sys/firmware/devicetree/base/model; then
+    echo "raspberrypi"
+    return
+  fi
+  echo "linux"
+}
+
+DEBRA_PLATFORM="$(detect_platform)"
 
 if [[ "${DEBRA_PLATFORM}" != "raspberrypi" ]]; then
   echo "Not a Raspberry Pi; skipping ReSpeaker setup."

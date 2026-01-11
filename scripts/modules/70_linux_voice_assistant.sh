@@ -1,12 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CFG_FILE="${1:?config file required}"
-NEW_USER="${2:?new user required}"
-# shellcheck disable=SC1090
-source "${CFG_FILE}"
+# Prompt helpers
+prompt_string() {
+  local label="$1"
+  local default="${2:-}"
+  local val=""
+  if [[ -n "${default}" ]]; then
+    read -r -p "${label} [${default}]: " val
+    echo "${val:-${default}}"
+  else
+    read -r -p "${label}: " val
+    echo "${val}"
+  fi
+}
 
-: "${DEBRA_HOSTNAME:?DEBRA_HOSTNAME missing in ${CFG_FILE}}"
+# Get unique ID and hostname
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEBRA_ID="$("${SCRIPT_DIR}/../python/get_unique_id.py" --short 6)"
+DEBRA_HOSTNAME="debra-${DEBRA_ID}"
+
+# Prompt for voice assistant settings
+echo ""
+echo "Voice satellite (Linux Voice Assistant) configuration"
+LVA_WAKE_MODEL="$(prompt_string 'Wake model id' 'okay_nabu')"
+LVA_AUDIO_INPUT="$(prompt_string 'Audio INPUT device (blank = auto/default)' '')"
+LVA_AUDIO_OUTPUT="$(prompt_string 'Audio OUTPUT device (blank = auto/default)' '')"
 
 NEW_USER=${SUDO_USER:-$(id -un)}
 

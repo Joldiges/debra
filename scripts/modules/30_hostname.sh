@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CFG_FILE="${1:?config file required}"
-# shellcheck disable=SC1090
-source "${CFG_FILE}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEBRA_ID="$("${SCRIPT_DIR}/../python/get_unique_id.py" --short 6)"
