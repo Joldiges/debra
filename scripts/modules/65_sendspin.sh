@@ -17,7 +17,7 @@ fi
 # --- Dep Handling ---
 detect_distro
 if [[ "$IS_DEBIAN_LIKE" -eq 1 ]]; then
-  apt-get install -y --no-install-recommends libopenblas0 pkg-config ffmpeg libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev
+  apt-get install -y --no-install-recommends python3.13-dev libopenblas0 pkg-config ffmpeg libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev
 elif [[ "$IS_FEDORA_LIKE" -eq 1 ]]; then
   dnf install -y openblas pkgconf-pkg-config ffmpeg ffmpeg-devel
 else
@@ -25,11 +25,20 @@ else
   return 1
 fi
 
+# TODO: Not sure which is actually needed - but one worked to multithread the build for numpy\
+export NPY_NUM_BUILD_JOBS="$(nproc)"
+export MAKEFLAGS="-j$(nproc)"
+export CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)"
+
 
 wget https://raw.githubusercontent.com/Sendspin/sendspin-cli/main/scripts/systemd/install-systemd.sh -O /tmp/install-sendspin.sh
 if [ "$(uname -m)" = "armv6l" ]; then
     sudo sed -i \
-'s|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin --index-url https://pypi.org/simple --extra-index-url https://www.piwheels.org/simple --find-links file://'"${PROJECT_ROOT}"'/legacy/raspi0/wheels"|' \
+'s|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin --index-url https://pypi.org/simple --extra-index-url https://www.piwheels.org/simple --find-links file://'"${PROJECT_ROOT}"'/legacy/raspi0/wheels" --pip-args="--only-binary=:all:"|' \
+/tmp/install-sendspin.sh
+else
+    sudo sed -i \
+'s|bash -l -c "uv tool install sendspin"|bash -l -c "uv tool install sendspin --pip-args="--only-binary=:all:""|' \
 /tmp/install-sendspin.sh
 fi
 
