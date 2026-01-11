@@ -17,9 +17,9 @@ fi
 # --- Dep Handling ---
 detect_distro
 if [[ "$IS_DEBIAN_LIKE" -eq 1 ]]; then
-  apt-get install -y --no-install-recommends libopenblas0
+  apt-get install -y --no-install-recommends libopenblas0 pkg-config ffmpeg libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev
 elif [[ "$IS_FEDORA_LIKE" -eq 1 ]]; then
-  dnf install -y openblas
+  dnf install -y openblas pkgconf-pkg-config ffmpeg ffmpeg-devel
 else
   warn "Unknown distro '$DISTRO_ID' - cannot install OpenBLAS automatically"
   return 1
