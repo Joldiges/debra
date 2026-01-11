@@ -1,35 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Must be root
-if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  echo "Please run as root (e.g., sudo $0)."
-  exit 1
-fi
+# Source common library
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
 
-# Detect distro
-if [[ -r /etc/os-release ]]; then
-  # shellcheck disable=SC1091
-  source /etc/os-release
-else
-  echo "Skipping: cannot detect distro (missing /etc/os-release)."
-  exit 0
-fi
+require_root
+detect_distro
 
-distro_id="${ID:-unknown}"
-distro_like="${ID_LIKE:-}"
-
-is_debian_like=0
-is_fedora_like=0
-
-if [[ "$distro_id" == "debian" || "$distro_id" == "ubuntu" || "$distro_like" == *"debian"* ]]; then
-  is_debian_like=1
-elif [[ "$distro_id" == "fedora" || "$distro_like" == *"fedora"* || "$distro_like" == *"rhel"* ]]; then
-  is_fedora_like=1
-fi
-
-if [[ "$is_debian_like" -eq 0 && "$is_fedora_like" -eq 0 ]]; then
-  echo "Skipping: unsupported distro '$distro_id'."
+if [[ "$IS_DEBIAN_LIKE" -eq 0 && "$IS_FEDORA_LIKE" -eq 0 ]]; then
+  echo "Skipping: unsupported distro '$DISTRO_ID'."
   exit 0
 fi
 
@@ -51,7 +32,7 @@ if [[ "$enable" != "1" ]]; then
   exit 0
 fi
 
-if [[ "$is_debian_like" -eq 1 ]]; then
+if [[ "$IS_DEBIAN_LIKE" -eq 1 ]]; then
   export DEBIAN_FRONTEND=noninteractive
 
   apt-get update
@@ -85,7 +66,7 @@ EOF
   exit 0
 fi
 
-if [[ "$is_fedora_like" -eq 1 ]]; then
+if [[ "$IS_FEDORA_LIKE" -eq 1 ]]; then
   command -v dnf >/dev/null 2>&1 || { echo "Skipping: dnf not found."; exit 0; }
 
   dnf -y install dnf-automatic

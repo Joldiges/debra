@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Source common library
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
 
 export DEBIAN_FRONTEND=noninteractive
-GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 1
 
 apt-get update
 apt-get install -y --no-install-recommends \
@@ -17,7 +20,7 @@ if grep -q "Raspberry Pi" /proc/device-tree/model 2>/dev/null; then
 [global]
 extra-index-url=https://www.piwheels.org/simple
 index-url = https://pypi.org/simple
-find-links = file:///$GIT_ROOT/legacy/raspi0/wheels
+find-links = file:///${PROJECT_ROOT}/legacy/raspi0/wheels
 EOF
 
 

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Source common library
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEBRA_ID="$("${SCRIPT_DIR}/../python/get_unique_id.py" --short 6)"
-DEBRA_HOSTNAME="debra-${DEBRA_ID}"
+DEBRA_HOSTNAME="$(get_debra_hostname)"
 
 echo "${DEBRA_HOSTNAME}" > /etc/hostname
 

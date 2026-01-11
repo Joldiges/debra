@@ -1,20 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Detect platform
-detect_platform() {
-  if [[ -f /proc/device-tree/model ]] && grep -qi "raspberry pi" /proc/device-tree/model; then
-    echo "raspberrypi"
-    return
-  fi
-  if [[ -f /sys/firmware/devicetree/base/model ]] && grep -qi "raspberry pi" /sys/firmware/devicetree/base/model; then
-    echo "raspberrypi"
-    return
-  fi
-  echo "linux"
-}
+# Source common libraries
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
+# shellcheck source=../lib/ui.sh
+source "${SCRIPT_DIR}/../lib/ui.sh"
 
-DEBRA_PLATFORM="$(detect_platform)"
+detect_platform
 
 if [[ "${DEBRA_PLATFORM}" != "raspberrypi" ]]; then
   echo "Not a Raspberry Pi; skipping ReSpeaker setup."
@@ -23,16 +17,6 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
-say() { echo "==> $*"; }
-prompt_string() {
-  local label="$1"
-  local val=""
-  while [[ -z "$val" ]]; do
-    read -r -p "$label: " val
-    val="${val,,}"  # lowercase
-  done
-  echo "$val"
-}
 
 say "ReSpeaker driver setup."
 say "If using ReSpeaker 2-Mic Pi HAT, pick version:"
@@ -46,6 +30,7 @@ RE_SPEAKER_VER=""
 
 while true; do
   RE_SPEAKER_VER="$(prompt_string "Enter version (v1 or v2)" )"
+  RE_SPEAKER_VER="${RE_SPEAKER_VER,,}"  # lowercase
   if [[ "${RE_SPEAKER_VER}" == "v1" ]] || [[ "${RE_SPEAKER_VER}" == "v2" ]]; then
     break
   fi

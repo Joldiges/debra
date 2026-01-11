@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# UI/Prompt functions for Debra scripts
+# Source this file after common.sh
+
+# Prevent double-sourcing
+[[ -n "${_DEBRA_UI_SOURCED:-}" ]] && return 0
+_DEBRA_UI_SOURCED=1
+
 set -euo pipefail
 
 prompt_string() {

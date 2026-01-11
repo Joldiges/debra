@@ -1,21 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Source common libraries
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/common.sh
+source "${SCRIPT_DIR}/../lib/common.sh"
+# shellcheck source=../lib/ui.sh
+source "${SCRIPT_DIR}/../lib/ui.sh"
+
 export DEBIAN_FRONTEND=noninteractive
 
-# Prompt helpers
-prompt_string() {
-  local label="$1"
-  local default="${2:-}"
-  local val=""
-  if [[ -n "${default}" ]]; then
-    read -r -p "${label} [${default}]: " val
-    echo "${val:-${default}}"
-  else
-    read -r -p "${label}: " val
-    echo "${val}"
-  fi
-}
 
 # Prompt for snapserver configuration
 SNAPSERVER_HOST="$(prompt_string 'Snapserver host/IP (usually Music Assistant host)' 'homeassistant.local')"
