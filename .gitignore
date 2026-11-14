@@ -1,2 +1,11 @@
 # IDEs
 .idea/
+
+# Project-local private records, recovery points, and generated artifacts
+/.local/
+
+# Defensive guard for environment files; keep real values under .local/
+.env
+.env.*
+!.env.example
+!.env.*.example

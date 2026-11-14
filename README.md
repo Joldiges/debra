@@ -1,4 +1,54 @@
-# Notes on building and setting up a Home Assistant Local Voice Assistant.
+# Debra
+
+Affordable, configurable Home Assistant voice and synchronized-music devices,
+with practical setup tooling and source-linked hardware/software comparisons.
+
+**Status: planning and fresh-start development.** There is no supported Debra
+image, setup command, or maintenance TUI in this checkout yet. The old notes
+below are historical research, not current compatibility or purchasing advice.
+
+## Project direction
+
+- A prepared Raspberry Pi device that an ordinary user can connect to Wi-Fi,
+  configure over SSH, and maintain without debugging Linux.
+- Voice commands, timers/alarms, announcements, music, and synchronized multiroom
+  playback, with hardware-dependent controls and indicators.
+- Reuse and integrate good upstream projects, initially prioritizing SendSpin,
+  rather than reinventing them; consider scoped forks, upstream contributions,
+  and source submodules where useful, alongside documented alternatives.
+  PiCompose is a reference/reuse candidate, not a selected foundation.
+- Investigate alternative boards such as Orange Pi, including actual HAT
+  compatibility or suitable native/USB audio options; no support is claimed yet.
+- Several price tiers, including an approximately $40 goal when suitable cables,
+  storage, power, or a printed enclosure are already available.
+- Pinned/manual updates by default, optional component auto-updates, and tested
+  snapshots/rollback.
+- Long-term: AI + SolidCraft 3D models/enclosures for selected Pi, HAT, speaker,
+  and accessory combinations, with editable sources and physical validation.
+
+## Start here
+
+| Document | Purpose |
+| --- | --- |
+| [Documentation and project memory](docs/README.md) | Navigation, learning notes, evidence, and context-switch handoffs for people and AI |
+| [Project brief](docs/project-brief.md) | Intentions, requirements, tradeoffs, and unresolved decisions |
+| [Agent work plan](docs/roadmap.md) | Parallel work packets, dependencies, deliverables, and acceptance |
+| [Evidence and sources](docs/evidence.md) | How claims, prices, compatibility, and test results are recorded |
+| [Development workspace](docs/development.md) | Ignored project-local storage, reuse/submodules, scoped forks, and upstream contributions |
+| [AI workflow](docs/ai-workflow.md) | Capable coordinator/reviewer, bounded lower-cost workers, worktrees, evidence, and review gates |
+| [Legacy findings](docs/legacy-findings.md) | Useful old implementation leads and known traps |
+| [Agent instructions](AGENTS.md) | Compact operating context for AI contributors |
+
+No current hardware combination is claimed as validated by this documentation
+update. Repository visibility and licensing have not been changed; public image
+distribution needs a separate third-party license review.
+
+---
+
+# Historical research notes
+
+The following content predates the fresh-start plan. Prices, support claims,
+availability, and TODOs have **not** been revalidated.
 
 ## Prebuilt Solutions
 
