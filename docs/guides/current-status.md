@@ -34,12 +34,12 @@ These run on a Fedora development computer, not on the Pi.
 
 - The browser slice in `control/web/` is a standard-library service and local page
   for status, selected-sink volume and mute ([README](../../control/web/README.md)):
-  77 tests pass in `tests/test_web.py`; the 12 Chromium scenarios are opt-in, skipped below.
+  79 tests passed in `tests/test_web.py` on 2026-11-15; the 12 Chromium scenarios are opt-in, skipped in the ordinary run below.
 - Its installer, `control/web/install.py`, prepares files only: five runtime files
   in a content-addressed release, an owner-only key and a systemd user unit, with
   previous units kept for rollback. No packages, sudo, audio writes or service starts.
 - Discovery shares one mDNS parser (`control/web/discovery.py`, `tools/discover.py`)
-  and lists announced devices (12 tests). The activity table has 39 tests, the task
+  and lists announced devices (12 tests). The activity table had 43 tests, the task
   helper and research runner 15 and 9 ([unattended runner](scheduled-runner.md)).
 
 **Honest label:** the roadmap files this as WEB01 `/ prototype`. An independent
@@ -50,9 +50,9 @@ the reviewer's re-check. The candidate is **not approved** until that lands, and
 the release deployed to the lab device predates it ([roadmap](../roadmap.md#browser-first-device-control), [updates log](../updates/2026-11-15.md)).
 
 ## Design and models
-`models/` holds parametric SolidCraft sources with renders: five component folders
-(Pi 5, three Pi Zero variants, the ReSpeaker HAT, three DWEII modules,
-ten driver candidates), four CAD-only assemblies and six printable parts
+`models/` holds parametric SolidCraft sources with renders: component envelopes
+(Pi 5, three Pi Zero variants, the ReSpeaker HAT, three DWEII modules and
+ten driver candidates), the v17 STEP reference, four CAD-only assemblies and printable part designs
 ([models index](../../models/README.md)). Nothing is sliced, printed or fit-tested;
 three rebuilt parts reproduce volume and bounding box within 0.1%. Two claims were
 withdrawn as never checked: overlap is a mated socket, not a collision test, and
@@ -102,10 +102,13 @@ print success unconditionally. Do not run them as tests or treat them as backup
 or recovery support.
 
 ## How to check this yourself
-All but the last were run here; the last needs Chromium ([web README](../../control/web/README.md)).
+The first command was run on 2026-11-15 with concurrent working-tree edits. Its
+count grows as tests are added, so the command is the authority, not any number
+written here. The last needs an installed Chromium
+([web README](../../control/web/README.md)).
 
 ```sh
-python3 -B -m unittest discover -s tests -v          # 176 tests, 12 skipped, OK
+python3 -B -m unittest discover -s tests -v          # the authority: passes, 12 skipped
 python3 -B -m unittest tests.test_docs -v            # 11 documentation checks
 bash -n backups/backup.sh backups/restore.sh         # syntax only
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p test_web_browser.py -v

@@ -38,7 +38,7 @@ path; Snapcast remains a planned alternative.
 | Area | Exists now | Still TODO / not proven |
 | --- | --- | --- |
 | Voice and music | One [Pi 5 + ReSpeaker v2 lab device](../testing/results/2026-11-15-lab-pi5-lva-sendspin.md) ran a wake → HA → spoken-reply loop and received Sendspin music | Reliable appliance behavior, repeatable fresh-card setup, independent music interruption and multiroom acceptance |
-| Browser controls | [Native-volume prototype](../../control/web/README.md): slider preview + Apply, separate mute, device/resource/service inspection; offline and synthetic Chromium tests | Deployment not yet recorded; full configuration, enrollment and secure transport unfinished |
+| Browser controls | [Native-volume prototype](../../control/web/README.md): slider preview + Apply, separate mute, device/resource/service inspection; offline and synthetic Chromium tests. An earlier version was [deployed to the lab](web-control-quickstart.md) | Current candidate awaits review; current reachability is unknown; full configuration, enrollment and secure transport unfinished |
 | Wi-Fi and identity | Requirements and [provisioning investigation](../research/2026-11-15-rpi-preseed.md) | Automatic hotspot onboarding and hardware-derived `debra-<id>` identity |
 | Hardware | [Sourced comparisons](../comparisons/devices.md) and one tested lab pairing | Supported product matrix; original Pi Zero W full voice/music remains an engineering goal, not established support |
 | Recovery | [Private root/boot archives](device-backup.md) were extracted and selected files matched the device | Device restoration and reusable on-target file capture/restore tooling; web rollback is fixture-tested only |

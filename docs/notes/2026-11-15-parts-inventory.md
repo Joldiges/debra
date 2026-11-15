@@ -37,24 +37,35 @@ supersedes: []
 
 # Parts inventory and build cost
 
+> **Correction, 2026-11-15:** the ReSpeaker 2-Mics v2 has an onboard speaker
+> amplifier; no additional amplifier is assumed in the estimates below. The
+> [lab tap test](../testing/results/2026-11-15-lab-pi5-silence-and-hang.md#testing-the-paths-instead-of-guessing)
+> and [audio correction](2026-11-15-audio-and-enclosure-corrections.md) support
+> the LINE → amplifier → speaker path for one lab specimen. Suitability for
+> each DWEII module and the HAT's separate-power requirement remain unverified.
+> Editorial correction: OpenCode, `openrouter/openai/gpt-6.1-terra`, variant unknown.
+
 ## Summary
 
-**Two totals, both listed prices, neither a price paid.** All figures are what a
-seller's page displayed on **2026-11-15**; no purchase was made, no cart was
-checked out, no shipping or tax is included anywhere below.
+**Two estimates, neither a price paid.** Board, HAT, card and supply figures
+are listed prices from **2026-11-15**; speaker figures are undated historical
+values, not current listings. No purchase or cart checkout was made, and no
+shipping or tax is included anywhere below.
 
 | Total | What it buys | Amount |
 | --- | --- | --- |
-| **Complete build** (everything bought new, US sellers, voice + music) | Zero 2 W with header, ReSpeaker 2-Mics V2.0, one DWEII speaker, 32 GB microSD, one 5 V supply | **$59.90** listed |
-| same, with a second supply for the HAT's own power input | as above plus a second 5 V supply | **$68.35** listed |
-| **Reused-parts build** (Pi, power supply, microSD and printer already owned) | ReSpeaker 2-Mics V2.0 + one DWEII speaker | **$16.40** listed |
-| same, if the Pi is a bare Zero with no header | + 2×20 header | **$17.35** listed |
+| **New-parts estimate** (US sellers, intended voice + music) | Zero 2 W with header, ReSpeaker 2-Mics V2.0, one DWEII speaker, 32 GB microSD, one 5 V supply | **$59.90** estimated |
+| same, with a second supply for the HAT's own power input | as above plus a second 5 V supply | **$68.35** estimated |
+| **Reused-parts estimate** (Pi, power supply, microSD and printer already owned) | ReSpeaker 2-Mics V2.0 + one DWEII speaker | **$16.40** estimated |
+| same, if the Pi is a bare Zero with no header | + 2×20 header | **$17.35** estimated |
 
-**The ~$40 goal is reachable, but only in the reused-parts sense.** A new Pi
+**The ~$40 goal is plausible only in the reused-parts sense, using historical
+speaker prices.** A new Pi
 Zero W ($15, in stock) or Zero 2 W with header ($20.75) plus the HAT ($12.90) and
 a speaker ($2.50–3.50) lands at **$31.35–$37.15** *if* the buyer already has a
-5 V supply, a microSD card and printer access. A fully-inclusive retail kit does
-**not** reach $40 and is not close: **$59.90–$68.35**.
+5 V supply, a microSD card and printer access. The new-parts estimates are
+**$59.90–$68.35** before enclosure, shipping and tax, not fully-inclusive retail
+kit prices.
 
 **The single biggest caveat is stock, not price.** The Pi Zero 2 W — the board
 this project actually wants — was **out of stock at both US sellers checked**
@@ -63,8 +74,9 @@ in GBP. The one board that *is* in stock in the US is the original **Pi Zero W**
 whose ARMv6 support for this software stack is exactly what packet Z01 has not
 established.
 
-**Nothing here is tested.** This note prices parts; it does not prove that any
-combination boots, records, plays, or fits in a case.
+**No parts were tested for this inventory.** The linked lab result concerns one
+Pi 5/HAT specimen; this inventory does not prove that the priced combinations
+boot, record, play, or fit in a case.
 
 ## How to read the prices
 
@@ -138,7 +150,7 @@ current specification; the current package list wins.
 | --- | --- | --- | --- | --- | --- | --- |
 | DWEII **701715519671**, 8 Ω 3 W, JST-PH 2.0, 110 mm lead ([B0B4D1BN4F](https://www.amazon.com/dp/B0B4D1BN4F)) | Amazon, **USD** | **unknown** — page returned HTTP 503 [P17] | **unknown** (family sold as 4-packs) | **unknown** | required (one of three) | Historical figure **$2.50** [P19], undated. Smallest envelope, 44 × 28 × 15 mm per spec sheet [P18] |
 | DWEII **701715519664**, 8 Ω 3 W, JST-PH 2.0, 480 mm lead ([B0B4D2Z35P](https://www.amazon.com/dp/B0B4D2Z35P)) | Amazon, **USD** | **unknown** [P17] | **4-pack** product family [P18] | **unknown** | required (one of three) | Historical **$2.50** [P19]. Same module as 671 with a longer lead; no individual module size is published |
-| DWEII **701715520462**, 8 Ω **5 W** (5.5 W max), JST-PH 2.5 ([B0BHST51PQ](https://www.amazon.com/dp/B0BHST51PQ)) | Amazon, **USD** | **unknown** [P17] | **4-pack** [P18] | **unknown** | required (one of three) | Historical **$3.50** [P19]. 100 × 45 × 21 mm, best-sourced envelope. **Does not fit any case in this repository** — choosing it is a new case, not a pocket change |
+| DWEII **701715520462**, 8 Ω **5 W** (5.5 W max), JST-PH 2.5 ([B0BHST51PQ](https://www.amazon.com/dp/B0BHST51PQ)) | Amazon, **USD** | **unknown** [P17] | **4-pack** [P18] | **unknown** | required (one of three) | Historical **$3.50** [P19]. 100 × 45 × 21 mm seller envelope. A separate [462 carrier](../../models/parts/dweii-462-case/README.md) is modelled, not printed or fit-tested. |
 
 **Honest position on speaker prices:** the three modules this project has
 modelled could not be priced at all on 2026-11-15. Every total below that
@@ -146,13 +158,13 @@ includes a speaker is therefore **an arithmetic result using a historical
 figure**, and the note says so at the point of use rather than burying it.
 The $2.50–$3.50 band is plausible for a commodity module but is not evidence.
 
-**A HAT with an amplifier does not need an amplifier; a HAT without one does.**
-The ReSpeaker 2-Mics has no speaker amplifier — it drives the 3.5 mm jack and
-line-level output. The DWEII modules are passive 8 Ω drivers. A build using the
-2-Mics HAT and a bare DWEII module needs **an amplifier between them**, which is
-not in any table here and was not priced. The WM8960 HAT does not have this
-problem (1 W/ch BTL on board). This is the largest hidden cost in the cheap
-route and it is `unknown`.
+**The ReSpeaker 2-Mics v2 has an onboard speaker amplifier.** Its TPA2005D1
+drives the JST speaker path; the [lab tap test](../testing/results/2026-11-15-lab-pi5-silence-and-hang.md#testing-the-paths-instead-of-guessing)
+reported LINE at −21 dBFS at the microphone on one Pi 5/HAT specimen. The exact
+3.5 mm headphone routing is unverified. No separate amplifier is assumed for the
+passive DWEII modules in these estimates, but amplifier suitability and useful
+volume with each module remain `unknown`; this is not a compatibility or
+loudness test. The alternative WM8960 HAT has a stated 1 W/ch BTL amplifier.
 
 ## 4. Storage
 
@@ -173,7 +185,7 @@ route and it is `unknown`.
 | 5 V 2.5 A switching PSU with 20 AWG **micro-USB** cable (ID 1995) | Adafruit, **USD** [P12] | **$8.25** | 1 | **In stock** | required (Zero-class) | 5.25 V output to compensate cable drop; US 2-prong; cable included and captive |
 | Official Raspberry Pi 12.5 W micro-USB PSU, US, white (SC0623) | PiShop, **USD** [P13] | **$8.80** | 1 | **In stock** | required (Zero-class) | The vendor's recommended supply for micro-USB Pis |
 | Micro-USB PSU 5.1 V 2.5 A, UL listed | PiShop, **USD** [P13] | **$8.45** | 1 | In stock | alternative | |
-| **Second** 5 V micro-USB supply for the HAT's own power input | either of the above | **$8.45–$8.80** | 1 | In stock | required **if** the HAT's power input is used | See the note under the totals: Seeed asks for the HAT to be powered separately when its speaker is used [P20] |
+| **Second** 5 V micro-USB supply for the HAT's own power input | either of the above | **$8.45–$8.80** | 1 | In stock | conditional estimate | Seeed's cited guidance asks for board power when using the speaker [P20]; whether a separate supply is needed for this v2 arrangement is unverified. |
 | Official Raspberry Pi 27 W USB-C PD PSU | PiShop **USD** $11.95 [P15]; The Pi Hut **GBP** £11.50 | — | 1 | In stock at both | required (Pi 5 only) | The Pi 5 will not take a micro-USB supply; the two supplies are not interchangeable |
 
 **Power is not one part.** A Zero-class unit needs a micro-USB 5 V supply; a Pi 5
@@ -207,20 +219,21 @@ on a Pi. Whether the Waveshare HAT includes a mating 2×20 socket in the box is
 
 | Part | Seller, currency | Unit price | Pack qty | Stock, 2026-11-15 | Required? | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Printed tray** from this repository (`models/`) | — | **unknown** (filament cost not priced; printer access assumed by the brief) | — | **Nothing has been printed** | required (intended) | The repository's tray is a design. It has not been sliced, printed or fit-tested, and there is no case or lid. Its own README says so |
+| **Printed tray** from this repository (`models/`) | — | **unknown** (filament cost not priced; printer access assumed by the brief) | — | **Nothing has been printed** | required (intended) | The tray is a design, not sliced, printed or fit-tested. A separate [tub-and-lid case](../../models/parts/dweii-671-case/README.md) also exists as an unvalidated design. |
 | HiPi Zero Friction Case | PiShop, **USD** [P21] | **$7.45** | 1 | In stock | optional | **Bare Zero only** — no room for a HAT stack |
 | Super Slim Raspberry Pi Zero Case | PiShop, **USD** [P21] | **$4.95** | 1 | In stock | optional | Same limitation |
 | Pibow Zero 2 W | PiShop, **USD** [P21] | **$8.95** | 1 | In stock | optional | Layered; a HAT generally does not fit |
 | UniPiCase Zero – Tall | PiShop, **USD** [P21] | **$11.95** | 1 | **"Notify Me"** — out of stock | optional | The only bought case here that might clear a HAT; not verified |
 
 **No bought case in this list is documented as fitting a Pi Zero + audio HAT
-stack.** They are all bare-board cases. The printed tray is the only design in
-the project that accounts for the stack, and it does not exist as a printed
-object yet.
+stack.** The tall case's clearance is unknown; do not assume it fits or fails.
+The repository's tray and tub-and-lid case are designs that account for the
+stack; neither has been printed or fit-tested, and the case is an earlier
+concept rather than an accepted final design.
 
 ## Totals, with the arithmetic shown
 
-### A. Complete build — everything bought new (USD, listed, 2026-11-15)
+### A. New-parts estimate (USD, 2026-11-15 listings plus historical speaker figure)
 
 | Line | Part | USD |
 | --- | --- | --- |
@@ -233,7 +246,7 @@ object yet.
 | 6 | Second 5 V supply for the HAT's power input (if used) [P13] | 8.45 |
 | | **Subtotal, two power supplies** | **68.35** |
 | | Enclosure (printed) | unknown |
-| | Speaker **amplifier** for a passive DWEII module on the 2-Mics HAT | unknown |
+| | 2-Mics v2 speaker amplifier | onboard; included in HAT |
 | | Shipping, tax, import duty | **excluded** |
 
 ### B. Reused-parts build — Pi, power supply, microSD and printer already owned
@@ -258,17 +271,18 @@ with room to spare — because most of the unit is already on the shelf.
 | WM8960 route, complete | Zero 2 W with header $20.75 + WM8960 HAT $18.99 (speaker included) [P11] + microSD $13.95 + PSU $8.80 | **62.49** |
 | WM8960 route, reused Pi/PSU/SD | WM8960 HAT $18.99 | **18.99** |
 
-The WM8960 route is **$62.49** complete versus **$59.90** for the 2-Mics route —
-within a few dollars, and it needs no separate amplifier and no second supply,
-which the 2-Mics route does. It is *not* the tested combination, which is why it
-is not the recommendation.
+The WM8960 route is **$62.49** in listed line items versus **$59.90** for the
+2-Mics estimate using a historical speaker figure. Both HATs have an onboard
+amplifier; whether the 2-Mics HAT needs a second supply here is unverified. The
+WM8960 combination is *not* the tested lab combination.
 
 ## Cheapest route
 
-**Is $40 reachable? Yes — as a parts-only figure for someone who already owns a
-Pi, a 5 V supply, a microSD card and printer access. No — as the price of a
-complete unit.** The gap is not close: the complete build is $59.90 before
-shipping, and $68.35 if the HAT is powered as Seeed asks.
+**Is $40 reachable? Potentially, as a parts-only estimate for someone who already
+owns a Pi, a 5 V supply, a microSD card and printer access; the speaker price is
+historical. Not as a demonstrated complete-unit price.** The listed-parts
+estimate is $59.90 before shipping, tax and enclosure, and $68.35 with a second
+supply as assumed for Seeed's power guidance.
 
 Three concrete routes, cheapest first:
 
@@ -287,10 +301,12 @@ work — and it is the one you cannot currently buy in the US at that price.
    that is $22.40 — more than half of the remaining budget.
 2. **The enclosure.** Either printer access and filament (unpriced) or a bought
    case ($4.95–$11.95) that does not fit a HAT stack anyway.
-3. **The speaker amplifier**, if a passive DWEII module is driven from the
-   2-Mics HAT. Unpriced and easy to miss.
-4. **A second power supply for the HAT's own input** ($8.45), which Seeed asks
-   for when the speaker is used [P20].
+3. **Speaker suitability and current price.** The 2-Mics v2 amplifier is
+   onboard, but its suitability for each passive DWEII module is unverified and
+   the speaker figures are historical.
+4. **A possible second power supply for the HAT's own input** ($8.45). Seeed's
+   cited guidance asks for board power when the speaker is used [P20], but the
+   separate-supply requirement for this v2 arrangement is unverified.
 5. **Shipping, tax and import duty.** The cheapest HAT ships from China; the
    cheapest board ships from the UK or a US seller with a 2-per-customer cap.
 6. **Availability.** A $31.35 route that requires an out-of-stock board is not a
@@ -348,18 +364,19 @@ does not work is more expensive than a first unit that costs $20 more.
     and PiShop ship from the US; The Pi Hut ships from the UK with VAT already
     in the price. A $12.90 HAT can arrive with a shipping charge comparable to
     the HAT. **No shipping figure is included in any total here.**
-11. **The enclosure does not exist yet.** Every bought Zero case in this list is
-    for a bare board [P21]; the repository's tray has never been printed. A
-    complete build is not complete until someone prints and fits one.
-12. **The 5 W DWEII module is a different case design, not an upgrade.** At
-    100 × 45 × 21 mm it fits no case in this repository
-    ([dweii README](../../models/components/dweii-speakers/README.md)). "Better
-    speaker" and "same enclosure" are mutually exclusive here.
+11. **No enclosure is validated yet.** No bought case in this list is documented
+    as fitting the HAT stack [P21]; the repository's tray and case designs have
+    never been printed or fit-tested. A complete build needs an enclosure that fits.
+12. **The 5 W DWEII module needs a different enclosure from the 671 concept.**
+    Its 100 × 45 × 21 mm seller envelope exceeds the compact 671 case; a
+    separate [462 carrier](../../models/parts/dweii-462-case/README.md) is
+    modelled, but not printed, fit-tested or complete speaker retention.
 
 ## Not verified / open questions
 
-- **No part was bought, and no cart was assembled.** Every figure is a listed
-  price. Shipping, tax, duty and any discount are unknown and excluded.
+- **No part was bought, and no cart was assembled.** Board, HAT, storage and
+  supply figures are listed prices; speaker figures are undated historical
+  values. Shipping, tax, duty and any discount are unknown and excluded.
 - **Speaker prices are `unknown`.** All three Amazon listings returned HTTP 503
   [P17]. The $2.50 / $3.50 figures used in the totals are **historical and
   undated** [P19] and are the weakest numbers in this note. If they are wrong by
@@ -372,10 +389,9 @@ does not work is more expensive than a first unit that costs $20 more.
   [P20]; the lab Pi 5 ran music playback through the HAT, but this note does not
   establish whether that was with the HAT's power input connected. If it is not
   needed, the complete total drops from $68.35 to $59.90.
-- **The amplifier question is unanswered.** The 2-Mics HAT has no speaker
-  amplifier and the DWEII modules are passive. How the lab's audio actually
-  reached a speaker is in the lab record, not here, and no amplifier was priced.
-  Until this is resolved, the "cheap" route has an unpriced component.
+- **Amplifier suitability is unanswered.** The 2-Mics v2's onboard TPA2005D1
+  drives the lab speaker, but its usable output with the individual DWEII
+  modules is unverified; the speaker prices used here remain historical.
 - **No stock status for Seeed or Waveshare.** Neither page displayed one.
 - **Pi 5 price cause not investigated.** $110 / £105.60 observed; no explanation
   asserted.
@@ -389,8 +405,9 @@ does not work is more expensive than a first unit that costs $20 more.
 - **GBP and USD are not reconciled.** A UK-sourced build (Pi Hut board + PSU +
   card) could not be totalled because the HAT is only priced in USD. Anyone
   building in the UK should re-run these five lines in GBP.
-- **No compatibility claim is made anywhere in this note.** A part being priced
-  and in stock says nothing about whether it works, fits, or sounds acceptable.
+- **No supported combination is claimed by this inventory.** A part being priced
+  and in stock says nothing about whether it works, fits, or sounds acceptable;
+  the linked lab result remains limited to its tested specimen.
 
 ## Handoff and correction links
 
@@ -404,10 +421,8 @@ does not work is more expensive than a first unit that costs $20 more.
   session that Amazon will serve, and record pack quantity, per-unit price and
   stock for the DWEII modules. That single gap is the difference between a
   sourced inventory and an estimate, and it is desk work with no purchase.
-- **Then:** resolve the amplifier question from the lab record — what actually
-  drove the speaker in the tested unit. If the answer is "an amplifier we already
-  own", the cheap route is real; if it is "the HAT drove it directly", the
-  electrical claim needs checking before anyone copies the build.
+- **Then:** assess the onboard amplifier's suitability for the intended speaker
+  and verify the power arrangement before treating the estimate as a build plan.
 - **Authorization:** none of this is permission to buy, flash, print, or operate
   anything. Prices and stock move; re-check before acting.
 - **For the coordinator:** R05 should not present these as a "kit price". The

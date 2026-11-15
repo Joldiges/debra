@@ -48,16 +48,19 @@ found claims stronger than their sources; read the review before using it.
 | Note | Packet | Status |
 | --- | --- | --- |
 | [Independent review of four research notes](notes/2026-11-15-research-notes-review.md) | review | 28 findings. Read this before the four rows below it |
-| [Complete alternatives comparison](notes/2026-11-15-complete-alternatives-comparison.md) | R02 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-complete-alternatives-comparison-revision.md) corrects them and gives two dated totals |
+| [Complete alternatives comparison](notes/2026-11-15-complete-alternatives-comparison.md) | R02 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-complete-alternatives-comparison-revision.md) addresses them but incorrectly says the 2-Mics v2 lacks a speaker amplifier; see the corrected [parts inventory](notes/2026-11-15-parts-inventory.md) |
 | [Alternative board screen](notes/2026-11-15-alternative-board-screen.md) | R07 | Revision 1 had 6 findings; [revision 2](notes/2026-11-15-alternative-board-screen-revision.md) demotes the unsupported exclusions |
 | [Upstream reuse audit](notes/2026-11-15-upstream-reuse-audit.md) | R04 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-upstream-reuse-audit-revision.md) separates the evidence from the inference |
 | [Wi-Fi onboarding options](notes/2026-11-15-wifi-onboarding-options.md) | N01 | Revision 1 had 8 findings; [revision 2](notes/2026-11-15-wifi-onboarding-options-revision.md) redesigns the flow so one radio can work |
-| [Parts inventory and build cost](notes/2026-11-15-parts-inventory.md) | R01 | $59.90 complete, $16.40 reused-parts; speaker prices are historical |
+| [Parts inventory and build cost](notes/2026-11-15-parts-inventory.md) | R01 | $59.90 new-parts estimate, $16.40 reused-parts; speaker prices are historical and enclosure, shipping and tax are excluded |
 | [Music transport and control map](notes/2026-11-15-music-transport-and-control-map.md) | R03 | Sendspin documents a controller role; Snapcast has no pause |
 | [Storage durability](notes/2026-11-15-storage-durability.md) | B01 | A no-intervention rollback means an A/B slot or a verified restore |
 | [License and provenance proposal](notes/2026-11-15-license-and-provenance-proposal.md) | F04 | MIT proposed for Debra's own work; nothing applied |
 | [Agent permission scoping](notes/2026-11-15-agent-permission-scoping.md) | F06 | Proposal only; no configuration changed |
-| [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The 31.10 mm X span replaces 31.85; the blind-pilot claim is superseded by the linked bay inventory |
+| [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The 31.10 mm X span remains useful; the linked bay inventory withdraws the rectangular pocket, continuous-wall and blind-pilot interpretations |
+| [Optional network services](notes/2026-11-15-optional-network-services.md) | optional extras | Desk study only; NTP client and device health proposals, household-service exclusions; no devices contacted |
+| [Optional radio and presence](notes/2026-11-15-optional-radio-and-presence.md) | optional extras | Desk study only; separate ESP32 BLE proxy and separate home-radio infrastructure candidates; no devices contacted |
+| [Optional sensors and front panel](notes/2026-11-15-optional-sensors-and-front-panel.md) | optional extras | Desk study only; SHT40/BME280 candidates and nominal, not physical, fit comparisons; no devices contacted |
 
 Two design specifications are also new and unreviewed:
 [RPiSpeaker v17 speaker mount options](design/rpispeaker-v17-speaker-mount-options.md)
@@ -81,7 +84,7 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
 | `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
 | `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Original README research preserved; use only for historical investigation |
-| `models/` | SolidCraft part and assembly sources, each folder with its own `README.md` and an `assets/` folder of renders | Component envelopes, layout studies, tray, historical compact case and speaker carrier exist; none printed or fit-tested; `RPiSpeaker_v17` reconstruction remains unfinished |
+| `models/` | SolidCraft part and assembly sources and v17 reference, with `README.md` and renders | Component envelopes, four layout/reference assemblies and printable part designs include the tray, tub-and-lid case, carriers and v17 lid; none printed or fit-tested. The compact case is an earlier concept, not an accepted final design; `RPiSpeaker_v17` reconstruction remains unfinished |
 | `.local/` | Private operational records, raw logs, credentials, recovery payloads, and large local artifacts | Ignored; not shared project memory or an independent backup |
 
 Long reports belong with their subject, not in a second `verbose/` tree.

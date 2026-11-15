@@ -22,6 +22,13 @@ supersedes: []
 
 # RPiSpeaker v17 extraction
 
+> **Correction, 2026-11-15:** the second bay is not a 31.85 × 66 × 7 mm
+> rectangular pocket, and its two threaded holes are through, not blind pilots
+> drilled only from the back. The [bay inventory](2026-11-15-rpispeaker-v17-bay-inventory.md)
+> supersedes those geometry and hole claims; it reports a 31.10 × 28.125 ×
+> 13.00 mm nominal comparison box, not a fully enclosed pocket or physical fit.
+> Editorial correction: OpenCode, `openrouter/openai/gpt-6.1-terra`, variant unknown.
+
 ## Summary
 
 This records a previously completed extraction, as supplied in the task
@@ -32,15 +39,17 @@ This is not a printable reconstruction or a validated design.
 
 The reported body has **no four-screw square speaker mount**. The only
 fastener patterns in the solid are four M2.5 pilots at 23 x 58 mm (the Pi Zero
-footprint) and two M2.5 pilots 36.5 mm apart in the second bay, so the
-remembered square mount is a separate part or a different revision. The present
+footprint) and two threaded through holes 36.5 mm apart on the speaker side.
+M2.5 is an intended-use label, not a verified thread designation. The
+remembered square mount could be a separate part or a different revision. The present
 write-up did
 not independently verify the measurements or the earlier `.f3d` scan.
 
 ## Claims and evidence
 
-The STEP measurements and scan results in this table are reported by the
-task handoff. They are not observations made anew in this documentation pass.
+Except for the explicitly linked later bay inventory, the STEP measurements
+and scan results in this table are reported by the task handoff. They are not
+observations made anew in this documentation pass.
 
 | Kind | Claim | Source | Verification and limits |
 | --- | --- | --- | --- |
@@ -48,14 +57,14 @@ task handoff. They are not observations made anew in this documentation pass.
 | reported measurement from STEP | Envelope X 66.15 mm (-17.15 to 49.00), Y 16.10 mm (-0.60 to 15.50), Z 75.30 mm (-37.65 to 37.65) | STEP and extraction handoff | Not independently remeasured. |
 | reported measurement and estimate | Volume 15,282 mm³; estimated mass 19.71 g at 1.29 g/cm³; 143 faces (76 plane, 35 cylinder, 9 cone), 419 edges, one shell | STEP and extraction handoff | Method for solid properties and relationship to the STEP counts above were not supplied. Mass is an estimate at the given density, not a measured specimen. `step_inspect.py` does not calculate volume. |
 | reported measurement from STEP | Pi Zero bay inner 31.50 × 66.50 mm, X -15.75 to 15.75, Z -32.50 to 34.00; four Ø2.18 mm holes at (±11.5, ±29.0), 23 × 58 mm apart, on Ø4.76 mm bosses | STEP and extraction handoff | Positions are (X, Z). The handoff describes these as M2.5 pilots; fastener fit is not tested. |
-| measured, 2026-11-15 (coordinator) | Second bay X 17.15 to 48.25, Z -33 to 33, floor at Y 8.50, so a 31.85 x 66 mm pocket 7 mm deep open toward +Y; two Ø2.18 mm holes at (32.5, ±18.25), 36.5 mm apart, drilled from the back face to Y 7.29, on Ø4.50 mm bosses; one Ø10 mm through hole with a Ø18 mm counterbore at (31.625, 0) opening toward +Y | Re-read of the planar faces with `tools/cad/step_inspect.py` | Hole positions are (X, Z). The pocket depth comes from the Y = 8.50 floor plane and the Y = 15.50 front face, which covers only the Pi bay. |
+| corrected STEP inventory, 2026-11-15 | Speaker-side nominal comparison box: X 17.15–48.25, Z ±14.0625, Y 2.5–15.5, **31.10 × 28.125 × 13.00 mm**; two threaded through holes at (32.5, ±18.25), 36.5 mm apart, with Ø4.50 front countersinks; central stepped through-opening at (31.625, 0) | [Bay inventory](2026-11-15-rpispeaker-v17-bay-inventory.md) | Hole positions are (X, Z). The central recess joins the Pi side; X 17.15 is not a continuous wall. Y 8.5 is raised material, and the 7 mm above it is not pocket depth. The central opening is Ø10 at the back, widening to Ø18 and flaring to Ø20 at the central floor. |
 | reported measurement from STEP | R11 corner rounds; outer wall at X -17.15 is 1.40 mm thick; base recess is 0.60 mm | STEP and extraction handoff | Does not establish other wall thicknesses. |
 | measured, 2026-11-15 (coordinator) | A 12.5 mm-wide port window in the Z = -37.65 wall centred at Y 4.5; **three** rectangular cut-outs in the X = -17.15 wall: two 4 x 9 mm at Z 4.75-13.75 and 17.00-26.00, one 5 x 12 mm at Z -26.10 to -14.10 | Re-read of the X = -17.15 planar face and its hole loops | Corrects an earlier "four slots" count. The sizes and spacing match a Pi Zero's two micro-USB and one mini-HDMI connectors, so they read as connector exits, not a speaker grille. |
 | reported observation from STEP | No four-screw square speaker mount is present in this body | STEP and extraction handoff | Applies to this body, not to every possible companion part or version. |
 | reported observation | The companion `.f3d` has only a 256 px preview and no component or body names; a full byte scan for ASCII and UTF-16 name strings found only `RPiSpeaker v17` | `.f3d` and extraction handoff | Scan method and exact command were not supplied and were not rerun. This does not establish speaker attachment. |
 | observed | The supplied PNGs were copied byte-for-byte to the component's `assets/` directory | Four `/tmp/opencode/v17tool_*.png` renders | `file` and `cmp` commands below passed. The views are approximations of the STEP body, not physical evidence. |
 | inferred orientation | X is across the bays, Y is depth and up in the isometric rendering, and Z is the long direction shown vertically in the top view | Render images and `step_inspect.py` view projections | Z as device height is a viewing convention, not verified installed orientation. |
-| open question | Where the remembered square four-screw speaker mount is | STEP inspection and James's requirement in [the correction](2026-11-15-audio-and-enclosure-corrections.md) | The supplied STEP contains only one solid and no such pattern, so it is either a separate unexported part or another revision. A photo of the assembled original, or the missing lid part, would settle it. This does not block the rest of the enclosure work. |
+| open question | Where the remembered square four-screw speaker mount is | STEP inspection and James's requirement in [the correction](2026-11-15-audio-and-enclosure-corrections.md) | The supplied STEP contains only one solid and no such pattern; a separate unexported part or another revision are possibilities, not established facts. A photo of the assembled original or a missing part could help resolve it. This does not block the rest of the enclosure work. |
 
 ## Verification
 
