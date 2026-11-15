@@ -374,6 +374,42 @@ class ActivityTests(unittest.TestCase):
         self.assertIn(activity.ORANGE + " openai/gpt-6.1-sol#flex-high ", painted)
         self.assertNotEqual(activity._paint(text, rates).count(activity.YELLOW), 2)
 
+    def test_needs_reads_the_work_queue_table(self):
+        with tempfile.TemporaryDirectory(prefix="needs-", dir="/tmp/opencode") as temp:
+            path = Path(temp) / "work-queue.md"
+            path.write_text(
+                "# Work queue\n\n## Needs James\n\n"
+                "| Need | Blocks | What the answer changes |\n"
+                "| --- | --- | --- |\n"
+                "| Which speakers | The speaker bay | A measured fit |\n"
+                "| a row with two cells | only one |\n"
+                "\n## Unattended research\n| not | a need | at all |\n")
+            needs = activity._needs(path)
+        self.assertEqual(needs["error"], None)
+        self.assertEqual([item["need"] for item in needs["items"]], ["Which speakers"])
+        self.assertEqual(needs["items"][0]["blocks"], "The speaker bay")
+        self.assertEqual(needs["skipped"], 1)
+        lines = activity._needs_lines(needs)
+        self.assertIn("Which speakers", "\n".join(lines))
+        self.assertIn("1 further row(s) could not be read", "\n".join(lines))
+
+    def test_needs_says_so_when_there_is_nothing_or_no_section(self):
+        with tempfile.TemporaryDirectory(prefix="needs-", dir="/tmp/opencode") as temp:
+            empty = Path(temp) / "empty.md"
+            empty.write_text("## Needs James\n\n| Need | Blocks | What the answer changes |\n| --- | --- | --- |\n")
+            self.assertEqual(activity._needs(empty)["items"], [])
+            self.assertIn("Nothing is waiting on James",
+                          "\n".join(activity._needs_lines(activity._needs(empty))))
+            absent = Path(temp) / "absent.md"
+            absent.write_text("# Work queue\n\nno table here\n")
+            self.assertIn("no Needs James section", activity._needs(absent)["error"])
+            self.assertIn("not readable", activity._needs(Path(temp) / "missing.md")["error"])
+
+    def test_render_puts_the_needs_section_first(self):
+        text = activity.render(8787, 3).splitlines()
+        first_section = next(line for line in text if line.startswith("## "))
+        self.assertTrue(first_section.startswith("## What I need from you"), first_section)
+
     def test_two_clock_helpers_do_not_shadow_each_other(self):
         # A refactor once added a second _seconds_since, which shadowed the
         # UTC-string one the runner uses; the suite stayed green while the
@@ -384,7 +420,7 @@ class ActivityTests(unittest.TestCase):
 
     def test_a_running_task_reports_its_elapsed_time_in_words(self):
         text = activity.render(8787, 5)
-        self.assertNotIn("start time not readable (", "\n".join(text))
+        self.assertNotIn("start time not readable (", text)
 
     def test_why_says_what_the_snapshot_can_prove(self):
         now = 1_700_000_000.0

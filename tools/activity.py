@@ -258,6 +258,58 @@ def _why(session: dict, by_id: dict, now: float) -> str:
     return "waiting for you"
 
 
+def _needs(path: Path | None = None) -> dict:
+    """What is waiting on James, read from the work queue's Needs table.
+
+    The list lives in the repository so a person edits it, not an agent's
+    memory, and this tool only reads it. A row that cannot be understood is
+    counted and skipped rather than printed as a half-sentence.
+    """
+    path = Path(path) if path is not None else SOURCE / "docs" / "work-queue.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {"items": [], "skipped": 0,
+                "error": f"work queue not readable ({exc.__class__.__name__})"}
+    lines = text.splitlines()
+    try:
+        start = lines.index("## Needs James")
+    except ValueError:
+        return {"items": [], "skipped": 0, "error": "no Needs James section in the work queue"}
+    items, skipped = [], 0
+    for line in lines[start + 1:]:
+        if line.startswith("## "):
+            break
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 3 or cells[0] in ("Need", "") or set(cells[0]) <= set("-: "):
+            if cells and set(cells[0]) <= set("-: ") and cells[0]:
+                continue
+            if cells and cells[0] not in ("Need", ""):
+                skipped += 1
+            continue
+        items.append({"need": cells[0], "blocks": cells[1], "changes": cells[2]})
+    return {"items": items, "skipped": skipped, "error": None}
+
+
+def _needs_lines(needs: dict) -> list[str]:
+    if needs["error"]:
+        return [f"- {needs['error']}"]
+    if not needs["items"]:
+        return ["- Nothing is waiting on James; the blocked work below has no answer he holds."]
+    out = []
+    for item in needs["items"]:
+        out.append(f"- **{item['need']}**")
+        if item["blocks"]:
+            out.append(f"  Blocks: {item['blocks']}")
+        if item["changes"]:
+            out.append(f"  The answer changes: {item['changes']}")
+    if needs["skipped"]:
+        out.append(f"- {needs['skipped']} further row(s) could not be read as a question and were skipped.")
+    return out
+
+
 def _session_table(sessions: list[dict], by_id: dict | None = None,
                    now: float | None = None) -> list[str]:
     now = time.time() if now is None else now
@@ -496,7 +548,14 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
         web = {"error": f"unavailable ({exc.__class__.__name__})"}
     if meta is not None:
         meta.update(agents=agents, refreshed=now)
+    needs = _needs()
     out = [f"# What is running — {now}", ""]
+
+    # First, because it is the only section James can act on.
+    out.append(f"## What I need from you ({len(needs['items'])})"
+               if not needs["error"] else "## What I need from you")
+    out.extend(_needs_lines(needs))
+    out.append("")
 
     out.append("## Research runner")
     if run.get("error"):
