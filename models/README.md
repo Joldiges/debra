@@ -13,11 +13,14 @@ them. Every folder here holds:
 **Current direction, 2026-11-15:** reconstruct James's `RPiSpeaker_v17` with
 forward speaker/microphones, desktop/wall use and an accessible topper. He asked
 for his square speaker and its four screws to be retained, but **the v17 STEP body
-contains no four-screw square mount**: its second bay is a 31.10 × 66 × 7 mm pocket
-with two M2.5 pilots 36.5 mm apart and a central Ø10 hole, so that mount is either
-a separate part that was never exported or a different revision. See
+contains no four-screw square mount**: its speaker-side lower footprint is
+31.10 × 28.125 mm, with two threaded through holes 36.5 mm apart and a central
+Ø10 hole. A separate part that was never exported or a different revision could
+account for the remembered mount, but neither is established. See
 [the extraction](components/rpispeaker-v17/README.md) and
 [the correction](../docs/notes/2026-11-15-audio-and-enclosure-corrections.md).
+The [bay inventory](../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
+supersedes the earlier rectangular 31.10 × 66 × 7 pocket and blind-pilot claims.
 Earlier compact-box “product” and chosen-speaker labels below are historical
 concepts, not an accepted final design. Nothing here has been printed or
 fit-tested.
@@ -57,7 +60,7 @@ something you could slice.
 | [dweii-671-carrier](parts/dweii-671-carrier/README.md) | Baffle and rear pocket for the DWEII 701715519671 module: 45.6 × 29.6 × 15 mm pocket, Ø26 mm grille, 4 × M2.5 | **Not printed, not fit-tested**; pocket sized to the larger of two conflicting seller dimensions |
 | [dweii-462-case](parts/dweii-462-case/README.md) | Carrier for the 100 × 45 × 21 mm 5 W module: 102 × 47 × 23 mm cavity, 1.8 mm walls, four vents, flat recessed back, 4 × Ø2.2 × 7 mm pilots | **Not printed, not fit-tested**; no keyholes, no lid, and it carries the module without securing it |
 | [dweii-462-retainer](parts/dweii-462-retainer/README.md) | Frame that closes the 462 carrier's front: 101 × 46 mm opening, four holes on the carrier's pilots, tabs over assumed housing edges | **Provisional**: the frame alone does not retain the module; tabs, pads and spacers are not modelled or tested |
-| [rpispeaker-v17-lid](parts/rpispeaker-v17-lid/README.md) | Front lid concept for the original v17 body: Ø28 driver in an external sleeve protruding 10 mm, 100% open aperture | **Provisional**: the body's two pilots stop 1.21 mm short of the pocket floor, so fastening needs a body modification; no retainer, cable route unresolved |
+| [rpispeaker-v17-lid](parts/rpispeaker-v17-lid/README.md) | Front lid concept for the original v17 body: Ø28 driver in an external sleeve protruding 10 mm, 100% open aperture | **Provisional**: the body's threaded through holes open through Ø4.50 front countersinks; front fastening needs no body modification but lid clearance, screw fit and engagement are untested; no retainer, cable route unresolved |
 
 ## Not modelled yet
 

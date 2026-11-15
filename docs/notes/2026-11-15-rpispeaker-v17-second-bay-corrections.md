@@ -19,6 +19,8 @@ supersedes:
 
 # RPiSpeaker v17 second-bay width and pilot depth corrected
 
+> **Correction, 2026-11-15:** the 1.21 mm web described below does not exist; the front countersink opens the pilots. See [the bay inventory](2026-11-15-rpispeaker-v17-bay-inventory.md).
+
 ## Summary
 
 Two numbers in the extraction note were wrong or incomplete, and both were found

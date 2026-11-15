@@ -1,10 +1,16 @@
 # RPiSpeaker v17 second-bay lid — provisional bare-driver concept
 
-**CAD-only; not a complete, verified enclosure.** The supplied v17 pilot holes
-are blind below the pocket floor, the exact pocket corner and boss shapes are
-unknown, and the selected speaker is a hypothetical bare driver. The design
-therefore needs further engineering before printing, mounting, or modifying the
-original body. It is not a reconstruction of an established original lid.
+**CAD-only; not a complete, verified enclosure.** The supplied v17 holes are
+threaded through holes with front countersinks, the exact lid fit against the
+body is unverified, and the selected speaker is a hypothetical bare driver. The
+design therefore needs further engineering before printing, mounting, or modifying
+the original body. It is not a reconstruction of an established original lid.
+
+The [bay inventory](../../../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
+supersedes the earlier 31.10 × 66 × 7 rectangular-pocket assumption used by
+this concept: the lower speaker-side footprint is 31.10 × 28.125 mm, with its
+central floor at Y 2.50 and raised surfaces at Y 8.50. The dimensions below
+describe the existing lid design and its original assumptions, not verified fit.
 
 The editable source is [`rpispeaker-v17-lid.sc`](rpispeaker-v17-lid.sc); the
 replayable parameter and feature history is [`build-script.json`](build-script.json).
@@ -25,21 +31,21 @@ connector slot is an assumed size and location, not a verified cable route.*
 
 - The inset plate nominally spans X **17.45–47.95**, Z **−32.70–32.70** and
   Y **13.90–15.50**. Its front is flush with the reported Y 15.50 body plane.
-  The two rear screw pads extend to the reported Y 8.50 pocket floor. The
+  The two rear screw pads extend to the Y 8.50 raised surfaces. The
   sleeve and an assumed 10 mm-deep bare driver sit entirely in front of the
   body, protruding **10 mm** to Y 25.50. The sleeve projects from X 16.70 to
   48.30; its 0.45 mm overlap above the Pi-bay side and any attached components
   need collision checking. No Pi-bay front opening is assumed.
 - The second-bay endpoints X 17.15–48.25 give **31.10 mm**, which the
   [correction note](../../../docs/notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md)
-  confirms is the bay width; the earlier 31.85 counted the outer wall. The 30.50 mm inset uses the narrower
-  endpoints and supplies **0.30 mm per side** relative to them; Z clearance is
-  also 0.30 mm per side relative to −33–33. This verifies the *bounding
-  rectangle only*: the pocket's internal corner shape and local protrusions
-  were not supplied. The lid's R12 corners are assumed, not established by the
-  body's reported outer R11 rounds. Actual pocket clearance is **unverified**.
-- DWEII 671's reported 44 × 28 × 15 mm housing cannot sit inside the 7 mm
-  pocket. This design instead assumes a circular **Ø28 × 10 mm bare driver**,
+  confirms is the X span; the earlier 31.85 counted the outer wall. The 30.50 mm inset uses the narrower
+  endpoints and supplies **0.30 mm per side** relative to them. The lid also
+  ends 0.30 mm inside Z −33–33, but those are outer-outline coordinates, not
+  pocket boundaries. This does not verify lid fit: the lower footprint is only
+  28.125 mm along Z. The lid's R12 corners are assumed, not established by the
+  body's reported outer R11 rounds. Actual clearance is **unverified**.
+- DWEII 671's reported 44 × 28 × 15 mm housing cannot fit wholly inside the
+  lower speaker-side footprint. This design instead assumes a circular **Ø28 × 10 mm bare driver**,
   seated on a 1.6 mm radial land with its front toward +Y. No exact driver,
   flange, terminal geometry or retention method is known. The sleeve has
   0.2 mm radial clearance, so it does **not** retain a driver by itself; a
@@ -60,17 +66,21 @@ connector slot is an assumed size and location, not a verified cable route.*
   Ø2 pilots are 2 mm. This is a nominal feature calculation, not a global
   wall-thickness or print-strength analysis.
 
-## Fastening is conditional on body modification
+## Fastening remains conditional on fit
 
 The two lid pilots are centred at the **existing** body pilot coordinates
 `(X, Z) = (32.5, ±18.25)`. They are not a new four-screw pattern. The reported
-body pilots end at Y 7.29, **1.21 mm short** of the Y 8.50 pocket floor. A
-rear screw therefore cannot reach this lid on an unmodified body. A possible
-future method would open that web and make the existing pilot path a suitable
-screw clearance hole before screwing into the lid pads. That would permanently
-modify the body; it is **not performed or authorized by this model**, and the
-body wall, screw heads, hole sizes and process must be checked first. The pads
-assume a flat floor at both positions and may collide with the reported bosses.
+body holes span Y −0.60 to 8.50 and are open at both ends. The threads end at
+Y 7.29; an open 0.05 mm core leads to a 90° countersink from Ø2.1755 at
+Y 7.33775 to Ø4.50 at Y 8.50. The earlier 1.21 mm web was an arithmetic
+misinterpretation: the countersink already removes that material. A front screw
+can reach the existing thread without modifying the body, but the lid's Ø2 mm
+pilots would need suitable clearance for a screw intended to thread into the
+body. A rear screw can also pass through the existing opening to the lid, but
+may bind in the body thread instead of clamping the lid; making the body path
+clearance would permanently modify it. Neither method has been fit-tested or
+authorized by this model. The pads assume a flat floor at both positions and
+need checking against the actual raised surfaces and countersinks.
 
 Candidate fasteners only: **2 × M2.5 × 16 mm screws**, with heads appropriate
 to the measured back face. If the screw head bears at Y −0.60, the tip would
@@ -78,6 +88,12 @@ nominally reach Y 15.40, with 6.9 mm in a lid pad starting at Y 8.50. The
 actual screw seating surface, Ø2 mm printed pilot, thread engagement and
 safe length are unverified. Do not drill or assemble on the basis of this
 estimate. Driver retention hardware is not yet specified.
+
+The modelled thread limits Ø2.1755–2.68 at ~0.45 mm pitch are consistent with
+M2.5, not proof of it. A screw head larger than Ø4.50 cannot seat in the body's
+countersink. Engagement behind it depends on screw length; ~4.1 mm is a possible
+nominal example, not a measurement of this lid's fit. The local wall and boss
+material has not been checked against a real screw.
 
 ## Parameters
 
@@ -91,7 +107,7 @@ are mm. Derived rows depend on both supplied dimensions and assumptions.
 | `BAY_X_MIN`, `BAY_X_MAX` | 17.15, 48.25 | Supplied coordinates; the 31.10 mm span is the bay width, corrected from an earlier 31.85 |
 | `BAY_Z_MIN`, `BAY_Z_MAX` | −33, 33 | Supplied coordinates |
 | `FRONT_Y` | 15.50 | Supplied front plane |
-| `BAY_FLOOR_Y` | 8.50 | Supplied pocket floor; flat floor at screw pads **ASSUMED** |
+| `BAY_FLOOR_Y` | 8.50 | Raised surfaces at screw pads; their contact with the pads is **ASSUMED**, central floor is Y 2.50 |
 | `MOUNT_X`, `MOUNT_Z` | 32.5, 18.25 | Supplied two pilot positions; sleeve shares their X **ASSUMED** |
 | `CLEAR` | 0.3 | **ASSUMED** per side interpretation of requested clearance |
 | `LID_R` | 12 | **ASSUMED** inset corner radius; inner pocket radius unknown |

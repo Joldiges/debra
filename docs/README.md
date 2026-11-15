@@ -29,6 +29,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Enclosure arrangements](design/enclosure-arrangements.md) | Why the flat stack read as a plank, the three arrangements, and the four-step path from component envelope to case part |
 | [HAT microphone research](research/2026-11-15-respeaker-microphone.md) | The HAT's microphones are top-port MSM321A3729H9BP, which decides which way the boards must face |
 | [Device backup](guides/device-backup.md) | What is at risk on the lab Pi, what has been archived, and what is still unproven |
+| [Web controls quickstart](guides/web-control-quickstart.md) | What the hub and device pages do today, what `--auth none` exposes, and what is not built |
 | [Browser controls](../control/web/README.md) | Reusable native-volume prototype: installation, trusted-LAN access, tests and isolated rollback; not a complete appliance |
 | [Web configuration scope](design/web-control.md) | Browser-first requirements and detailed coverage tied to roadmap WEB packets |
 | [Audio/enclosure corrections](notes/2026-11-15-audio-and-enclosure-corrections.md) | Incorrect volume arithmetic/safety inference, unverified headphone tap, nonexistent CLI and unsupported speaker-replacement conclusion |
@@ -56,7 +57,7 @@ found claims stronger than their sources; read the review before using it.
 | [Storage durability](notes/2026-11-15-storage-durability.md) | B01 | A no-intervention rollback means an A/B slot or a verified restore |
 | [License and provenance proposal](notes/2026-11-15-license-and-provenance-proposal.md) | F04 | MIT proposed for Debra's own work; nothing applied |
 | [Agent permission scoping](notes/2026-11-15-agent-permission-scoping.md) | F06 | Proposal only; no configuration changed |
-| [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The bay is 31.10 mm, not 31.85, and the lid pilots stop 1.21 mm short of the floor |
+| [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The 31.10 mm X span replaces 31.85; the blind-pilot claim is superseded by the linked bay inventory |
 
 Two design specifications are also new and unreviewed:
 [RPiSpeaker v17 speaker mount options](design/rpispeaker-v17-speaker-mount-options.md)
