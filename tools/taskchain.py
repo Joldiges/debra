@@ -56,10 +56,15 @@ def safe_path(name):
     return name
 
 
-def roadmap():
+def input_bytes(name, base=None):
+    """Read working inputs for inspection, or immutable approved inputs for dispatch."""
+    return git("show", f"{base}:{name}") if base else (ROOT / name).read_bytes()
+
+
+def roadmap(base=None):
     rows = re.findall(
         r"^\| ([A-Z]\d{2}) / (done|ready|blocked) \| ([^|]+)\|",
-        (ROOT / "docs/roadmap.md").read_text(), re.M,
+        input_bytes("docs/roadmap.md", base).decode(), re.M,
     )
     require(rows, "No roadmap packets found.")
     tasks = {key: (state, re.findall(r"[A-Z]\d{2}", deps))
@@ -84,11 +89,11 @@ def roadmap():
     return tasks
 
 
-def catalog():
-    data = json.loads((ROOT / CATALOG).read_text())
+def catalog(base=None):
+    data = json.loads(input_bytes(CATALOG, base))
     require(data["version"] == 1, "Unsupported catalog version.")
     chains = data["chains"]
-    tasks = roadmap()
+    tasks = roadmap(base)
     ids = [chain["id"] for chain in chains]
     packets = [packet for chain in chains for packet in chain["packets"]]
     require(len(ids) == len(set(ids)), "Duplicate chain.")
@@ -101,8 +106,12 @@ def catalog():
             require(chain["starter"] in chain["packets"], "Starter outside chain.")
             safe_path(chain["output"])
             require(chain["output"].startswith("docs/"), "Output must be documentation.")
-            require((ROOT / f"docs/work/cards/{chain['starter']}.md").is_file(),
-                    "Missing starter card.")
+            card = f"docs/work/cards/{chain['starter']}.md"
+            if base:
+                require(git("cat-file", "-t", f"{base}:{card}").strip() == b"blob",
+                        "Missing starter card.")
+            else:
+                require((ROOT / card).is_file(), "Missing starter card.")
             outputs.append(chain["output"])
     require(len(outputs) == len(set(outputs)), "Overlapping starter output paths.")
     return chains, tasks
@@ -201,7 +210,7 @@ def view(state, chains, tasks):
 
 
 def brief(claim, chain):
-    card = (ROOT / f"docs/work/cards/{claim['packet']}.md").read_text()
+    card = input_bytes(f"docs/work/cards/{claim['packet']}.md", claim["base"]).decode()
     return (
         f"# Assignment {claim['id']}\n\n"
         f"- Chain/packet: {claim['chain']} / {claim['packet']}\n"
@@ -285,12 +294,15 @@ def verify_integration(claim, revision):
                     f"Integration does not contain reviewed bytes: {name}")
 
 
-def start(args, state, chains, tasks, directory):
+def start(args, state, directory):
     policy = state["policy"]
     require(policy, "Dispatch is closed. Coordinator must finish F05 and open this base.")
     require(args.model == policy["model"], "Model/variant does not match the verified role.")
     base = git("rev-parse", "HEAD").decode().strip()
     require(base == policy["base"], "Dispatch base moved; coordinator must revalidate/reopen.")
+    # Called while holding the registry lock. Never reuse a pre-lock working-tree
+    # parse: another coordinator may have opened a different baseline meanwhile.
+    chains, tasks = catalog(base)
     committed_inputs(base, chains)
     require(not git("status", "--porcelain"), "Start from a clean checkout; preserve existing work.")
     require(not any(c["owner"] == args.owner and c["status"] in LIVE
@@ -368,17 +380,19 @@ def main():
             command.add_argument("--evidence", required=True)
             command.add_argument("--integration")
     args = parser.parse_args()
-    chains, tasks = catalog()
     if args.command == "check":
+        chains, tasks = catalog()
         print(f"PASS: {len(chains)} chains cover {len(tasks)} packets; starter cards/paths valid.")
         return
     directory = common_dir() / "debra-work"
     if args.command == "list":
+        chains, tasks = catalog()
         view(read_state(directory), chains, tasks)
         return
     with locked(directory) as state:
         if args.command == "open":
             base = git("rev-parse", "HEAD").decode().strip()
+            chains, _ = catalog(base)
             committed_inputs(base, chains)
             require(not git("status", "--porcelain"), "Open dispatch from a clean approved checkout.")
             evidence = safe_path(args.evidence)
@@ -395,7 +409,7 @@ def main():
             state["policy"] = None
             print("New dispatch paused; existing claims retained.")
         elif args.command == "start":
-            start(args, state, chains, tasks, directory)
+            start(args, state, directory)
             return
         else:
             require(args.claim in state["claims"], "Unknown claim.")

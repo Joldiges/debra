@@ -169,6 +169,8 @@ example exists. A new base or different model requires coordinator revalidation.
 `<git-common-dir>/debra-work/state.json`, protected by a POSIX `flock` over the
 entire claim/workspace transaction and atomic state replacement. Linked
 worktrees share it; manually edited Markdown status rows would not be race-safe.
+Startup parses eligibility, output paths, and card text from the immutable
+approved commit inside that transaction, not a pre-lock working-tree snapshot.
 `list` reads the authoritative local snapshot and shows owners/workspaces.
 No tracked mutable assignment ledger is maintained; sanitize handoffs/reviews
 into `docs/work/results/` instead. Keep registry and claims local, not credentials.

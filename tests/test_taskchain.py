@@ -13,8 +13,19 @@ import unittest
 
 SOURCE = Path(__file__).resolve().parent.parent
 FIXTURES = Path(tempfile.mkdtemp(prefix="debra-taskchain-tests-", dir="/tmp/opencode"))
-ENV = dict(os.environ, GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="core.hooksPath",
-           GIT_CONFIG_VALUE_0="/dev/null", GIT_TERMINAL_PROMPT="0")
+# cwd alone cannot isolate Git: inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE
+# can redirect commands into another checkout. Drop every inherited Git override
+# and ignore the host's global/system config before running fixture commands.
+ENV = {
+    **{key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "core.hooksPath",
+    "GIT_CONFIG_VALUE_0": os.devnull,
+    "GIT_TERMINAL_PROMPT": "0",
+}
 
 
 class DispatcherTests(unittest.TestCase):
@@ -216,6 +227,107 @@ class DispatcherTests(unittest.TestCase):
         self.run_tool("start", "--owner", "x", "--model", "different", ok=False)
         self.git("commit", "--allow-empty", "-m", "base moved")
         self.start(ok=False)
+
+    def test_inherited_git_environment_cannot_mutate_sentinel(self):
+        sentinel = Path(tempfile.mkdtemp(prefix="sentinel-", dir=FIXTURES))
+        self.git("init", "--template=", cwd=sentinel)
+        self.git("config", "user.name", "Sentinel", cwd=sentinel)
+        self.git("config", "user.email", "sentinel@example.invalid", cwd=sentinel)
+        (sentinel / "keep.txt").write_text("Unrelated disposable repository.\n")
+        self.git("add", "--", "keep.txt", cwd=sentinel)
+        self.git("commit", "-m", "sentinel baseline", cwd=sentinel)
+        before = {
+            name: (sentinel / name).read_bytes()
+            for name in (".git/config", ".git/index", ".git/HEAD", "keep.txt")
+        }
+        head = self.git("rev-parse", "HEAD", cwd=sentinel)
+        inherited_config = sentinel / ".local/inherited.gitconfig"
+        inherited_config.parent.mkdir(mode=0o700)
+        inherited_config.write_text("[user]\n\tname = Inherited config must not apply\n")
+        poisoned = dict(
+            os.environ,
+            GIT_DIR=str(sentinel / ".git"),
+            GIT_COMMON_DIR=str(sentinel / ".git"),
+            GIT_WORK_TREE=str(sentinel),
+            GIT_INDEX_FILE=str(sentinel / ".git/index"),
+            GIT_CONFIG=str(sentinel / ".git/config"),
+            GIT_CONFIG_GLOBAL=str(inherited_config),
+            GIT_CONFIG_SYSTEM=str(inherited_config),
+            GIT_CONFIG_COUNT="1",
+            GIT_CONFIG_KEY_0="user.name",
+            GIT_CONFIG_VALUE_0="Inherited command override must not apply",
+        )
+        script = """
+import importlib.util
+import os
+import sys
+spec = importlib.util.spec_from_file_location("isolated_tests", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+case = module.DispatcherTests("test_claim_creates_clean_unique_workspace_and_brief")
+case.setUp()
+case.test_claim_creates_clean_unique_workspace_and_brief()
+assert all(name not in module.ENV for name in (
+    "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG"
+))
+assert module.ENV["GIT_CONFIG_NOSYSTEM"] == "1"
+assert module.ENV["GIT_CONFIG_GLOBAL"] == os.devnull
+assert module.ENV["GIT_CONFIG_SYSTEM"] == os.devnull
+"""
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", script, str(Path(__file__).resolve())],
+            cwd=self.repo, env=poisoned, capture_output=True, text=True,
+        )
+        for name, content in before.items():
+            self.assertEqual((sentinel / name).read_bytes(), content, name)
+        self.assertEqual(self.git("rev-parse", "HEAD", cwd=sentinel), head)
+        self.assertEqual(self.git("status", "--porcelain", cwd=sentinel), "?? .local/")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_start_rechecks_approved_baseline_after_waiting_for_lock(self):
+        self.open_dispatch()
+        # Pause at the lock boundary using pipes, not sleeps or a timing race.
+        # The old main() parsed catalog/roadmap before reaching this boundary.
+        script = """
+from contextlib import contextmanager
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("dispatcher", "tools/taskchain.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+original_locked = module.locked
+@contextmanager
+def delayed_lock(directory):
+    print("waiting-before-lock", flush=True)
+    assert sys.stdin.readline() == "continue\\n"
+    with original_locked(directory) as state:
+        yield state
+module.locked = delayed_lock
+sys.argv = ["taskchain.py", "start", "--chain", "hardware-value",
+            "--owner", "delayed-worker", "--model", "test/model#fixture"]
+module.main()
+"""
+        process = subprocess.Popen(
+            [sys.executable, "-B", "-c", script], cwd=self.repo, env=ENV,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            self.assertEqual(process.stdout.readline(), "waiting-before-lock\n")
+            roadmap = self.repo / "docs/roadmap.md"
+            text = roadmap.read_text()
+            self.assertIn("| R01 / ready | F00 |", text)
+            roadmap.write_text(text.replace(
+                "| R01 / ready | F00 |", "| R01 / blocked | F00, F01 |", 1,
+            ))
+            self.git("add", "--", "docs/roadmap.md")
+            self.git("commit", "-m", "coordinator blocks R01 in replacement baseline")
+            self.open_dispatch()
+        finally:
+            stdout, stderr = process.communicate("continue\n", timeout=30)
+        self.assertNotEqual(process.returncode, 0, stdout)
+        self.assertIn("No eligible unclaimed starter", stderr)
+        self.assertEqual(self.state()["claims"], {})
 
     def test_staged_edits_and_wrong_branch_are_rejected(self):
         self.open_dispatch()
