@@ -12,6 +12,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Roadmap](roadmap.md) | Current packets, prerequisites, and acceptance; not permission to operate devices |
 | [Task chains](task-chains.md) | “Any chain” / named-chain worker entrypoint, atomic claims, workspaces, and handoffs |
 | [AI workflow](ai-workflow.md) | Coordinator/worker roles, task scope, review, and integration |
+| [AI model and provider strategy](ai-model-strategy.md) | Named role selections, allowance priorities, paid Flex choices, costs, and unresolved quota/connection gaps |
 | [Evidence conventions](evidence.md) | Sources, uncertainty, compatibility claims, and test records |
 | [Development workspace](development.md) | Private storage, reuse, provenance, and contribution boundaries |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |

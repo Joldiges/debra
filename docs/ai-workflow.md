@@ -75,6 +75,10 @@ physical actions, and welcomed reporting.
 
 ## Roles and spending
 
+For exact model/provider selections, allowance priorities, Flex caveats, and
+cost reporting, use the [model and provider strategy](ai-model-strategy.md).
+That selection policy does not configure automatic routing or open dispatch.
+
 | Role | Suitable work | Authority |
 | --- | --- | --- |
 | Capable coordinator/integrator | Architecture, interfaces, task decomposition, risk decisions, source selection, conflict resolution, and integration | Owns shared files and assignments; integrates only within James's authorized scope |

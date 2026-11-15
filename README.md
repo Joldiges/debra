@@ -37,6 +37,7 @@ below are historical research, not current compatibility or purchasing advice.
 | [Evidence and sources](docs/evidence.md) | How claims, prices, compatibility, and test results are recorded |
 | [Development workspace](docs/development.md) | Ignored project-local storage, reuse/submodules, scoped forks, and upstream contributions |
 | [AI workflow](docs/ai-workflow.md) | Capable coordinator/reviewer, bounded lower-cost workers, worktrees, evidence, and review gates |
+| [AI model and provider strategy](docs/ai-model-strategy.md) | Sol/DeepSeek/Luna/Terra roles, subscription/Copilot allowances, paid Flex choices, and cost reporting |
 | [Legacy findings](docs/legacy-findings.md) | Useful old implementation leads and known traps |
 | [Agent instructions](AGENTS.md) | Compact operating context for AI contributors |
 
