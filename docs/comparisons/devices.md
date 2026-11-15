@@ -4,6 +4,10 @@ One row per exact variant. Cells carry `value [S# label]`; see
 [README.md](README.md) for the tags and [sources.md](sources.md) for the
 register. All sources checked 2026-11-15 unless the cell says otherwise.
 
+The `Music playback` column is only a summary. [music-playback.md](music-playback.md)
+carries the transport, the firmware version that enables it, the stream format
+and what the server has to run, for every row.
+
 ## Complete devices and near-complete kits
 
 | Device (exact variant) | SoC / audio silicon | Microphone topology | Speaker output | On-device wake word | Home Assistant path | Music playback | Architecture | Price, market, date | Availability | Maintenance burden | Weakest cell |

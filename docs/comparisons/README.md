@@ -8,6 +8,7 @@ evidence is.
 | Page | What it holds |
 | --- | --- |
 | [devices.md](devices.md) | The master table, one row per exact variant, plus the capability and open-question tables |
+| [music-playback.md](music-playback.md) | The detail behind every `Music playback` cell: transport, version gate, stream format, and what the server has to run |
 | [sources.md](sources.md) | The numbered source register; a `[S#]` with no entry here is a bug |
 
 Conventions and label meanings live in [evidence.md](../evidence.md). The short

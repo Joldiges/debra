@@ -38,13 +38,13 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/notes/` | Dated, scoped discoveries, assumptions, failed attempts, corrections, and session handoffs | Exists; deliberately not an unstructured dump |
 | `docs/research/` | Task-specific, source-linked investigations and comparisons | Preliminary synthesis exists; full R01–R04/R07 packets remain open |
 | `docs/design/` | Requirements and reviewed decisions, with status made explicit | Enclosure requirements exist; architecture decisions remain planned under F02 |
-| `docs/comparisons/` | Curated hardware/software comparisons with evidence and scope | Planned; see R05 |
+| `docs/comparisons/` | Curated hardware/software comparisons with evidence and scope | Device table, music-playback detail and a numbered source register exist; R05's "choose your path" guide remains open |
 | `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Planned; see R06 |
 | `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | AI-readiness result exists; device acceptance strategy remains T01 |
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
 | `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
 | `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Use only when needed; existing historical files are labeled in place |
-| `models/` | SolidCraft part and assembly sources, each folder with its own `README.md` and an `assets/` folder of renders | Pi 5 envelope exists; HAT and tray planned |
+| `models/` | SolidCraft part and assembly sources, each folder with its own `README.md` and an `assets/` folder of renders | Pi 5 envelope, the three Pi Zero boards, the ReSpeaker HAT, ten speaker candidates and one reference stack exist; tray and case planned |
 | `.local/` | Private operational records, raw logs, credentials, recovery payloads, and large local artifacts | Ignored; not shared project memory or an independent backup |
 
 Long reports belong with their subject, not in a second `verbose/` tree.
