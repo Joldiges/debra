@@ -14,8 +14,10 @@ patterns in the solid are four M2.5 pilots at 23 × 58 mm (the Pi Zero footprint
 and two M2.5 pilots 36.5 mm apart in the second bay. A remembered square
 four-screw mount is therefore either a separate part that was never exported or
 a different revision; it must not be assumed present in this STEP body. The
-second bay is the only place a speaker could sit, and it is a 31.10 × 66 × 7 mm
-pocket with two screws and one central Ø10 hole.
+second bay has a 31.10 × 28.125 mm lower footprint, two through pilots and a
+central stepped Ø10/Ø18/Ø20 opening. The [bay inventory](../../../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
+supersedes the conflicting second-bay claims in the historical table below; see
+also the [editable reconstruction](../../parts/rpispeaker-v17-body/README.md).
 
 ## Coordinates and envelope
 
