@@ -720,7 +720,7 @@ class ActivityTests(unittest.TestCase):
         render.assert_not_called()
         wrapper.assert_not_called()
 
-    def test_tui_argument_and_default_markdown_path(self):
+    def test_a_terminal_gets_the_tabbed_view_unless_markdown_is_asked_for(self):
         output = io.StringIO()
         with mock.patch.object(output, "isatty", return_value=True), \
              mock.patch.object(activity.curses, "wrapper") as wrapper, \
@@ -728,13 +728,24 @@ class ActivityTests(unittest.TestCase):
              mock.patch.object(activity, "write", return_value=Path("/tmp/opencode/x.md")), \
              mock.patch.dict(os.environ, {"NO_COLOR": "1"}), \
              contextlib.redirect_stdout(output):
-            self.assertEqual(activity.main(["--tui", "--interval", "0.5", "--limit", "3"]), 0)
+            self.assertEqual(activity.main(["--interval", "0.5", "--limit", "3"]), 0)
+            # No flag needed: a terminal gets the view the view exists for.
             wrapper.assert_called_once_with(activity._tui_screen, 8787, 3, 0.5, False)
             render.assert_not_called()
-            self.assertEqual(activity.main([]), 0)
+            self.assertEqual(activity.main(["--markdown"]), 0)
             render.assert_called_once()
         self.assertIn("# snapshot", output.getvalue())
         self.assertIn("(written to /tmp/opencode/x.md)", output.getvalue())
+
+    def test_watch_on_a_terminal_is_the_tabbed_view(self):
+        output = io.StringIO()
+        with mock.patch.object(output, "isatty", return_value=True), \
+             mock.patch.object(activity.curses, "wrapper") as wrapper, \
+             mock.patch.object(activity, "render") as render, \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(activity.main(["--watch", "2"]), 0)
+        wrapper.assert_called_once()
+        render.assert_not_called()
 
     def test_tabs_split_the_report_and_keep_a_fixed_order(self):
         # Built from a synthetic report, not the live one: the needs list changes
@@ -815,23 +826,51 @@ class ActivityTests(unittest.TestCase):
         narrow = activity._tui_tab_bar(tabs, 1, 10)
         self.assertEqual(narrow, "1 [2]")
 
-    def test_watch_prints_a_repeated_page_only_once_when_piped(self):
-        page = "# What is running — now\n\n## What I need from you (0)\n- nothing\n"
-        output = io.StringIO()
+    def test_watch_prints_an_unchanged_page_once_even_as_the_clock_moves(self):
+        # The clock on the title line must not count as a change: it moves every
+        # tick, and treating it as one filled logs with identical pages.
         ticks = {"count": 0}
 
-        def sleep(_seconds):
+        def render(_port, _limit, _meta):
             ticks["count"] += 1
-            if ticks["count"] >= 4:
+            return (f"# What is running — 16:00:{ticks['count']:02d}\n\n"
+                    "## What I need from you (0)\n- nothing\n")
+
+        def sleep(_seconds):
+            if ticks["count"] >= 5:
                 raise KeyboardInterrupt
 
-        with mock.patch.object(activity, "render", return_value=page), \
+        output = io.StringIO()
+        with mock.patch.object(activity, "render", side_effect=render), \
              mock.patch.object(activity, "write"), \
              mock.patch.object(activity.time, "sleep", side_effect=sleep), \
              contextlib.redirect_stdout(output):
             with self.assertRaises(KeyboardInterrupt):
-                activity.main(["--watch", "1"])
-        self.assertEqual(output.getvalue().count("What is running"), 1)
+                activity.main(["--watch", "1", "--markdown"])
+        self.assertEqual(output.getvalue().count("- nothing"), 1)
+
+    def test_watch_prints_again_when_the_report_actually_changes(self):
+        ticks = {"count": 0}
+
+        def render(_port, _limit, _meta):
+            ticks["count"] += 1
+            body = "one" if ticks["count"] < 3 else "two"
+            return f"# What is running — 16:00:{ticks['count']:02d}\n\n- {body}\n"
+
+        def sleep(_seconds):
+            if ticks["count"] >= 5:
+                raise KeyboardInterrupt
+
+        output = io.StringIO()
+        with mock.patch.object(activity, "render", side_effect=render), \
+             mock.patch.object(activity, "write"), \
+             mock.patch.object(activity.time, "sleep", side_effect=sleep), \
+             contextlib.redirect_stdout(output):
+            with self.assertRaises(KeyboardInterrupt):
+                activity.main(["--watch", "1", "--markdown"])
+        printed = output.getvalue()
+        self.assertEqual(printed.count("- one"), 1)
+        self.assertEqual(printed.count("- two"), 1)
 
     def test_tui_default_interval(self):
         output = io.StringIO()

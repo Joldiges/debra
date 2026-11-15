@@ -87,12 +87,7 @@ changes. Delete a row when it is answered.
 
 | Need | Blocks | What the answer changes |
 |---|---|---|
-| Which board should the first demo case fit: the Pi Zero (v1.3/W) or the Zero 2 W? He owns both | The board bay, the header height, and the port cut-outs differ between them | One case design, sized to the board that is actually the target |
-| Measure one DWEII module: its real outside dimensions and where its acoustic openings sit, since the envelopes are seller claims | The bay's clearances and whether the case can carry the module without sealing a vent | A measured bay instead of a seller-claim bay |
 | Confirm the ReSpeaker 2-Mics HAT v2's microphone and LED positions, or measure them on the board | The demo lid's two microphone holes and LED window are placed from the v1 layout because v2 is not documented | Openings that sit over the right hardware instead of near it |
-| Save or close the design open in SolidCraft, and confirm it can be replaced | Every SolidCraft MCP tool is refused while an unsaved design is loaded, so designs are built headless and never shown in the window | The v17 body and the demo assembly can be opened and looked at directly |
-| Does the demo case have to be wall-mountable, or desktop-only? | The base, the wall bracket and where the speaker fires | One layout instead of two, and no bracket designed against an assumption |
-| If the STEP's square-pattern search finds nothing: a photo of the assembled original with the cover off, showing the speaker and what its four screws enter | The four-screw mount, and the claim that the STEP contains no such pattern | Distinguishes a part that was never exported from a different revision |
 | `gpt-6.1-sol` is no longer offered by the configured provider, so the acceptance reviews you named cannot run as written. Keep using `gpt-6.1-terra#flex-high` and label the verdicts, or name another reviewer? | Every acceptance review: the web candidate, the discovery contract and the TUI are all waiting on a reviewer you trust | Verdicts that count as acceptance, or work that waits for your choice instead of being reviewed by a stand-in |
 
 ## Unattended research

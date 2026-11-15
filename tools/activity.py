@@ -1,8 +1,8 @@
 """One read-only snapshot of what is running right now.
 
-    python tools/activity.py             # print once
-    python tools/activity.py --watch 5   # refresh every 5 seconds
-    python tools/activity.py --tui       # interactive terminal view
+    python tools/activity.py             # tabbed view on a terminal
+    python tools/activity.py --markdown  # the plain report, once
+    python tools/activity.py --watch 5   # the tabbed view, refreshing
 
 It reads the research runner's own state, the local OpenCode session list, and
 whether the development web server is listening, then prints a Markdown
@@ -1251,13 +1251,22 @@ def _positive_interval(value: str) -> float:
     raise argparse.ArgumentTypeError("interval must be a positive finite number")
 
 
+def _watch_page(text: str) -> str:
+    """The report minus its timestamp line, for deciding whether anything changed."""
+    lines = text.splitlines()
+    return "\n".join(line for line in lines
+                     if not line.startswith("# What is running"))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--watch", type=float, metavar="SECONDS",
                         help="refresh continuously instead of printing once "
                              "(the TUI is the interactive view)")
     parser.add_argument("--tui", action="store_true",
-                        help="interactive terminal table (q quits; arrows scroll)")
+                        help="interactive terminal table (the default on a terminal)")
+    parser.add_argument("--markdown", action="store_true",
+                        help="write the plain Markdown report even on a terminal")
     parser.add_argument("--interval", type=_positive_interval, default=2.0, metavar="SECONDS",
                         help="TUI refresh interval (default: 2 seconds)")
     parser.add_argument("--port", type=int, default=8787,
@@ -1270,13 +1279,18 @@ def main(argv: list[str] | None = None) -> int:
                         help="never colour terminal output (NO_COLOR is also honoured)")
     args = parser.parse_args(argv)
     limit = 10**6 if args.all else max(0, args.limit)
-    if args.tui:
-        if not sys.stdout.isatty():
-            print("--tui requires a terminal on stdout", file=sys.stderr)
+    terminal = sys.stdout.isatty()
+    # A terminal gets the tabbed view unless Markdown is asked for. Dumping the
+    # report into a terminal produced pages of scrolling text in a watch loop,
+    # which is what the view exists to replace.
+    if not args.markdown and (args.tui or (terminal and curses is not None)):
+        if not terminal:
+            print("--tui requires a terminal on stdout; use --markdown for the "
+                  "plain report", file=sys.stderr)
             return 1
         if curses is None:
             print("--tui needs the curses module, which this Python lacks; "
-                  "run without --tui for the Markdown view", file=sys.stderr)
+                  "use --markdown for the plain report", file=sys.stderr)
             return 1
         try:
             curses.wrapper(_tui_screen, args.port, limit, args.interval,
@@ -1287,7 +1301,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     # Colour is for a terminal only: the status file stays plain Markdown, and a
     # redirected or captured run must not gain escape sequences.
-    terminal = sys.stdout.isatty()
     paint = terminal and not args.no_color and not os.environ.get("NO_COLOR")
     previous_page = None
     while True:
@@ -1305,11 +1318,14 @@ def main(argv: list[str] | None = None) -> int:
                 print("\033[2J\033[H" + display, flush=True)
                 print(f"(written to {target}; refreshing every {args.watch:g}s; "
                       "Ctrl+C to stop" + ("; --all for every session)" if not args.all else ")"))
-            elif display != previous_page:
-                # Piped or redirected, a cleared screen is just a wall of text:
-                # print the page when it changes, and stay quiet when it does not.
-                previous_page = display
-                print(display, flush=True)
+            else:
+                # Piped or redirected, a cleared screen is just a wall of text.
+                # Compare everything except the clock on the title line, or every
+                # tick looks like a change and the log fills with copies.
+                page = _watch_page(display)
+                if page != previous_page:
+                    previous_page = page
+                    print(page, flush=True)
             time.sleep(max(1.0, args.watch))
         else:
             print(display)
