@@ -89,7 +89,7 @@ code { background: #101619; border: 1px solid var(--line); border-radius: 6px; p
     <p class="eyebrow">TRY AGAIN</p>
     <h1>That did not work</h1>
     <p class="bad" id="failed-reason"></p>
-    <button id="retry">Try another network</button>
+    <button id="retry">Try again</button>
   </section>
 
   <section id="online" class="card hidden">
@@ -97,6 +97,8 @@ code { background: #101619; border: 1px solid var(--line); border-radius: 6px; p
     <h1>This device is online</h1>
     <p class="ok">It is on <strong id="online-ssid"></strong> and ready to configure.</p>
     <dl id="online-values"></dl>
+    <p class="detail">If the device page does not open, its web control may not be
+       installed yet. The Wi-Fi setup has still finished.</p>
   </section>
 
   <p class="detail" id="footer-note">Only Wi-Fi details are accepted on this page.

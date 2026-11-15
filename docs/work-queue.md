@@ -25,14 +25,14 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Setup installer and unit | N02 | `control/setup/install.py`, `debra-setup.service`, `README.md`, `tests/test_setup_install.py` | makes `resume()` run at boot; system vs user unit decision |
-| Acceptance review `setup-r1` | — | `.local/reviews/setup-r1-20261115/` | independent, `gpt-6.1-sol`; reviews `cd4790f` |
+| Acceptance review `setup-r1` | — | `.local/reviews/setup-r1-20261115/` | independent, `gpt-6.1-sol`; reviews `cd4790f`, so it predates `40ef8dc` and `cf88922` |
 
 ## Done this round
 
 | Packet | Item ids | Proof |
 |---|---|---|
-| Wi-Fi onboarding, identity and first baseline | N02 | `cd4790f`, fixed by `40ef8dc` — 47 tests; **not run on a device** |
+| Wi-Fi onboarding, identity and first baseline | N02 | `cd4790f`, fixed by `40ef8dc` — 50 tests; **not run on a device** |
+| Setup service at boot | N02 | `cf88922` — system unit, installer, 24 tests; never loaded by systemd |
 | Browser proof of the setup page | N02 | `508a7f9` — 7 Chromium scenarios; the page was unreachable and the tests caught it |
 | Installed-artifact tests and atomic rollback | B13 | `508a7f9`, `9d11d08` — 16 tests; two real gaps recorded rather than asserted away |
 | Dashboard Setup card | WEB03 | `8b05215` — 21 tests, read-only, every choice disabled with its reason |

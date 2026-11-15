@@ -116,8 +116,8 @@ the operating system is at most `partial`.
 | Wrong password | Setup network returns with a one-line reason; the page shows it and a retry | partial | The decision and the page are real and tested; whether `nmcli` produces that message, and how long the return takes, is unverified |
 | Attempt limits | One submission per 5 seconds, 10 attempts, then a 10-minute cooldown; a successful join resets the count | partial | The cooldown is tested offline only. The note asks for 5 per 10 minutes with the limit shown in the form |
 | First baseline | One owner-only archive plus manifest, captured once after the first successful join | implemented | The capture code is real and tested against a temporary root. It has never run on a Pi with real keyfiles |
-| Finding the device afterwards | The last page names the device page URL | planned | No `debra-address.txt`, no mDNS announcement from this code, and the address shown is a guess: it is the prototype's port `8787` |
-| Re-entry | A physical input, or N boots without an uplink, raises the setup network again | planned | Nothing exists. A boot with a lost network does raise it, which is not the same thing |
+| Finding the device afterwards | The last page names the device page URL and says what to do if it does not open | planned | No `debra-address.txt` and no mDNS announcement from this code. The address is the web prototype's port `8787`, which an image does not install |
+| Re-entry | A physical input, or N boots without an uplink, raises the setup network again | partial | The [boot unit](../../control/setup/README.md) raises the setup network when the last phase was `online` and the network is not reachable. No physical input, no boot counter, no bounded hotspot window |
 | Account enrolment | First admin credential, SSH keys | planned | Nothing exists; see [N03](../roadmap.md) |
 | Browser setup after onboarding | HAT and driver selection, tools and settings, update and upgrade buttons | planned | The device page has volume, mute and read-only status only; see [web control](web-control.md) |
 
@@ -292,7 +292,7 @@ was written; the rest are still open, so the coordinator can decide them.
 | Country | A precondition supplied at image build, because a disabled radio cannot host the portal | **Partly resolved:** the country already on the device is read first, so the question is only asked when there is none. The radio-off case is still an error |
 | Success test | Four layers: associated, routable address, default route, then DNS or an HTTP probe | **Three of four:** active device, routable address and default route. No DNS or HTTP probe, so a LAN with no internet still passes |
 | Finding the device | Write `debra-address.txt` to the boot partition and announce mDNS | Neither; the page prints a `.local:8787` URL and no announcement is made by this code |
-| Re-entry | Physical input, or 3 boots with no uplink; a bounded hotspot window | Only "the previous network is not reachable" at boot; no timer, no input, no boot counter |
+| Re-entry | Physical input, or 3 boots with no uplink; a bounded hotspot window | The boot unit now raises the setup network when the last phase was `online` and the network is unreachable. Still no timer, no input, no boot counter |
 | Rate limit | 5 submissions per 10 minutes, form visibly limited | **Partly resolved:** one per 5 seconds, 10 attempts, then a 10-minute cooldown instead of a permanent refusal. Still not the note's rate |
 | Password field after a failure | Cleared, SSID kept | **Resolved:** the password is cleared and the network name kept |
 | Passphrase handling | Hand it to NetworkManager without a copy | **Resolved:** written to an owner-only keyfile, loaded with `nmcli connection load`, then deleted. It never appears in argv, and a test asserts that |
