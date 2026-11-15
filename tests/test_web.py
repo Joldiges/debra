@@ -789,6 +789,36 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(status["found"], 0)
         self.assertIsInstance(status["seconds_since_scan"], int)
 
+    def test_worker_dying_after_startup_is_reported_and_not_called_active(self):
+        # A thread object outlives its thread. Before this, a worker that died
+        # after a successful scan still reported enabled: true and error: null.
+        cache = web.DiscoveryCache(browse=lambda: {"devices": [], "error": None})
+        with patch.object(cache.stop, "wait", side_effect=RuntimeError("fixture worker crash")):
+            cache.start()
+            cache.thread.join(timeout=2)
+        self.assertFalse(cache.thread.is_alive())
+        status = cache.status()
+        self.assertFalse(status["enabled"])
+        self.assertIn("Discovery worker stopped", status["error"])
+        self.assertIn("RuntimeError", status["error"])
+
+    def test_hub_revalidation_keeps_the_named_rejection_reason(self):
+        # The parser logs its own drops, but the hub revalidates independently.
+        # Silently discarding that second rejection left no warning anywhere.
+        with self.assertLogs(discovery.LOGGER, level="WARNING") as logs:
+            self.scan([{"name": "badport", "url": "http://debra.local:80/"},
+                       {"name": "good", "url": "http://good.local:8787/"}])
+        code, body = self.request("/api/devices")
+        self.assertEqual(code, 200)
+        self.assertEqual(body["devices"], self.served(
+            {"name": "good", "url": "http://good.local:8787/", "label": "",
+             "source": "discovered"}))
+        status = body["discovery"]
+        self.assertIsNone(status["error"])  # the scan itself worked
+        self.assertEqual(len(status["refused"]), 1)
+        self.assertIn("Port 80", status["refused"][0])
+        self.assertIn("Port 80", "\n".join(logs.output))
+
     def test_error_timeout_exception_and_empty_clear_previous_cache(self):
         record = {"name": "new", "url": "http://new.local:8787/", "label": "New"}
         for outcome in ("error", "timeout", "exception", "empty", "malformed"):
@@ -962,7 +992,8 @@ class DiscoveryTests(unittest.TestCase):
                     self.assertEqual((code, body["devices"]), (200, self.served()))
                     self.assertEqual(body["discovery"], {
                         "enabled": False, "found": 0, "seconds_since_scan": None,
-                        "error": f"Discovery thread could not start ({type(error).__name__}: {error})"})
+                        "error": f"Discovery thread could not start ({type(error).__name__}: {error})",
+                        "refused": []})
 
 
 class InstallerTests(unittest.TestCase):

@@ -29,12 +29,14 @@ window.testState = {
   noAuth: new URLSearchParams(location.search).get("auth") === "none",
   devices: new URLSearchParams(location.search).get("auth") === "none"
     ? [{name: "debra-3c6b3f", url: "http://debra-3c6b3f.local:8787/", label: "Lab Pi 5"}]
-    : []
+    : [],
+  discovery: {enabled: false, found: 0, seconds_since_scan: null, error: null, refused: []}
 };
 const state = window.testState;
 window.fetch = async (path, options) => {
   if (path === "/api/devices") {
-    return {ok: true, status: 200, json: async () => ({devices: state.devices})};
+    return {ok: true, status: 200,
+            json: async () => ({devices: state.devices, discovery: state.discovery})};
   }
   const authorized = Boolean(options.headers && options.headers.Authorization);
   if (path === "/api/status" && !authorized && state.probe) {
@@ -355,6 +357,27 @@ window.addEventListener("load", async () => {
     assert(discovered.textContent.includes("Discovered"), "discovered device source missing");
     assert(discovered.textContent.includes("<img src=x>"), "discovered label not literal");
     assert(!discovered.querySelector("img"), "discovered label became markup");
+    // A discovery start failure must explain itself even with no links.
+    testState.devices = [];
+    testState.discovery = {enabled: false, found: 0, seconds_since_scan: null,
+                           error: "Discovery thread could not start (RuntimeError: no threads)"};
+    await loadDevices();
+    assert(!document.getElementById("devices").hidden,
+           "device section hidden although discovery failed");
+    assert(document.getElementById("devices-status").textContent.includes("could not start"),
+           "discovery start failure reason not shown");
+    // A working discovery with no results keeps the status visible too.
+    testState.discovery = {enabled: true, found: 0, seconds_since_scan: 4, error: null};
+    await loadDevices();
+    assert(!document.getElementById("devices").hidden, "empty discovery hid the status");
+    assert(document.getElementById("devices-status").textContent.includes("found 0 devices"),
+           "empty discovery result not reported");
+    // A refused advertisement is named rather than silently dropped.
+    testState.discovery = {enabled: true, found: 0, seconds_since_scan: 4, error: null,
+                           refused: ["Port 80 is unsupported"]};
+    await loadDevices();
+    assert(document.getElementById("devices-status").textContent.includes("Port 80"),
+           "refused advertisement reason not shown");
     document.getElementById("bypass").click();
     await wait();
     assert(!document.getElementById("dashboard").hidden, "bypass did not connect");

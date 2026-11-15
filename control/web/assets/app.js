@@ -347,14 +347,21 @@ async function loadDevices() {
     // so say what it did and when; that is the difference the eye needs.
     const discovery = data.discovery || {};
     let summary;
-    if (!discovery.enabled) summary = "Discovery is off on this server; the list is the configured file.";
-    else if (discovery.error) summary = `Discovery reported: ${String(discovery.error)}.`;
+    // An error outranks "off": a discovery that failed to start is not a
+    // deliberate choice, and reporting only "off" hides the reason.
+    if (discovery.error) summary = `Discovery problem: ${String(discovery.error)}.`;
+    else if (!discovery.enabled) summary = "Discovery is off on this server; the list is the configured file.";
     else if (discovery.seconds_since_scan === null || discovery.seconds_since_scan === undefined)
       summary = "Discovery has not finished its first scan yet.";
     else summary = `Discovery found ${discovery.found || 0} device${(discovery.found || 0) === 1 ? "" : "s"},`
                    + ` last scan ${discovery.seconds_since_scan}s ago.`;
+    if (Array.isArray(discovery.refused) && discovery.refused.length)
+      summary += ` Refused ${discovery.refused.length} advertisement`
+                 + `${discovery.refused.length === 1 ? "" : "s"}: ${discovery.refused.join("; ")}.`;
     el("devices-status").textContent = summary;
-    el("devices").hidden = list.children.length === 0 && !discovery.enabled;
+    // Keep the status visible even with no links: a hidden section with no
+    // explanation is the silent failure this replaces.
+    el("devices").hidden = list.children.length === 0 && !discovery.enabled && !discovery.error;
   } catch {
     // Keep the last visible list on a temporary HTTP failure.
   } finally {

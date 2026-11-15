@@ -54,9 +54,11 @@ class DiscoveryCache:
         self.devices = ()
         self.last_scan = None      # monotonic; None means no scan has finished yet
         self.last_error = None
+        self.refused = ()          # named reasons for records this hub dropped
         self.thread = None
 
     def scan(self):
+        refused = []
         try:
             result = self.browse()
             if not isinstance(result, dict) or result.get("error") is not None:
@@ -70,6 +72,12 @@ class DiscoveryCache:
                     item, reason = discovery.accept_record(record)
                     if reason is None:
                         valid.append(dict(item, source="discovered"))
+                    else:
+                        # Revalidation is this hub's own boundary: the parser's
+                        # warning never reaches this page, so name the reason
+                        # here or the drop is silent.
+                        refused.append(reason)
+                        discovery.LOGGER.warning("Refused discovered record: %s", reason)
                 devices = tuple(valid)
         except Exception:
             # A broken discovery implementation must not take down the page.
@@ -78,6 +86,7 @@ class DiscoveryCache:
         with self.lock:
             self.devices = devices
             self.last_scan = time.monotonic()
+            self.refused = tuple(sorted(set(refused)))
             self.last_error = (result or {}).get("error") if isinstance(result, dict) else None
 
     def snapshot(self):
@@ -85,18 +94,32 @@ class DiscoveryCache:
             return self.devices
 
     def status(self):
-        """What the page needs to say whether discovery is actually working."""
+        """What the page needs to say whether discovery is actually working.
+
+        A thread object outlives the thread, so liveness is asked of the thread
+        itself: a worker that died after starting must not look healthy.
+        """
         with self.lock:
+            thread = self.thread
+            alive = thread is not None and thread.is_alive()
             age = None if self.last_scan is None else max(0, time.monotonic() - self.last_scan)
-            return {"enabled": self.thread is not None, "found": len(self.devices),
+            error = self.last_error
+            if thread is not None and not alive and not self.stop.is_set() and error is None:
+                error = "Discovery worker stopped unexpectedly"
+            return {"enabled": alive, "found": len(self.devices),
                     "seconds_since_scan": None if age is None else round(age),
-                    "error": self.last_error}
+                    "error": error, "refused": list(self.refused)}
 
     def run(self):
-        while not self.stop.is_set():
-            self.scan()
-            if self.stop.wait(self.interval):
-                break
+        try:
+            while not self.stop.is_set():
+                self.scan()
+                if self.stop.wait(self.interval):
+                    break
+        except Exception as exc:
+            # Record the exit instead of leaving a dead thread looking healthy.
+            with self.lock:
+                self.last_error = f"Discovery worker stopped ({type(exc).__name__}: {exc})"
 
     def start(self):
         try:

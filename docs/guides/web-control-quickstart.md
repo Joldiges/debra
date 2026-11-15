@@ -37,7 +37,8 @@ volume card controls the computer running it.
 - **A device missing from the hub list** means discovery found nothing: a failed,
   empty or timed-out scan clears discovered entries, and the configured list
   still shows ([README](../../control/web/README.md)). If `avahi-browse` is not
-  installed on the hub's computer, discovery silently shows nothing at all.
+  installed on the hub's computer, the device section reports that as a
+  discovery problem instead of showing nothing.
 
 ## 3. The volume control
 
