@@ -5,8 +5,10 @@
 The phase machine, the setup page and the first baseline exist as code under
 `control/setup/` and pass offline tests against a recorded fake NetworkManager.
 No radio has been raised, no `nmcli`, `hostnamectl` or `raspi-config` call has
-been executed by Debra, no card has been flashed, and nothing installs any of
-this at boot. Read [implemented today versus planned](#implemented-today-versus-planned)
+been executed by Debra, no card has been flashed, and the setup service has
+never been enabled at boot. Its system unit and installer now exist and are
+tested offline — see [the setup service](../../control/setup/README.md). Read
+[implemented today versus planned](#implemented-today-versus-planned)
 before relying on a step.
 
 This page describes the journey James asked for — flash a card, the Pi configures
@@ -106,7 +108,7 @@ the operating system is at most `partial`.
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
 | Applying the name | `hostnamectl`-equivalent call so the running system uses it | partial | The NetworkManager adapter has no `set_hostname` at all. The recorded name is not applied; the code logs "recorded but not applied" and carries on |
 | State across reboots | Closed JSON schema, atomic owner-only writes, refuses unknown keys and phases | implemented | Nothing on the schema; corruption handling is an error by design |
-| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | implemented | Nothing calls `resume()` on a device. There is no service unit, no installer and no image |
+| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist and are tested offline. Neither has been enabled or started on a device, and there is no image |
 | Raising the setup network | `nmcli device wifi hotspot` with a fixed profile name and a password derived from the device name | partial | Never executed on a radio. The password is written to `debra-setup.txt` on the boot partition so it can be printed and read, and it is never stored in the setup state. No idle timeout, no pinned channel |
 | Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. No captive-portal helper, so no phone will offer to open it; the address is in the boot-partition note, but no phone has been tried |
 | Country | The country already on the device is read with `iw reg get`; the page asks only when there is none; `raspi-config nonint do_wifi_country` sets it | partial | The read is untested on a device. On a dual-band board with no country the radio is off, so the setup network cannot start at all, and asking inside the portal is still the wrong place to ask |

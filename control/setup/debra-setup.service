@@ -1,0 +1,29 @@
+# Managed by Debra setup installer
+#
+# Rendered by control/setup/install.py from control/setup/debra-setup.service,
+# which holds the four @PLACEHOLDER@ values. The installed copy is
+# /etc/systemd/system/debra-setup.service. See README.md.
+[Unit]
+Description=Debra first-boot setup (device name, Wi-Fi onboarding, baseline)
+After=NetworkManager.service network.target
+Wants=NetworkManager.service
+# Three failures in five minutes is left failed rather than looping on port 80.
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+# Runs as root: nmcli changes NetworkManager profiles and the hostname,
+# raspi-config sets the regulatory domain, the setup page binds port 80, and the
+# baseline reads root-only keyfiles. A user unit cannot do any of that at boot.
+ExecStart=@PYTHON@ -B @RUNNER@ --serve --state-dir @STATE@ --card-note @CARD_NOTE@
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

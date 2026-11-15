@@ -1,0 +1,464 @@
+"""Installed-artifact checks for control/setup/install.py.
+
+The installer prepares three things on a device: a content-addressed release, a
+rendered systemd **system** unit, and private state paths. This module proves
+what those artifacts actually are on disk rather than what the installer
+intends, and that a second install keeps the previous unit for rollback.
+
+Every test prepares a temporary root under /tmp/opencode. The unit is only read
+as text; nothing is loaded by systemd, no service is started, no radio is
+touched and no real install path is used. The one port bound is an ephemeral
+loopback port inside the process that owns it.
+
+"Interrupted" is not simulated here: install.py has no complete flush protocol,
+so power-loss durability is unproven and these tests do not claim it.
+"""
+
+import hashlib
+import importlib.util
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import stat
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parent.parent
+SOURCE = ROOT / "control" / "setup"
+sys.path.insert(0, str(SOURCE))
+
+import onboarding  # noqa: E402
+import state as state_module  # noqa: E402
+from fake_nm import FakeNetwork  # noqa: E402
+
+# The installer also runs directly on a device, where its payload is beside it.
+spec = importlib.util.spec_from_file_location("setup_install_artifacts", SOURCE / "install.py")
+installer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(installer)
+
+LIB = installer.LIB
+VAR = installer.VAR
+UNIT = installer.UNIT
+
+
+def content_address(files):
+    """The installer's own release identity: sorted name, bytes, NUL into sha256."""
+    digest = hashlib.sha256()
+    for name in sorted(files):
+        digest.update(name.encode() + b"\0" + files[name] + b"\0")
+    return digest.hexdigest()
+
+
+def file_mode(path):
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+def runner_path(release_id):
+    """The runner path the unit names: a device path, whatever --root prepared."""
+    return str(Path("/") / LIB / "releases" / release_id / "install.py")
+
+
+def parse_unit(text):
+    """A minimal unit parser: section headers, key=value, comments ignored."""
+    sections, headers, current = {}, [], None
+    for number, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            headers.append(line)
+            sections.setdefault(current, {})
+            continue
+        key, separator, value = line.partition("=")
+        if current is None or not separator or not key.strip():
+            raise AssertionError(f"line {number} is not a unit setting: {line!r}")
+        sections[current][key.strip()] = value.strip()
+    return sections, headers
+
+
+class Fixture(unittest.TestCase):
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory(prefix="setup-install-", dir="/tmp/opencode")
+        self.addCleanup(self._temp.cleanup)
+        self.scratch = Path(self._temp.name)
+        self.root = self.scratch / "root"
+        self.root.mkdir()
+        # Raspberry Pi OS Bookworm mounts the boot partition here, so the card
+        # note path is chosen deterministically whatever machine runs the test.
+        (self.root / "boot/firmware").mkdir(parents=True)
+        self.lib = self.root / LIB
+        self.releases = self.lib / "releases"
+        self.state = self.root / VAR
+        self.unit = self.root / UNIT
+
+    def install(self, source=SOURCE, **kwargs):
+        return installer.install(self.root, source, "/usr/bin/python3", **kwargs)
+
+    def source_copy(self, label, edit=None):
+        """A private, modifiable payload tree that stands in for a later version."""
+        copy = self.scratch / ("source-" + label)
+        for name in installer.PAYLOAD:
+            target = copy / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SOURCE / name, target)
+        if edit:
+            edit(copy)
+        return copy
+
+    def payload_of(self, release):
+        return {name: (release / name).read_bytes() for name in installer.PAYLOAD}
+
+    def installed_files(self, release):
+        return sorted(str(path.relative_to(release))
+                      for path in release.rglob("*") if path.is_file())
+
+
+class InstalledArtifactTests(Fixture):
+    def test_the_release_is_written_where_the_installer_says_with_the_modes_it_claims(self):
+        result = self.install()
+        release = Path(result["release_path"])
+        self.assertEqual(release.parent, self.releases)
+        self.assertRegex(result["release"], r"\A[0-9a-f]{64}\Z",
+                         "a release name is a sha256 content address, not a caller string")
+        self.assertEqual(release.name, result["release"])
+        self.assertEqual(self.installed_files(release), sorted(installer.PAYLOAD),
+                         "the release holds exactly the declared payload, nothing else")
+        installed = self.payload_of(release)
+        for name in installer.PAYLOAD:
+            self.assertEqual(installed[name], (SOURCE / name).read_bytes(),
+                             f"installed {name} differs from the reviewed source")
+        self.assertEqual(content_address(installed), result["release"],
+                         "the release address does not match the installed content")
+
+        self.assertEqual(file_mode(self.lib), 0o700)
+        self.assertEqual(file_mode(self.releases), 0o700)
+        self.assertEqual(file_mode(release), 0o700)
+        for name in installer.PAYLOAD:
+            self.assertEqual(file_mode(release / name), 0o600,
+                             f"installed {name} must not be group/world accessible")
+        self.assertEqual(file_mode(self.state), 0o700)
+        self.assertEqual(file_mode(self.state / "keyfiles"), 0o700)
+        self.assertEqual(file_mode(self.unit), 0o644,
+                         "a system unit carries no secret and is world-readable")
+        for path in self.scratch.rglob("*"):
+            if path.is_file():
+                self.assertFalse(file_mode(path) & 0o002, f"{path} is world-writable")
+
+        # A clean install leaves no staging directory behind.
+        self.assertEqual([path.name for path in self.releases.iterdir()], [result["release"]])
+
+    def test_nothing_is_written_outside_the_target_root(self):
+        before = {str(path) for path in self.scratch.rglob("*")}
+        result = self.install()
+        created = [path for path in self.scratch.rglob("*") if str(path) not in before]
+        self.assertTrue(created, "the installer wrote nothing")
+        for path in created:
+            self.assertTrue(path == self.root or self.root in path.parents,
+                            f"{path} was written outside the install root {self.root}")
+        self.assertTrue(Path(result["release_path"]).is_dir())
+
+    def test_a_second_install_keeps_the_previous_unit_for_rollback(self):
+        first = self.install()
+        old_release = Path(first["release_path"])
+        old_unit = self.unit.read_bytes()
+
+        def change(copy):
+            target = copy / "onboarding.py"
+            target.write_bytes(target.read_bytes() + b"\n# a later version\n")
+
+        second = self.install(source=self.source_copy("v2", change))
+        self.assertTrue(second["changed"])
+        self.assertNotEqual(second["release"], first["release"],
+                            "changing payload content must change the address")
+        self.assertIn(runner_path(second["release"]), self.unit.read_text())
+        self.assertNotIn(runner_path(first["release"]), self.unit.read_text())
+
+        previous = Path(second["previous_unit"])
+        self.assertEqual(previous.parent, self.lib / "previous-units")
+        self.assertEqual(previous.read_bytes(), old_unit,
+                         "the previous unit must be kept byte for byte")
+        self.assertEqual(file_mode(previous), 0o600)
+        self.assertIn(runner_path(first["release"]), previous.read_text())
+        # The old release is retained, so the retained unit still names real code.
+        self.assertEqual(content_address(self.payload_of(old_release)), first["release"])
+
+    def test_rollback_restores_the_previous_unit(self):
+        first = self.install()
+        old_unit = self.unit.read_bytes()
+        second = self.install(source=self.source_copy("v2", lambda copy: (
+            copy / "state.py").write_bytes((copy / "state.py").read_bytes() + b"\n# v2\n")))
+        self.assertNotEqual(self.unit.read_bytes(), old_unit)
+
+        restored = installer.restore(self.root, second["previous_unit"])
+        self.assertEqual(self.unit.read_bytes(), old_unit, "rollback did not restore the unit")
+        self.assertEqual(restored["unit"], str(self.unit))
+        self.assertIn(runner_path(first["release"]), self.unit.read_text())
+        self.assertEqual(file_mode(self.unit), 0o644)
+        # Reinstalling the same payload is now a no-op, so the restored unit is
+        # the one the installer would have written.
+        self.assertFalse(self.install()["changed"])
+
+    def test_rollback_refuses_a_file_it_did_not_retain(self):
+        self.install()
+        outside = self.scratch / "elsewhere.service"
+        outside.write_text(installer.MARKER + "[Service]\nExecStart=/bin/true\n")
+        with self.assertRaisesRegex(ValueError, "retained under previous-units"):
+            installer.restore(self.root, outside)
+        with self.assertRaisesRegex(ValueError, "retained under previous-units"):
+            installer.restore(self.root, self.root / "etc/systemd/system" / installer.UNIT_NAME)
+
+    def test_an_unchanged_install_writes_nothing_new(self):
+        first = self.install()
+        unit = self.unit.read_bytes()
+        second = self.install()
+        self.assertFalse(second["changed"])
+        self.assertIsNone(second["previous_unit"])
+        self.assertEqual(second["release"], first["release"])
+        self.assertEqual(self.unit.read_bytes(), unit)
+        self.assertEqual([path.name for path in self.releases.iterdir()], [first["release"]])
+        self.assertFalse((self.lib / "previous-units").exists(),
+                         "an unchanged install must not create a rollback copy")
+
+    def test_a_unit_the_installer_did_not_write_is_left_alone(self):
+        self.unit.parent.mkdir(parents=True)
+        self.unit.write_text("[Service]\nExecStart=/bin/true\n")
+        with self.assertRaisesRegex(ValueError, "not managed by this installer"):
+            self.install()
+        self.assertEqual(self.unit.read_text(), "[Service]\nExecStart=/bin/true\n")
+        self.assertFalse(self.releases.exists(), "a refused install must not publish a release")
+
+    def test_a_tampered_release_is_refused_and_preserved(self):
+        result = self.install()
+        release = Path(result["release_path"])
+        unit = self.unit.read_bytes()
+        tampered = release / "onboarding.py"
+        tampered.write_bytes(tampered.read_bytes() + b"\n# not the reviewed file\n")
+        with self.assertRaisesRegex(ValueError, "differs from expected payload"):
+            self.install()
+        self.assertIn(b"not the reviewed file", tampered.read_bytes())
+        self.assertEqual(self.unit.read_bytes(), unit)
+
+
+class EscapeTests(Fixture):
+    """No caller-supplied path may leave the root the installer was given."""
+
+    def test_a_relative_path_that_climbs_out_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "inside the install root"):
+            self.install(lib=Path("../escape"))
+        with self.assertRaisesRegex(ValueError, "inside the install root"):
+            self.install(var=Path("var/../../escape"))
+        self.assertFalse((self.scratch / "escape").exists())
+        self.assertFalse(self.releases.exists())
+
+    def test_an_absolute_path_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "inside the install root"):
+            self.install(unit=Path("/etc/systemd/system/debra-setup.service"))
+        self.assertFalse(self.unit.exists())
+
+    def test_a_symlinked_directory_is_refused_before_anything_is_written(self):
+        outside = self.scratch / "outside"
+        outside.mkdir()
+        (self.root / "var").mkdir()
+        (self.root / "var/lib").symlink_to(outside)
+        with self.assertRaises(ValueError):
+            self.install()
+        self.assertEqual([path.name for path in outside.iterdir()], [],
+                         "the installer wrote through a symlinked directory")
+        self.assertFalse(self.unit.exists())
+
+    def test_a_symlinked_root_is_refused(self):
+        linked = self.scratch / "linked-root"
+        linked.symlink_to(self.root)
+        with self.assertRaisesRegex(ValueError, "symlinked install root"):
+            installer.install(linked, SOURCE, "/usr/bin/python3")
+        self.assertFalse(self.releases.exists())
+
+
+class UnitTests(Fixture):
+    def test_the_installed_unit_parses_as_a_system_service(self):
+        result = self.install()
+        text = self.unit.read_text()
+        self.assertTrue(text.startswith(installer.MARKER))
+        sections, headers = parse_unit(text)
+        self.assertEqual(headers, ["[Unit]", "[Service]", "[Install]"],
+                         "the unit has exactly the three sections it claims")
+        self.assertEqual(sections["Service"]["Type"], "simple")
+        self.assertEqual(sections["Install"]["WantedBy"], "multi-user.target")
+        self.assertEqual(sections["Unit"]["Wants"], "NetworkManager.service")
+        self.assertIn("NetworkManager.service", sections["Unit"]["After"])
+        self.assertEqual(sections["Service"]["Restart"], "on-failure")
+        self.assertEqual(sections["Service"]["NoNewPrivileges"], "yes")
+        self.assertNotIn("User", sections["Service"],
+                         "a system unit runs as root; naming a user would break nmcli")
+        self.assertNotIn("ExecStop", sections["Service"])
+
+        argv = shlex.split(sections["Service"]["ExecStart"])
+        runner = str(Path("/") / LIB / "releases" / result["release"] / "install.py")
+        self.assertEqual(argv, ["/usr/bin/python3", "-B", runner, "--serve",
+                                "--state-dir", "/var/lib/debra/setup",
+                                "--card-note", "/boot/firmware/debra-setup.txt"])
+        # The unit starts the release that was just published, not a copy of it.
+        self.assertTrue((Path(result["release_path"]) / "install.py").is_file())
+
+    def test_the_unit_carries_no_credential_and_no_reboot(self):
+        self.install()
+        text = self.unit.read_text()
+        lowered = text.lower()
+        for forbidden in ("psk", "password", "passphrase", "access.key", "secret",
+                          "wifi-psk", "token"):
+            self.assertNotIn(forbidden, lowered, f"the unit mentions {forbidden!r}")
+        # The setup-network password is `debra-` plus eight hex characters, and
+        # the device name is `debra-` plus six. Neither may appear.
+        self.assertIsNone(re.search(r"debra-[0-9a-f]{6,}", lowered),
+                          "a device name or setup password leaked into the unit")
+        self.assertNotIn("reboot", lowered, "nothing applies Wi-Fi by rebooting")
+        self.assertNotIn("systemctl", lowered, "the unit does not drive systemd")
+        for placeholder in installer.PLACEHOLDERS:
+            self.assertNotIn(placeholder, text, "every placeholder must be resolved")
+
+    def test_the_template_and_the_installed_unit_agree(self):
+        template = (SOURCE / installer.TEMPLATE).read_text()
+        for placeholder in installer.PLACEHOLDERS:
+            self.assertIn(placeholder, template,
+                          "the committed template must still carry every placeholder")
+        self.assertIn(installer.TEMPLATE, installer.PAYLOAD,
+                      "a re-install from a release needs the template beside it")
+        self.install()
+        for placeholder in installer.PLACEHOLDERS:
+            self.assertNotIn(placeholder, self.unit.read_text())
+
+
+class NoExternalCommandTests(Fixture):
+    """The installer prepares files; it does not run anything."""
+
+    def test_the_installer_invokes_no_command(self):
+        calls = []
+
+        def refuse(*args, **kwargs):
+            calls.append(args)
+            raise AssertionError("the installer ran an external command")
+
+        with patch("subprocess.run", refuse), patch("subprocess.Popen", refuse), \
+                patch("subprocess.check_call", refuse), patch("subprocess.check_output", refuse), \
+                patch("os.system", refuse), patch("os.execv", refuse), \
+                patch("os.execvp", refuse), patch("os.posix_spawn", refuse):
+            self.install()
+        self.assertEqual(calls, [])
+
+    def test_the_installer_has_no_way_to_run_a_command(self):
+        source = Path(installer.__file__).read_text()
+        self.assertNotIn("import subprocess", source,
+                         "install.py must not gain a command runner by accident")
+        self.assertNotIn("os.system", source)
+
+
+class ServiceTests(Fixture):
+    """One boot of the service, against the recorded fake NetworkManager."""
+
+    def boot(self, network, address=("192.0.2.1", 80), **kwargs):
+        return installer.serve(self.state, self.scratch / "boot/debra-setup.txt",
+                               network=network, address=address,
+                               capture_root=self.scratch / "fake-root",
+                               uplink_wait=0, **kwargs)
+
+    def test_an_online_device_raises_no_setup_page(self):
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        # An address that cannot be bound here: if the portal were started, the
+        # bind would fail and this test would raise instead of returning 0.
+        self.assertEqual(self.boot(network), 0)
+        self.assertNotIn("start_hotspot", network.phases())
+        self.assertEqual(state_module.read(self.state / "setup.json")["phase"], "online")
+
+    def test_a_device_with_no_wifi_interface_reports_instead_of_listening(self):
+        network = FakeNetwork(interface=None)
+        # The address cannot be bound here, so returning rather than raising
+        # proves the portal was never started.
+        with self.assertLogs(installer.LOGGER, level="ERROR") as logs:
+            self.assertEqual(self.boot(network), 1)
+        self.assertIn("No Wi-Fi interface was found", "\n".join(logs.output))
+        data = state_module.read(self.state / "setup.json")
+        self.assertEqual(data["phase"], "failed")
+        self.assertIsNone(data["hotspot"])
+        self.assertIsNone(network.hotspot)
+
+    def test_the_portal_stops_once_the_device_is_online(self):
+        network = FakeNetwork()
+        note = self.scratch / "boot/debra-setup.txt"
+        outcome = {}
+        thread = threading.Thread(
+            target=lambda: outcome.setdefault("code", installer.serve(
+                self.state, note, network=network, address=("127.0.0.1", 0),
+                capture_root=self.scratch / "fake-root", uplink_wait=0,
+                poll=0.05, grace=0.2)),
+            daemon=True)
+        with self.assertLogs(installer.LOGGER, level="WARNING") as logs:
+            thread.start()
+            state_path = self.state / "setup.json"
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if state_path.exists() and state_module.read(state_path)["phase"] == "hotspot":
+                    break
+                time.sleep(0.02)
+            else:
+                self.fail("the setup page never reached the hotspot phase")
+            # The service writes the note a person needs before any page loads.
+            self.assertIn("Debra-Setup-", note.read_text())
+            self.assertEqual(file_mode(state_path), 0o600)
+            # A successful join is what the portal's own worker would record.
+            data = state_module.read(state_path)
+            data.update(phase="online", ssid="HomeWiFi", address="192.0.2.40",
+                        hotspot=None)
+            state_module.write(state_path, data)
+            thread.join(timeout=10)
+        self.assertFalse(thread.is_alive(), "the setup page was left listening")
+        self.assertEqual(outcome.get("code"), 0)
+        self.assertIn("start_hotspot", network.phases())
+        # This fixture never captures a baseline, so the bounded wait says so
+        # instead of waiting for ever or exiting mid-capture.
+        self.assertIn("No baseline was recorded", "\n".join(logs.output))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class PortalAddressTests(unittest.TestCase):
+    """The page binds to the address the access point actually got."""
+
+    class Network:
+        def __init__(self, address):
+            self.address = address
+
+        def device_address(self, interface):
+            return self.address if interface else None
+
+    def test_the_discovered_address_is_used(self):
+        status = {"hotspot": {"interface": "wlan0"}}
+        self.assertEqual(installer.hotspot_address(self.Network("192.168.4.1"), status),
+                         "192.168.4.1")
+
+    def test_the_documented_default_is_only_a_fallback(self):
+        status = {"hotspot": {"interface": "wlan0"}}
+        self.assertEqual(installer.hotspot_address(self.Network(None), status),
+                         installer.PORTAL_ADDRESS)
+
+    def test_an_adapter_that_cannot_answer_falls_back_instead_of_failing(self):
+        class Broken:
+            def device_address(self, interface):
+                raise installer.nm_module.NmError("nmcli timed out")
+        status = {"hotspot": {"interface": "wlan0"}}
+        with self.assertLogs(installer.LOGGER, level="WARNING"):
+            self.assertEqual(installer.hotspot_address(Broken(), status),
+                             installer.PORTAL_ADDRESS)
+
+    def test_no_hotspot_means_no_address_to_read(self):
+        self.assertEqual(installer.hotspot_address(self.Network("192.168.4.1"), {}),
+                         installer.PORTAL_ADDRESS)
