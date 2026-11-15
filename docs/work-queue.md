@@ -25,12 +25,19 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Discovery contract | C1, C2, C4, B14 | `control/web/server.py`, `discovery.py`, `install.py`, `test_web.py`, `test_discover.py` | one acceptance rule for CLI and hub; `--port` range; name a failed discovery thread |
+| Dashboard Setup card | WEB03 | `control/web/assets/**`, `server.py`, `tests/test_web_setup.py` | HAT picker, tools, updates; planned items visible and disabled |
+| First-boot design page | N02 | `docs/design/first-boot.md`, `docs/README.md` | **landed** `b136db2`; kept in step with the code by `40ef8dc` |
+| Installed-artifact tests | B13 | `tests/test_install.py`, `tests/test_web.py` | installed bytes, modes, a tampered release, an interrupted rollback |
+| Browser proof of the setup page | N02 | `tests/test_setup_browser.py` | drives the portal through devserver in Chromium |
+| Acceptance review `setup-r1` | — | `.local/reviews/setup-r1-20261115/` | independent, `gpt-6.1-sol`; reviews `cd4790f` |
+| Speaker cover | — | `models/parts/rpispeaker-v17-cover/` | **landed** `4b62ff6`; carries the four-screw pattern |
 
 ## Done this round
 
 | Packet | Item ids | Proof |
 |---|---|---|
+| Wi-Fi onboarding, identity and first baseline | N02 | `cd4790f`, fixed by `40ef8dc` — 47 tests; **not run on a device** |
+| Notices checklist in the activity TUI | — | `3f7236a` — 22 tests, driven in a real pty |
 | The v17 body as an editable source | A2 | `f7b2163` — reconstruction, honest about what it cannot reproduce |
 | Web pages matched to the server | A8, A9, B5–B11, C3 | `f35d47f` |
 | Evidence claims matched to sources | B16–B25, B27, B28 | `5e83273` |
@@ -49,8 +56,8 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Why it is next |
 |---|---|---|
-| Installed-artifact tests | B13 | needs `tests/test_web.py`, which the discovery worker holds; installed bytes, modes, a tampered release and an interrupted rollback are still unproven |
 | Acceptance review `code-r7` | — | must follow B14/C1–C4, from a model that did not write it |
+| Device run of the onboarding flow | N02 | needs a spare card and one of the next Pis; nothing in `control/setup/` has touched a radio |
 | Browser verification of the device list | — | the discovered badge and the discovery status line have no browser proof yet |
 
 ## In review
@@ -71,16 +78,20 @@ not commit, push, or approve their own work.
 
 | Item | Blocker | What would unblock it |
 |---|---|---|
-| The four-screw square speaker mount | A widened search of the STEP is **inconclusive, not negative**: no square was found among the analytic surfaces (262 faces, 776 edges), but irregular slots and non-analytic surfaces still need a topology search | that topology search; failing it, a photo of the assembled original with the cover off, showing what the four screws enter. The [editable reconstruction](../models/parts/rpispeaker-v17-body/README.md) is the working substitute: tweak the mount there instead of waiting |
+| The four-screw square speaker mount | The pattern is not in the body and does not belong there: the two Ø4.5 pilots sit 36.5 mm apart, **4.1875 mm outside** the shelf a speaker stands on, so they anchor a cover that clamps the speaker. A [cover carrying the pattern](../models/parts/rpispeaker-v17-cover/README.md) now exists, but its `SQ_PITCH` is an assumption and at 32 mm two screw axes sit over the divider | the real speaker's frame, height and four-screw pitch. Then set `SQ_PITCH` and re-check interference |
 | Speaker and board purchase decisions | DWEII listings return HTTP 503; Pi Zero 2 W out of stock at US sellers | re-checked listings, or a different supplier |
 
 ## Open engineering work the harvest did not contain
 
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
-repository — the backlog is documentation, evidence and test gaps, not missing
-features. The features are in the [roadmap](roadmap.md) packets (Wi-Fi
-onboarding, hardware-derived identity, update and rollback, the setup TUI) and in
-the [project brief](project-brief.md); none of them has an implementation yet.
+repository — the backlog was documentation, evidence and test gaps, not missing
+features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
+first baseline now have an implementation (`control/setup/`, 47 tests) that has
+**never run on a device**, and the activity TUI has a notices checklist.
+
+Still without an implementation: update and rollback, the SSH maintenance TUI,
+and the browser setup card (in progress). See the [first-boot design
+page](design/first-boot.md) for the honest per-step status.
 
 ## Needs James
 
