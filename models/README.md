@@ -14,23 +14,34 @@ A part is only useful if someone can see it and rebuild it. The README states
 which numbers are dimension-sourced and which are assumed, and the renders show
 what the model actually is — including the parts it does not have yet.
 
-## Current contents
+## Components
 
 | Folder | What it is | Status |
 | --- | --- | --- |
-| [components/pi5-5-model-b](components/pi5-5-model-b/README.md) | Raspberry Pi 5 Model B envelope: 85 × 56 mm board, four mounting holes, 2×20 header | Outline and holes dimension-sourced; thickness and header height assumed; **no ports, no components** |
+| [pi5-5-model-b](components/pi5-5-model-b/README.md) | Raspberry Pi 5 Model B envelope: 85 × 56 mm board, four mounting holes, 2×20 header | Outline and holes dimension-sourced; thickness and header height assumed; **no ports, no components** |
+| [pi-zero-family](components/pi-zero-family/README.md) | Pi Zero v1.3, Zero W and Zero 2 W in one design: 65 × 30 mm board, 58 × 23 hole pattern, header, connectors, wireless can per variant | Outline, holes and header sourced; **connector positions, can heights and thickness approximate** |
+| [respeaker-2mic-hat](components/respeaker-2mic-hat/README.md) | ReSpeaker 2-Mics Pi HAT v2.0: board, socket underneath, jack, JST speaker, 2 mics, 3 LEDs, button | Board and holes from the HAT form factor; **every component position and height is an estimate** |
+| [speaker-candidates](components/speaker-candidates/README.md) | Ten driver envelopes (Adafruit, Visaton, Dayton) with bolt circles where published | Vendor dimensions only, **not measured**; two drivers have no fastener holes at all |
 
-## Planned, not started
+## Assemblies
 
-The ReSpeaker 2-Mics Pi HAT v2.0 envelope needs a measured board (only a
-schematic exists upstream), and the Pi + HAT tray that the enclosure
-requirements call for needs the HAT first. Port cut-outs stay provisional until
-the board is measured with calipers; see
-[enclosure requirements](../docs/design/enclosures.md).
+| Folder | What it is | Status |
+| --- | --- | --- |
+| [zero2w-respeaker-stack](assemblies/zero2w-respeaker-stack/README.md) | Pi Zero 2 W + ReSpeaker HAT stacked on a header, with a 40 mm driver beside them | **Reference assembly, CAD-only**: proves the stack clears itself and is ~21 mm tall; no tray, no case |
+
+## Not modelled yet
+
+- A printable tray or case for the Zero stack. This is the next real deliverable
+  and it needs the connector positions verified first.
+- The ReSpeaker Lite, Satellite1 HAT and the other comparison devices.
+- Speaker cut-outs and recesses; only outer envelopes exist.
+- Cable routing, gaskets and grille retention.
 
 ## Regenerating renders
 
 SolidCraft's `screenshot` command with `source: "model"`, `grid`, `axes`,
-`camera` and `path` writes a PNG straight into a folder. Each part README lists
-the exact calls it used, so a render is reproducible rather than a one-off
-screenshot of somebody's viewport.
+`camera` and `path` writes a PNG straight into a folder. Each README lists the
+exact calls it used, so a render is reproducible rather than a one-off
+screenshot of somebody's viewport. Committed renders are palette-quantised to
+keep them small; re-shoot at 1200–1500 px wide and quantise again if you replace
+one.

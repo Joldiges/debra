@@ -12,8 +12,19 @@ Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
 Environment=PULSE_COOKIE=%h/linux-voice-assistant/tmp_pulse_cookie
 Environment=PREFERENCES_FILE=%h/linux-voice-assistant/preferences.json
-Environment="CLIENT_NAME=Debra"
+Environment="CLIENT_NAME=Debra Lab"
 Environment=ENABLE_DEBUG=1
+# Pin the audio endpoints. The HAT is the only sink today, but an HDMI cable
+# plugged into either micro-HDMI port adds a second one and WirePlumber will
+# happily make it the default: the assistant would then talk to a monitor with
+# no speakers. Naming the device here means HDMI cannot take the voice output.
+Environment=AUDIO_OUTPUT_DEVICE=pipewire/alsa_output.platform-soc_107c000000_sound.stereo-fallback
+Environment=MUSIC_OUTPUT_DEVICE=pipewire/alsa_output.platform-soc_107c000000_sound.stereo-fallback
+# The HAT has no echo cancellation and the codec has no hardware AEC, so the
+# wake sound and the reply are picked up by the microphones. A longer refractory
+# window stops the tail of a reply starting a second run ("duplicate wake-up
+# detected"). The real fix is an echo-cancel sink; this makes the device usable.
+Environment=REFACTORY_SECONDS=3
 ExecStart=%h/linux-voice-assistant/docker-entrypoint.sh
 StandardOutput=append:%h/lab/lva.log
 StandardError=append:%h/lab/lva.log

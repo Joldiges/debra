@@ -31,7 +31,7 @@ are in [tools/device/lab-pi5/](../../../tools/device/lab-pi5/README.md).
 | Music Assistant sees the satellite as a player | MA log: `Setting active output protocol on Debra Lab to Sendspin` |
 | Sendspin carries audio from a server to the HAT | `Stream started with codec flac`, `Audio format: flac 44100Hz/24-bit/2ch`, `Stream STARTED`; capture during playback peaked at −12.5 dBFS |
 | The player reconnects after reboot | After a cold boot the daemon advertises again and MA logs `Admitted server 'Music Assistant (d5369777-music-assistant-nightly)'` — but only after the unit was made to wait for a network route (trap 12) |
-| Wake-word detection by voice | **not tested.** Nobody spoke to it. The audio path to it is measured; the detector is not |
+| Wake-word detection by voice | **works.** `Detected wake word: Okay Nabu` with `probability 0.986 exceeded threshold 0.850`, then the wake sound, STT, intent and TTS all completed — see [the first conversation](#the-first-conversation) |
 
 ## Traps worth remembering
 
@@ -75,10 +75,59 @@ are in [tools/device/lab-pi5/](../../../tools/device/lab-pi5/README.md).
     The unit now waits for `ip -4 route get 1.1.1.1` before starting and restarts
     unconditionally.
 
-## Power: this device browns out
+## The first conversation
+
+At 02:40 on 2026-11-15 the device was spoken to for the first time and the whole
+loop ran:
+
+```
+02:40:26 Detected wake word: Okay Nabu
+02:40:26 Wakeup sound finished, starting audio streaming for: Okay Nabu
+02:40:36 VOICE_ASSISTANT_STT_VAD_START
+02:40:37 STT transcript: Okinawa.
+02:40:38 VOICE_ASSISTANT_INTENT_PROGRESS  tts_start_streaming: 1
+02:40:39 INTENT_END  speech: "Okinawa is a group of islands in Japan, known for
+         its beautiful beaches, unique culture, and subtropical climate. ..."
+02:40:39 TTS_START / TTS_END
+02:40:57 Continuing conversation after 0.50s settle delay
+```
+
+So wake word, voice activity detection, speech to text, the Home Assistant
+intent and the spoken reply all work on this device. What did **not** work was
+hearing it.
+
+### The answer was inaudible because the sink was at 9 %
+
+`pactl get-sink-volume` read `5729 / 9% / -63.50 dB`. Music Assistant and the
+assistant share one PipeWire sink, and that sink had been left at 9 %; the
+reply was playing perfectly into −63 dB of attenuation. LVA's own
+`preferences.json` said `volume: 1.0`, because it tracks its own player volume,
+not the sink's. Two volumes, one of them wrong, and no error anywhere.
+
+Set to 65 % (`pactl set-sink-volume @DEFAULT_SINK@ 65%`) the wake chime and the
+pipeline sounds are plainly audible. **Any "the assistant said nothing" report
+should start with the sink volume, not with the audio path.**
+
+### Two other things this exposed
+
+- **Repeated wake-ups end the run.** The HAT has no echo cancellation, so the
+  wake sound and the reply are picked up by the microphones and re-trigger the
+  detector. LVA then logs `VOICE_ASSISTANT_ERROR duplicate_wake_up_detected` and
+  ends the run immediately — that is what happened on the attempts at 02:40:12,
+  02:40:24 and 02:42:41. `--refractory-seconds 3` is set now; the real fix is an
+  echo-cancel sink.
+- **The output device is now pinned** to
+  `pipewire/alsa_output.platform-soc_107c000000_sound.stereo-fallback` with
+  `AUDIO_OUTPUT_DEVICE` and `MUSIC_OUTPUT_DEVICE`. Both micro-HDMI ports were
+  disconnected and PipeWire had no HDMI sink at all, so HDMI was never stealing
+  the audio — but plugging a monitor in would have added one, and WirePlumber
+  would have been free to make it the default.
+
+## Power: the supply is the suspect, not the board
 
 The Pi reset twice inside three minutes during this work, and the operator saw
 "undervoltage detected" at boot. `vcgencmd get_throttled` reads `0x0` when idle,
+
 so the fault is a sag under load, not a continuous under-voltage.
 
 Mitigations applied, and their limits:
@@ -90,14 +139,28 @@ Mitigations applied, and their limits:
 | CPU capped at 1.5 GHz, `powersave` governor | Removes the top-end current spike |
 | Docker disabled at boot | No container runtime competing for current and memory |
 
-**None of this fixes a marginal supply.** The likely fix is a supply rated 5V/5A
-with USB-C PD (the official 27W Raspberry Pi supply) and a short, thick cable.
-Until then, resets are expected and the microSD card is at risk.
+**None of this fixes a marginal supply.** The board is not overloading itself:
+a Pi 5 with a HAT, a voice model and a music stream draws a few amps at most,
+and this one idles at `0x0`. The evidence points at the **5 V rail sagging
+before it reaches the board** — a supply that cannot hold 5 V under a load
+step, or a thin, long USB-C cable dropping a few hundred millivolts. The fix is
+a supply rated 5 V / 5 A with USB-C PD (the official 27 W Raspberry Pi supply)
+and a short, thick cable; the mitigations above only lower the peak that trips
+it. Until then, resets are expected and the microSD card is at risk.
+
+That diagnosis is an inference from the idle `0x0` and the operator's report,
+not from a measured rail. `vcgencmd pmic_read_adc` exposes currents but not a
+clean input-voltage sag trace, so the cheap confirmation is to swap the supply
+and the cable and watch whether `/var/log/debra-power.log` stays at `0x0`
+through a load.
 
 ## Not done
 
-- No voice commanded end-to-end (wake word → STT → intent → TTS). The satellite is
-  connected and the audio path is measured; the conversation is untested.
+- The reply has never been judged for **quality**: the first conversation proved
+  the loop runs and the audio is audible, not that the microphone hears well
+  from across a room, that the wake word is reliable at a distance, or that the
+  reply is intelligible.
+- No echo cancellation, so a reply can re-trigger the wake word.
 - The satellite's placement in Home Assistant (area, pipeline assignment, exposed
   entities) was left to the operator.
 - Music Assistant here is the household instance, not a Debra component. Debra has
@@ -108,6 +171,7 @@ Until then, resets are expected and the microSD card is at risk.
 
 ## Next concrete action
 
-Stand in front of the Pi, say "Okay Nabu", then ask it something. Record what the
-LVA log and the HA device page show, and whether the answer is audible. That is
-the one claim this result deliberately leaves open.
+Repeat the conversation from two or three metres away in a quiet room and in a
+room with music playing, and record the wake-word hit rate and whether the reply
+is intelligible. Then add an echo-cancel sink so the reply stops re-triggering
+the detector.
