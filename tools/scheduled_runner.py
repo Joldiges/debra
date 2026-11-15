@@ -70,10 +70,12 @@ Standing constraints for this unattended run (they override anything above):
   a command line, or the repository.
 - Do not delete files or non-empty directories, and do not overwrite anything you
   did not create.
-- Public documentation and public source code only. Record a URL and the date
-  checked for every claim, and label each claim upstream-documented, reported,
-  hypothesis or unknown. Never invent versions, prices, dimensions or quotations;
-  say a page was blocked rather than guessing.
+- Public documentation and public source code only. Every claim carries its own
+  label (upstream-documented, reported, hypothesis, unknown) and either a full
+  URL beside it or a numbered key defined with a full URL in the same report. A
+  key with no register makes the report unusable, so write the register. Never
+  invent versions, prices, dimensions or quotations; say a page was blocked
+  rather than guessing.
 - Finish with a handoff of at most 900 words: findings table
   (claim | label | source URL | limits), traps, unknowns/blocked, and one next
   bounded check. A coordinator reviews everything; nothing is promoted.
