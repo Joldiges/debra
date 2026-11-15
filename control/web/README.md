@@ -106,9 +106,9 @@ working audio session. No dependency manager is needed for this stdlib slice.
     ```
 
     Confirm that `ExecStart` names the installer's reported
-    `releases/<release>/server.py`, and that the running PID's arguments name
-    that same path. The prototype has no status release-ID field; the unit alone
-    does not prove which process is running. Restart only `debra-web.service`, never the audio,
+    `releases/<release>/server.py`, with `discovery.py` beside it, and that the
+    running PID's arguments name that same path. The prototype has no status
+    release-ID field; the unit alone does not prove which process is running. Restart only `debra-web.service`, never the audio,
     speech or music services as part of a web upgrade.
 
    No root or new lingering setting is requested. If the user manager does not
