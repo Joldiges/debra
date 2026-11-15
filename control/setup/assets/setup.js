@@ -56,6 +56,18 @@ function error(text) {
   el("form-error").textContent = text || "";
 }
 
+// The <select> is a sibling of its <label>, not a child of it. closest() walks
+// ancestors only, so it returned null here, the throw was swallowed by load()'s
+// catch, and the page told the user it could not reach a device that had
+// answered correctly. Both the first render and the retry path use this, so
+// they cannot drift apart.
+function showCountryField(needsCountry) {
+  const label = document.querySelector('label[for="country"]');
+  if (label) label.classList.toggle("hidden", !needsCountry);
+  el("country").classList.toggle("hidden", !needsCountry);
+  el("country-note").classList.toggle("hidden", !needsCountry);
+}
+
 function render() {
   el("device-name").textContent = status.hostname || "your Debra";
   const host = status.hostname || "debra";
@@ -99,9 +111,7 @@ function render() {
   }
   buildCountries(status.country || "");
   const needsCountry = !status.country;
-  el("country").closest("label").classList.toggle("hidden", !needsCountry);
-  el("country").classList.toggle("hidden", !needsCountry);
-  el("country-note").classList.toggle("hidden", !needsCountry);
+  showCountryField(needsCountry);
   el("step-label").textContent = needsCountry ? "STEP 1 OF 2" : "ONE STEP";
   el("form-card").classList.toggle("hidden", false);
   show("form-card");
@@ -178,9 +188,7 @@ el("retry").addEventListener("click", () => {
   // The access point is back, so the page is reachable again: show the form
   // without a reload, and keep the last failure out of the way.
   buildCountries(status?.country || "");
-  const needsCountry = !status?.country;
-  el("country").classList.toggle("hidden", !needsCountry);
-  el("country-note").classList.toggle("hidden", !needsCountry);
+  showCountryField(!status?.country);
   // Keep the network name, which is probably right, and clear the password,
   // which is probably what was wrong.
   el("psk").value = "";
