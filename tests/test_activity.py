@@ -419,8 +419,27 @@ class ActivityTests(unittest.TestCase):
         self.assertAlmostEqual(activity._seconds_ago(time.time() - 90), 90, places=3)
 
     def test_a_running_task_reports_its_elapsed_time_in_words(self):
-        text = activity.render(8787, 5)
-        self.assertNotIn("start time not readable (", text)
+        # The reviewer showed my first attempt could not fail: no running-task
+        # fixture was built, and joining a string inserted newlines between its
+        # characters. This renders a real snapshot instead.
+        def render_with(elapsed_s):
+            run = {"error": None, "running": {"task": "T1", "title": "A task",
+                                              "since": "2026-11-15T15:00:00Z",
+                                              "elapsed_s": elapsed_s, "model": "m"},
+                   "pending": [], "done": 1, "total": 1, "cap": None,
+                   "spent_today": 0.0, "recent": [], "stop_file": False}
+            with mock.patch.object(activity, "runner_snapshot", return_value=run), \
+                 mock.patch.object(activity, "sessions_snapshot",
+                                   return_value={"error": None, "sessions": []}), \
+                 mock.patch.object(activity, "web_snapshot",
+                                   return_value={"port": 8787, "listening": False}):
+                return activity.render(8787, 5)
+
+        # The clock is rendered in local time, so only the elapsed part is fixed.
+        self.assertIn(" local (1m 30s ago) · model `m`", render_with(90))
+        unreadable = render_with(None)
+        self.assertIn("(start time not readable)", unreadable)
+        self.assertNotIn("unknown ago", unreadable)
 
     def test_why_says_what_the_snapshot_can_prove(self):
         now = 1_700_000_000.0
@@ -606,6 +625,72 @@ class ActivityTests(unittest.TestCase):
             render.assert_called_once()
         self.assertIn("# snapshot", output.getvalue())
         self.assertIn("(written to /tmp/opencode/x.md)", output.getvalue())
+
+    def test_tabs_split_the_report_and_keep_needs_first(self):
+        meta = {"agents": {"error": None, "sessions": []}, "rates": {}}
+        text = activity.render(8787, 3)
+        tabs = activity._tui_tabs(text, meta, 3)
+        self.assertEqual([tab["label"] for tab in tabs],
+                         ["Needs", "Sessions", "Research", "Status"])
+        needs = "\n".join(entry[1] for entry in tabs[0]["entries"] if entry[0] == "text")
+        self.assertIn("Which three speakers", needs)
+        # The section heading itself is the tab label, not a line inside it.
+        self.assertNotIn("## What I need from you", needs)
+        # Every word shown in the terminal comes from the report it was built from.
+        shown = "\n".join(entry[1] for tab in tabs for entry in tab["entries"]
+                          if entry[0] == "text")
+        # Whether the dev hub is up changes between runs; the Status tab must
+        # carry the section either way.
+        self.assertTrue("Listening on" in shown or "Not listening on port 8787" in shown)
+
+    def test_sessions_tab_rebuilds_the_table_instead_of_reusing_pipes(self):
+        session = {"id": "a", "title": "A session", "agent": "", "model": "",
+                   "provider": "", "model_id": "m", "variant": "", "cost": 0.01,
+                   "created": 1, "tokens": 0, "updated": 2, "child": False,
+                   "parent": "", "working": True, "busy_at": None, "idle_at": None}
+        meta = {"agents": {"error": None, "sessions": [session]}, "rates": {}}
+        with mock.patch.object(activity, "sessions_snapshot",
+                               return_value={"error": None, "sessions": [session]}), \
+             mock.patch.object(activity, "web_snapshot",
+                               return_value={"port": 8787, "listening": False}):
+            text = activity.render(8787, 3)
+        tabs = activity._tui_tabs(text, meta, 3)
+        sessions = next(tab for tab in tabs if tab["label"] == "Sessions")
+        rows = [entry for entry in sessions["entries"] if entry[0] == "row"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][1][2], "A session")
+        self.assertFalse(any(entry[0] == "text" and entry[1].startswith("|")
+                             for entry in sessions["entries"]))
+
+    def test_scroll_stays_inside_the_tab_and_survives_a_refresh(self):
+        # The complaint this exists for: a refresh used to throw away the
+        # position, so a long list meant scrolling again every two seconds.
+        self.assertEqual(activity._tui_clamp(0, 100, 20), 0)
+        self.assertEqual(activity._tui_clamp(500, 100, 20), 80)
+        self.assertEqual(activity._tui_clamp(-5, 100, 20), 0)
+        self.assertEqual(activity._tui_clamp(10, 5, 20), 0)
+        # Shorter content (a finished task gone) clamps rather than blanking.
+        self.assertEqual(activity._tui_clamp(80, 60, 20), 40)
+
+    def test_keys_map_to_actions_without_a_terminal(self):
+        keys = activity._tui_key_action
+        self.assertEqual(keys(ord("q"), 4), ("quit", 0))
+        self.assertEqual(keys(ord("j"), 4), ("scroll", 1))
+        self.assertEqual(keys(ord("k"), 4), ("scroll", -1))
+        self.assertEqual(keys(9, 4), ("tab", 1))
+        self.assertEqual(keys(ord("h"), 4), ("tab", -1))
+        self.assertEqual(keys(ord("3"), 4), ("select", 2))
+        self.assertEqual(keys(ord("9"), 4), None)
+        self.assertEqual(keys(ord(" "), 4), ("pause", 0))
+        self.assertEqual(keys(ord("r"), 4), ("refresh", 0))
+        self.assertEqual(keys(ord("x"), 4), None)
+
+    def test_tab_bar_degrades_to_numbers_when_narrow(self):
+        tabs = [{"label": "Needs *", "entries": []}, {"label": "Sessions *", "entries": []}]
+        wide = activity._tui_tab_bar(tabs, 0, 80)
+        self.assertIn("Needs", wide)
+        narrow = activity._tui_tab_bar(tabs, 1, 10)
+        self.assertEqual(narrow, "1 [2]")
 
     def test_tui_default_interval(self):
         output = io.StringIO()

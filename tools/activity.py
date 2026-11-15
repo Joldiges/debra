@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import calendar
-import curses
 import json
 import math
 import os
@@ -32,6 +31,11 @@ import threading
 import time
 import unicodedata
 from pathlib import Path
+
+try:  # pragma: no cover - depends on how Python was built
+    import curses
+except ImportError:  # a Python without _curses must still print Markdown
+    curses = None  # type: ignore[assignment]
 
 SOURCE = Path(__file__).resolve().parent.parent
 if __name__ == "__main__":
@@ -563,10 +567,10 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
     elif run["running"]:
         r = run["running"]
         elapsed = ("start time not readable" if r["elapsed_s"] is None
-                   else f"started {r['elapsed_s'] // 60}m {r['elapsed_s'] % 60}s ago")
+                   else f"{r['elapsed_s'] // 60}m {r['elapsed_s'] % 60}s ago")
         title = f" — {r['title']}" if r["title"] else ""
         out.append(f"- **Running now:** `{r['task']}`{title}")
-        out.append(f"- {elapsed} ({_local(r['since'])} local) · model `{r['model']}`")
+        out.append(f"- Started {_local(r['since'])} local ({elapsed}) · model `{r['model']}`")
     elif run["stop_file"]:
         out.append("- **Stopped by STOP file**; nothing will start until it is removed.")
     else:
@@ -738,18 +742,25 @@ def _rate_band(rate: float | None) -> int:
     return 1 if rate < 0.05 else 2 if rate < 0.12 else 3 if rate < 0.30 else 4
 
 
-def _tui_content(text: str, meta: dict, limit: int) -> list:
-    """Table rows first, then the same supporting information as Markdown."""
+def _tui_rows(meta: dict, limit: int) -> tuple[list, str | None]:
+    """Session rows as (cells, colour band), rebuilt from untruncated data."""
     agents = meta["agents"]
     sessions = agents["sessions"]
     working, recent = _ordered_sessions(sessions, limit)
     by_id = {s["id"]: s for s in sessions}
     now = time.time()
     rates = meta.get("rates", {})
-    content = [(_session_cells(s, by_id, now), _rate_band(rates.get(_model_label(s))))
-               for s in working + recent]
-    if agents["error"]:
-        content.append((agents["error"], 0))
+    rows = [(_session_cells(s, by_id, now), _rate_band(rates.get(_model_label(s))))
+            for s in working + recent]
+    return rows, agents["error"]
+
+
+def _tui_content(text: str, meta: dict, limit: int) -> list:
+    """Table rows first, then the same supporting information as Markdown."""
+    rows, error = _tui_rows(meta, limit)
+    content = list(rows)
+    if error:
+        content.append((error, 0))
     elif not content:
         content.append(("No sessions to display.", 0))
 
@@ -773,8 +784,105 @@ def _tui_content(text: str, meta: dict, limit: int) -> list:
     return content
 
 
+# Each tab is (label, entries). An entry is ("text", line, 0) or ("row", cells, band).
+TUI_TABS = (("What I need from you", "Needs"), ("Agent sessions", "Sessions"),
+            ("Research runner", "Research"), ("Development web server", "Status"))
+
+
+def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
+    """Split the snapshot into tabs, with the session table rebuilt to fit.
+
+    Splitting the Markdown keeps one source of truth: a section added to the
+    report appears as a tab without touching the TUI, and the words in the
+    terminal are the words in the file.
+    """
+    sections, order, current = {}, [], None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            current = line[3:].strip()
+            order.append(current)
+            sections[current] = []
+            continue
+        if current is not None:
+            sections[current].append(line)
+    rows, rows_error = _tui_rows(meta, limit)
+    allowed = {heading: label for heading, label in TUI_TABS}
+    tabs = []
+    for heading in order:
+        base = heading.split(" (")[0].strip()
+        if base not in allowed:
+            continue
+        entries = []
+        table_done = False
+        for line in sections[heading]:
+            if base == "Agent sessions":
+                # The Markdown table is pre-truncated for a fixed width; the
+                # terminal rebuilds it, so its pipe rows are dropped here.
+                if line.startswith("|"):
+                    if not table_done:
+                        entries.extend(("row", cells, band) for cells, band in rows)
+                        if rows_error:
+                            entries.append(("text", rows_error, 0))
+                        elif not rows:
+                            entries.append(("text", "No sessions to display.", 0))
+                        table_done = True
+                    continue
+                if line.startswith("### "):
+                    continue
+            entries.append(("text", line, 0))
+        if base == "Agent sessions" and not table_done:
+            entries.extend(("row", cells, band) for cells, band in rows)
+        tabs.append({"label": allowed[base], "base": base, "entries": entries})
+    # Tab order is fixed by TUI_TABS, not by where a section happens to sit in
+    # the report, so tabs do not jump about when a section is added.
+    rank = {heading: index for index, (heading, _label) in enumerate(TUI_TABS)}
+    tabs.sort(key=lambda tab: rank[tab["base"]])
+    if not tabs:
+        tabs.append({"label": "Report", "entries": [("text", line, 0)
+                                                    for line in text.splitlines()]})
+    return tabs
+
+
+def _tui_clamp(offset: int, total: int, visible: int) -> int:
+    """Keep a scroll position inside the content instead of past its end."""
+    return max(0, min(int(offset), max(0, total - max(0, visible))))
+
+
+def _tui_key_action(key, tab_count: int) -> tuple[str, int] | None:
+    """Map a key press to an action. Returned, not performed, so it is testable."""
+    down = (ord("j"),) + ((curses.KEY_DOWN,) if curses else ())
+    up = (ord("k"),) + ((curses.KEY_UP,) if curses else ())
+    next_tab = (9, ord("l")) + ((curses.KEY_RIGHT,) if curses else ())
+    prev_tab = (ord("h"),) + ((curses.KEY_LEFT,) if curses else ())
+    if key in (ord("q"), ord("Q")):
+        return ("quit", 0)
+    if key in down:
+        return ("scroll", 1)
+    if key in up:
+        return ("scroll", -1)
+    if key == ord("g"):
+        return ("top", 0)
+    if key == ord("G"):
+        return ("bottom", 0)
+    if key == ord(" "):
+        return ("pause", 0)
+    if key in (ord("r"), ord("R")):
+        return ("refresh", 0)
+    if key in next_tab:
+        return ("tab", 1)
+    if key in prev_tab:
+        return ("tab", -1)
+    if curses and key == curses.KEY_NPAGE:
+        return ("page", 1)
+    if curses and key == curses.KEY_PPAGE:
+        return ("page", -1)
+    if isinstance(key, int) and ord("1") <= key < ord("1") + min(9, max(1, tab_count)):
+        return ("select", key - ord("1"))
+    return None
+
+
 def _tui_colours(enabled: bool) -> bool:
-    if not enabled or not curses.has_colors():
+    if not enabled or curses is None or not curses.has_colors():
         return False
     try:
         curses.start_color()
@@ -801,6 +909,17 @@ def _tui_put(screen, y: int, x: int, text: str, attr: int = 0) -> None:
         pass
 
 
+def _tui_tab_bar(tabs: list[dict], active: int, width: int) -> str:
+    """A one-line tab bar; it degrades to numbers when the labels do not fit."""
+    labels = [f" {index + 1}:{tab['label']} " for index, tab in enumerate(tabs)]
+    bar = "".join(("[" + label + "]") if index == active else " " + label + " "
+                  for index, label in enumerate(labels))
+    if len(bar) > width:
+        bar = " ".join(("[%d]" if index == active else "%d") % (index + 1)
+                        for index in range(len(tabs)))
+    return bar
+
+
 def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) -> None:
     screen.timeout(100)
     try:
@@ -810,10 +929,12 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
     colours = _tui_colours(colour)
     results: queue.Queue = queue.Queue()
     pending = False
+    paused = False
     next_refresh = 0.0
     snapshot = None
     error = None
-    offset = 0
+    active = 0
+    offsets: dict[int, int] = {}
     text_offset = 0
 
     def collect() -> None:
@@ -827,82 +948,109 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
             results.put((None, None, f"refresh unavailable ({exc.__class__.__name__})"))
 
     while True:
-        if not pending and time.monotonic() >= next_refresh:
+        if not pending and not paused and time.monotonic() >= next_refresh:
             pending = True
             next_refresh = time.monotonic() + interval
             threading.Thread(target=collect, daemon=True).start()
-        try:
-            text, meta, error = results.get_nowait()
-            pending = False
-            if text is not None:
-                snapshot = (text, meta)
-        except queue.Empty:
-            pass
+        if not paused or snapshot is None:
+            try:
+                text, meta, error = results.get_nowait()
+                pending = False
+                if text is not None:
+                    snapshot = (text, meta)
+            except queue.Empty:
+                pass
 
         height, width = screen.getmaxyx()
         screen.erase()
         if _tui_too_small(height, width):
             if height and width:
                 _tui_put(screen, 0, 0, _tui_fit("terminal too small", max(0, width - 1)))
-        else:
-            widths = _tui_widths(width)
-            header = TUI_SEPARATOR.join(_tui_fit(cell, size)
-                                        for cell, size in zip(TUI_HEADERS, widths))
-            _tui_put(screen, 0, 0, header, curses.A_BOLD)
-            if snapshot is None:
-                content = [(error or "Loading snapshot…", 0)]
-                working, total, refreshed = "?", "?", "pending"
-            else:
-                text, meta = snapshot
-                content = _tui_content(text, meta, limit)
-                if error:
-                    content.insert(0, (error, 0))
-                agents = meta["agents"]
-                if agents["error"]:
-                    working, total = "?", "?"
-                else:
-                    working = str(sum(s["working"] is True for s in agents["sessions"]))
-                    total = f"${sum(s['cost'] for s in agents['sessions']):.4f}"
-                refreshed = meta["refreshed"].split()[-1]
-            visible = height - 2
-            offset = max(0, min(offset, max(0, len(content) - visible)))
-            for y, (row, band) in enumerate(content[offset:offset + visible], 1):
-                if isinstance(row, str):
-                    _tui_put(screen, y, 0, _tui_text_window(row, width, text_offset))
-                else:
-                    x = 0
-                    for index, (cell, size) in enumerate(zip(row, widths)):
-                        attr = curses.color_pair(band) if index == 3 and band and colours else 0
-                        if index == 3 and band == 3 and colours and curses.COLORS <= 208:
+            try:
+                screen.refresh()
+                key = screen.getch()
+            except curses.error:
+                continue
+            if _tui_key_action(key, 1) in (("quit", 0),):
+                return
+            continue
+
+        tabs = (_tui_tabs(snapshot[0], snapshot[1], limit) if snapshot
+                else [{"label": "Loading", "entries": [("text", error or "Loading snapshot…", 0)]}])
+        active = max(0, min(active, len(tabs) - 1))
+        entries = tabs[active]["entries"]
+        widths = _tui_widths(width)
+        visible = height - 2
+
+        # The tab bar, then the active tab's content, then a status line.
+        _tui_put(screen, 0, 0, _tui_fit(_tui_tab_bar(tabs, active, width), width), curses.A_BOLD)
+        offset = offsets.get(active, 0)
+        offset = _tui_clamp(offset, len(entries), visible)
+        for y, entry in enumerate(entries[offset:offset + visible], 1):
+            if entry[0] == "row":
+                x = 0
+                for index, (cell, size) in enumerate(zip(entry[1], widths)):
+                    attr = 0
+                    if index == 3 and entry[2] and colours:
+                        attr = curses.color_pair(entry[2])
+                        if entry[2] == 3 and curses.COLORS <= 208:
                             attr |= curses.A_BOLD
-                        _tui_put(screen, y, x, _tui_fit(cell, size), attr)
-                        x += size
-                        if index < len(widths) - 1:
-                            _tui_put(screen, y, x, TUI_SEPARATOR)
-                            x += len(TUI_SEPARATOR)
-            footer = f"port:{port} | {working} working | {total} | {refreshed} | q ↑↓←→"
-            if error:
-                footer += f" | {error}"
-            _tui_put(screen, height - 1, 0, _tui_fit(footer, width - 1), curses.A_REVERSE)
+                    _tui_put(screen, y, x, _tui_fit(cell, size), attr)
+                    x += size
+                    if index < len(widths) - 1:
+                        _tui_put(screen, y, x, TUI_SEPARATOR)
+                        x += len(TUI_SEPARATOR)
+            else:
+                _tui_put(screen, y, 0, _tui_text_window(entry[1], width, text_offset))
+        offsets[active] = offset
+
+        if snapshot:
+            meta = snapshot[1]
+            agents = meta.get("agents") or {"sessions": []}
+            sessions = agents["sessions"]
+            working = str(sum(s["working"] is True for s in sessions))
+            total = f"${sum(s['cost'] for s in sessions):.4f}"
+            refreshed = meta["refreshed"].split()[-1]
+        else:
+            working, total, refreshed = "?", "?", "pending"
+        footer = (f" {active + 1}/{len(tabs)} {tabs[active]['label']} | port:{port} | "
+                  f"{working} working | {total} | {refreshed}"
+                  + (" | PAUSED" if paused else "")
+                  + " | tab/n:next jk:scroll space:pause r:now q:quit")
+        if error:
+            footer += f" | {error}"
+        _tui_put(screen, height - 1, 0, _tui_fit(footer, width), curses.A_REVERSE)
         try:
             screen.refresh()
             key = screen.getch()
         except curses.error:
             continue
-        if key in (ord("q"), ord("Q")):
+        action = _tui_key_action(key, len(tabs))
+        if action is None:
+            continue
+        kind, amount = action
+        if kind == "quit":
             return
-        if key in (curses.KEY_DOWN, ord("j")):
-            offset += 1
-        elif key in (curses.KEY_UP, ord("k")):
-            offset -= 1
-        elif key == curses.KEY_NPAGE:
-            offset += max(1, height - 2)
-        elif key == curses.KEY_PPAGE:
-            offset -= max(1, height - 2)
-        elif key in (curses.KEY_RIGHT, ord("l")):
-            text_offset += 10
-        elif key in (curses.KEY_LEFT, ord("h")):
-            text_offset = max(0, text_offset - 10)
+        if kind == "tab":
+            active = (active + amount) % len(tabs)
+            text_offset = 0
+        elif kind == "select":
+            active = min(amount, len(tabs) - 1)
+            text_offset = 0
+        elif kind == "scroll":
+            offsets[active] = _tui_clamp(offset + amount, len(entries), visible)
+        elif kind == "page":
+            offsets[active] = _tui_clamp(offset + amount * max(1, visible - 1),
+                                         len(entries), visible)
+        elif kind == "top":
+            offsets[active] = 0
+        elif kind == "bottom":
+            offsets[active] = _tui_clamp(len(entries), len(entries), visible)
+        elif kind == "pause":
+            paused = not paused
+        elif kind == "refresh":
+            paused = False
+            next_refresh = 0.0
 
 
 def _positive_interval(value: str) -> float:
@@ -936,6 +1084,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.tui:
         if not sys.stdout.isatty():
             print("--tui requires a terminal on stdout", file=sys.stderr)
+            return 1
+        if curses is None:
+            print("--tui needs the curses module, which this Python lacks; "
+                  "run without --tui for the Markdown view", file=sys.stderr)
             return 1
         try:
             curses.wrapper(_tui_screen, args.port, limit, args.interval,
