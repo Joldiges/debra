@@ -592,3 +592,29 @@ class DeviceAddressTests(Temp):
             return ""
         self.assertIsNone(nm_module.Nmcli(runner=runner).device_address("wlan0"))
         self.assertIsNone(nm_module.Nmcli(runner=runner).device_address(None))
+
+
+class HostnameTests(Temp):
+    def test_a_valid_name_is_applied_not_only_recorded(self):
+        network = FakeNetwork()
+        self.onboarder(network).ensure_identity()
+        self.assertIn(("set_hostname", "debra-demo1"), network.calls)
+
+    def test_a_name_that_cannot_resolve_is_refused(self):
+        recorder = Recorder()
+        adapter = nm_module.Nmcli(runner=recorder)
+        for bad in ("", "has space", "two.dots", "-leading", "x" * 64):
+            with self.subTest(name=bad):
+                with self.assertRaises(nm_module.NmError):
+                    adapter.set_hostname(bad)
+        self.assertEqual(recorder.calls, [], "an invalid name reached hostnamectl")
+        adapter.set_hostname("debra-3c6b3f")
+        self.assertEqual(recorder.calls, [["hostnamectl", "set-hostname", "debra-3c6b3f"]])
+
+    def test_a_missing_hostnamectl_is_reported_without_losing_the_name(self):
+        class Broken(FakeNetwork):
+            def set_hostname(self, hostname):
+                raise nm_module.NmError("hostnamectl is not installed")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            status = self.onboarder(Broken()).start_hotspot()
+        self.assertEqual(status["hostname"], "debra-demo1")

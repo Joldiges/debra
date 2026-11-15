@@ -106,7 +106,7 @@ the operating system is at most `partial`.
 | Step | What it is | Status | What is missing |
 | --- | --- | --- | --- |
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
-| Applying the name | `hostnamectl`-equivalent call so the running system uses it | partial | The NetworkManager adapter has no `set_hostname` at all. The recorded name is not applied; the code logs "recorded but not applied" and carries on |
+| Applying the name | `hostnamectl set-hostname`, so the running system answers to the recorded name | partial | The call now exists and a name that would not resolve is refused before it runs. No boot has applied one on a device, and a failure is logged rather than retried |
 | State across reboots | Closed JSON schema, atomic owner-only writes, refuses unknown keys and phases | implemented | Nothing on the schema; corruption handling is an error by design |
 | Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist and are tested offline. Neither has been enabled or started on a device, and there is no image |
 | Raising the setup network | `nmcli device wifi hotspot` with a fixed profile name and a password derived from the device name | partial | Never executed on a radio. The password is written to `debra-setup.txt` on the boot partition so it can be printed and read, and it is never stored in the setup state. No idle timeout, no pinned channel |

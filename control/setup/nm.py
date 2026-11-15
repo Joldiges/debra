@@ -52,6 +52,15 @@ def valid_country(code):
     return isinstance(code, str) and bool(re.fullmatch(r"[A-Z]{2}", code))
 
 
+def valid_hostname(name):
+    """A single DNS label: what a device name has to be to resolve as .local.
+
+    Dots are refused on purpose. A name with a dot is a domain, not a label, and
+    `hostnamectl` accepts one that avahi will not announce as `<name>.local`.
+    """
+    return isinstance(name, str) and bool(re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?", name))
+
+
 def _keyfile_value(text):
     """Escape what a NetworkManager keyfile treats as structure.
 
@@ -119,6 +128,17 @@ class Nmcli:
             return None
         match = re.search(r"^country ([A-Z]{2}):", text, re.MULTILINE)
         return match.group(1) if match else None
+
+    def set_hostname(self, hostname):
+        """Apply the device name to the running system.
+
+        Recording a name is not applying it. Without this the page shows a name
+        the device does not answer to, so `<name>.local` never resolves and the
+        person has no way to reach it after the setup network is gone.
+        """
+        if not valid_hostname(hostname):
+            raise NmError("Device name must be letters, digits and dashes, 1-63 characters")
+        self._run(["hostnamectl", "set-hostname", hostname], timeout=30)
 
     def set_country(self, code):
         if not valid_country(code):

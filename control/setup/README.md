@@ -193,9 +193,10 @@ Ordered by how likely it is to bite on a real first boot.
    point.
 4. **Nothing has read a real root-only keyfile set.** The baseline has only ever
    run against a temporary root.
-5. **`hostnamectl` is never called.** `nm.Nmcli` has no `set_hostname`, so the
-   recorded name is logged as "recorded but not applied". The unit does not fix
-   that.
+5. **The device name is applied with `hostnamectl`, which has never run.** The
+   adapter refuses a name that would not resolve as `<name>.local`, but no boot
+   has applied one, and a failure is logged and carried past rather than retried,
+   so the page can show a name the device does not answer to.
 6. **No captive-portal helper.** A phone will not offer to open the page; the
    address has to be typed from the card note.
 7. **If `/boot/firmware` is not mounted when the note is written**, the note is
