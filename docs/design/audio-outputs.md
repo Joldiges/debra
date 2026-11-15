@@ -97,13 +97,8 @@ be true, and `debra-audio outputs` reports what is true.
   speaker is on line; the jack is untested. If the jack is also on line, then
   "speaker and headphones" cannot be separated by the codec and the only
   distinction is volume. **Next check:** plug headphones into the HAT, enable
-  `HP`, play a tone, and see which tap makes sound.
-- **Whether HDMI sinks appear without a display.** They should not, by
-  WirePlumber's availability logic, but this has not been observed here: both
-  ports are disconnected.
-- **Whether `module-combine-stream` or the PulseAudio-compatible
-  `module-combine-sink` is available on PipeWire 1.4.2 as shipped by Trixie.**
-  Unverified; the lab Pi was unreachable when this was written.
+  `HP`, play a tone, and see which tap makes sound. **Not tested on 2026-11-15
+  because it needs audible output.**
 - **Volume behaviour in a combine sink.** Whether the virtual sink's volume
   scales every member, and what happens when a member has a hardware volume
   control (the HAT's `PCM`), is untested.
@@ -111,6 +106,23 @@ be true, and `debra-audio outputs` reports what is true.
   principle, and it has its own latency and reconnect problems.
 - **Whether the user wants music to follow the announcement profile.** Today
   they are separate by design; that is a decision to confirm, not a fact.
+
+## What the lab Pi answered, 2026-11-15
+
+Three of the open questions above are now measured rather than assumed. Nothing
+audible was played, so none of this disturbs a sleeping house.
+
+| Question | Answer |
+| --- | --- |
+| Is `module-combine-stream` available? | **Yes.** `libpipewire-module-combine-stream.so` is present on PipeWire 1.4.2 (`/usr/lib/aarch64-linux-gnu/pipewire-0.3/`), so the native PipeWire combine sink is usable and the PulseAudio-compat `module-combine-sink` is not needed |
+| Is `module-echo-cancel` available? | **Yes.** `libpipewire-module-echo-cancel.so` is present, so the reply re-triggering the wake word can be attacked with a real echo-cancel sink instead of by lowering the volume |
+| Do HDMI sinks appear with no display connected? | **Yes, and this contradicts what was assumed.** `alsa_output.platform-107c701400.hdmi.hdmi-stereo` exists in `SUSPENDED` state with nothing plugged into either port. Only HDMI **0** appears; HDMI **1** does not |
+
+The HDMI answer changes the design: an "all outputs" combine sink would include a
+dead HDMI member on a device with no screen. That is not harmful for a chime, but
+it means "all" cannot be defined as "every sink that exists" — it has to be
+"every sink the user has chosen, present or not", and the presence check has to
+come from somewhere other than `pactl list sinks`.
 
 ## Why this is not being built now
 
