@@ -202,6 +202,37 @@ window.addEventListener("load", async () => {
       assert(byId("join").textContent === "Join network",
              "the button is not ready to try again: " + JSON.stringify(byId("join").textContent));
       result.textContent = "PASS: a too-short password and an empty network name are refused without a request";
+    } else if (mode === "picker") {
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      assert(shown("ssid-pick"), "the nearby-network picker is hidden although networks were found");
+      const options = [...byId("ssid-pick").options].map(option => option.value);
+      assert(options[0] === "", "the picker has no empty first option");
+      assert(options.includes("HomeWiFi") && options.includes("Cafe"),
+             "the scanned networks are missing: " + JSON.stringify(options));
+      assert(options.length === 4, "expected three networks and the placeholder, saw " + options.length);
+      const cafe = [...byId("ssid-pick").options].find(option => option.value === "Cafe");
+      assert(cafe.textContent.includes("no password"),
+             "an open network is not marked: " + JSON.stringify(cafe.textContent));
+      // Choosing an entry fills the text field; typing still works.
+      byId("ssid-pick").value = "HomeWiFi";
+      byId("ssid-pick").dispatchEvent(new Event("change"));
+      assert(byId("ssid").value === "HomeWiFi",
+             "choosing a network did not fill the name field: " + JSON.stringify(byId("ssid").value));
+      assert(document.activeElement === byId("psk"), "the password field was not focused after choosing");
+      // A hidden network is still joinable by typing it.
+      fill("Hidden Network", "correct horse battery");
+      byId("join").click();
+      const answered = await until(() => posts.length > 0 || shown("handover"));
+      assert(answered, "typing a name and joining sent nothing");
+      result.textContent = "PASS: the picker offers scanned networks and typing still works";
+    } else if (mode === "picker-empty") {
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      assert(!shown("ssid-pick"),
+             "the picker is shown although the scan found nothing");
+      assert(!shown("ssid-pick-note"), "the scan note is shown with no scan result");
+      assert(shown("ssid"), "the network name field is hidden when there is no picker");
+      fill("HomeWiFi", "correct horse battery");
+      result.textContent = "PASS: with no scan result the page asks for the name";
     } else if (mode === "online") {
       assert(await until(() => shown("online")), "the connected screen never appeared");
       assert(!shown("form-card") && !shown("failed") && !shown("handover") && !shown("loading"),
@@ -226,6 +257,84 @@ window.addEventListener("load", async () => {
              "the failure reason is not shown: " + JSON.stringify(textOf("failed-reason")));
       assert(!byId("retry").hidden, "the failure screen has no retry control");
       result.textContent = "PASS: the failure screen shows the reason from the device";
+    } else if (mode === "country-other") {
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      byId("country").value = "other";
+      byId("country").dispatchEvent(new Event("change"));
+      assert(byId("country-code"), "choosing Other did not reveal a code field");
+      byId("country-code").value = "is";
+      byId("country-code").dispatchEvent(new Event("input"));
+      assert(byId("country-code").value === "IS",
+             "the typed code was not upper-cased: " + byId("country-code").value);
+      // What the 15-second poll does, run directly. It used to rebuild the
+      // list from scratch, resetting the select to blank while the code field
+      // stayed on screen, so the two disagreed about what would be sent.
+      render();
+      assert(byId("country").value === "other",
+             "the poll reset the country to blank: " + JSON.stringify(byId("country").value));
+      assert(byId("country-code") && byId("country-code").value === "IS",
+             "the poll lost the typed code");
+      fill("HomeWiFi", "correct horse battery");
+      byId("join").click();
+      assert(await until(() => posts.length > 0 || shown("handover")),
+             "nothing was sent after choosing Other");
+      assert(posts.length === 1 && posts[0].body.country === "IS",
+             "the typed country code was not sent: " + JSON.stringify(posts));
+      result.textContent = "PASS: Other and the typed code survive a poll and are sent";
+    } else if (mode === "refused") {
+      // The device answers with a refusal. That is not a failure screen: the
+      // form is still the right thing to show, with the advice on it.
+      const before = window.fetch;
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/join" && (options.method || "GET").toUpperCase() === "POST") {
+          return new Response(
+            JSON.stringify({error: "Too many attempts. Wait ten minutes, then try again."}),
+            {status: 429, headers: {"Content-Type": "application/json"}});
+        }
+        return before(path, options);
+      };
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      fill("HomeWiFi", "correct horse battery");
+      byId("join").click();
+      assert(await until(() => /ten minutes/.test(textOf("form-error"))),
+             "the refusal advice was not shown: " + JSON.stringify(textOf("form-error")));
+      assert(shown("form-card"), "a refused submission left the form");
+      assert(!shown("failed"), "a refused submission showed the failure card");
+      assert(byId("ssid").value === "HomeWiFi", "the typed network name was lost");
+      // Now the poll: a device that has recorded a failure must not take the
+      // form away while the person is reading the advice or typing a retry.
+      status.phase = "failed";
+      status.last_error = "The Wi-Fi password was refused by the network.";
+      render();
+      assert(shown("form-card"),
+             "the poll replaced the form after a refusal");
+      assert(/ten minutes/.test(textOf("form-error")), "the poll wiped the advice");
+      assert(byId("ssid").value === "HomeWiFi", "the poll lost the typed network name");
+      result.textContent = "PASS: a refusal keeps the form, its advice and what was typed";
+    } else if (mode === "baseline-error") {
+      assert(await until(() => shown("online")), "the connected screen never appeared");
+      assert(!byId("baseline-note").classList.contains("hidden"),
+             "the baseline failure is not shown at all");
+      assert(/out of disk space/.test(textOf("baseline-note")),
+             "the baseline reason is missing: " + JSON.stringify(textOf("baseline-note")));
+      assert(/next boot/i.test(textOf("baseline-note")),
+             "the page does not say the device tries again");
+      const rows = [...document.querySelectorAll("#online-values div")].map(row => row.textContent);
+      assert(rows.some(row => row.includes("Baseline") && /not captured/.test(row)),
+             "the baseline row claims success: " + rows.join(" | "));
+      result.textContent = "PASS: a failed baseline is shown with its reason and the retry";
+    } else if (mode === "polling") {
+      // The device is mid-join and the page is on the handover card. The only
+      // way it can learn that the join worked is by asking again, so the poll
+      // must not stop just because the phase is "connecting".
+      assert(await until(() => shown("handover")), "the handover screen never appeared");
+      window.DEBRA_POLL_MS = 150;
+      const before = calls.filter(call => call.path === "/api/status").length;
+      const polled = await until(
+        () => calls.filter(call => call.path === "/api/status").length > before, 200, 20);
+      assert(polled, "the page stopped polling while the device was connecting");
+      assert(shown("handover"), "a poll replaced the handover screen");
+      result.textContent = "PASS: the page keeps polling while the device is connecting";
     } else {
       throw new Error("unknown case " + JSON.stringify(mode));
     }
@@ -493,6 +602,25 @@ class SetupBrowserTests(unittest.TestCase):
         self.assertEqual(state["attempts"], 1)
         # The setup network must be back, or there is no way to try again.
         self.assertEqual(state["hotspot"]["ssid"], "Debra-Setup-demo1")
+
+    def test_a_scanned_network_can_be_chosen_instead_of_typed(self):
+        self.assert_driven("picker", cut=True)
+
+    def test_with_no_scan_result_the_page_asks_for_the_name(self):
+        self.assert_driven("picker-empty", "--behaviour", "scan-fails")
+
+    def test_choosing_other_country_survives_a_poll(self):
+        self.assert_driven("country-other")
+
+    def test_a_refused_submission_keeps_the_form_and_its_advice(self):
+        self.assert_driven("refused")
+
+    def test_a_failed_baseline_is_shown_with_its_reason(self):
+        self.assert_driven("baseline-error", "--phase", "online",
+                           "--baseline-error", "The device is out of disk space")
+
+    def test_the_page_keeps_polling_while_connecting(self):
+        self.assert_driven("polling", "--phase", "connecting")
 
     def test_bad_input_is_refused_in_the_page_without_a_request(self):
         self.assert_driven("validation")

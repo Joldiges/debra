@@ -28,7 +28,9 @@ function show(id) {
   for (const name of SECTIONS) el(name).classList.toggle("hidden", name !== id);
 }
 
-function buildCountries(selected) {
+// Rebuild the country list, keeping a chosen code selected. `other` also
+// recreates the free-text field, so a poll does not make it vanish.
+function buildCountries(selected, typed) {
   const select = el("country");
   select.replaceChildren();
   const blank = document.createElement("option");
@@ -45,7 +47,25 @@ function buildCountries(selected) {
   const other = document.createElement("option");
   other.value = "other";
   other.textContent = "Other (enter a code)";
+  if (selected === "other") other.selected = true;
   select.append(other);
+  if (selected === "other") ensureCountryCode(typed || "");
+}
+
+function ensureCountryCode(value) {
+  let input = el("country-code");
+  if (!input) {
+    input = document.createElement("input");
+    input.id = "country-code";
+    input.maxLength = 2;
+    input.placeholder = "GB";
+    input.autocomplete = "off";
+    input.style.marginTop = "8px";
+    input.addEventListener("input", () => { input.value = input.value.toUpperCase(); });
+    el("country").after(input);
+  }
+  if (value) input.value = value;
+  return input;
 }
 
 function countryValue() {
@@ -99,6 +119,14 @@ function render() {
       row.append(dt, dd);
       list.append(row);
     }
+    // "not captured yet" with no reason reads as progress that is not
+    // happening. The device says why, and says that a later boot retries.
+    const note = el("baseline-note");
+    note.textContent = status.baseline_error
+      ? `The first baseline was not captured: ${status.baseline_error}. ` +
+        "The device tries again on its next boot."
+      : "";
+    note.classList.toggle("hidden", !status.baseline_error);
     show("online");
     return;
   }
@@ -114,11 +142,19 @@ function render() {
     show("failed");
     return;
   }
-  // Keep a country the person already chose, so a poll does not reset the form.
+  // Keep what the person already chose, so a poll does not reset the form.
+  // That includes "Other" plus the code typed beside it: the previous version
+  // only preserved a two-letter dropdown value, so choosing Other and typing
+  // "IS" was silently replaced by a blank select while the code stayed visible.
   const chosen = el("country").value;
-  buildCountries(status.country || (/^[A-Z]{2}$/.test(chosen) ? chosen : ""));
+  const typed = (el("country-code")?.value || "").toUpperCase();
+  const keep = chosen === "other" ? "other"
+    : (/^[A-Z]{2}$/.test(chosen) ? chosen : "");
+  buildCountries(status.country || keep, keep === "other" ? typed : "");
+  if (keep === "other") ensureCountryCode(typed);
   const needsCountry = !status.country;
   showCountryField(needsCountry);
+  buildNetworkPicker(status.networks);
   el("step-label").textContent = needsCountry ? "STEP 1 OF 2" : "ONE STEP";
   el("form-card").classList.toggle("hidden", false);
   show("form-card");
@@ -136,19 +172,51 @@ async function load() {
   }
 }
 
+// A beginner should not have to spell a network name from memory. The list is
+// only what the radio saw before the access point went up; choosing an entry
+// fills the text field, so typing still works and a hidden network still joins.
+let pickerKey = null;
+function buildNetworkPicker(networks) {
+  const pick = el("ssid-pick");
+  const label = el("ssid-pick-label");
+  const note = el("ssid-pick-note");
+  const offered = Array.isArray(networks) ? networks : [];
+  // Rebuild only when the list actually changed. A 15-second poll otherwise
+  // reset the selection a person had just made.
+  const key = JSON.stringify(offered.map(item => [item?.ssid, item?.security]));
+  if (key === pickerKey) return;
+  pickerKey = key;
+  pick.replaceChildren();
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = "Choose a network";
+  pick.append(first);
+  for (const network of offered) {
+    if (!network || typeof network.ssid !== "string" || !network.ssid) continue;
+    const option = document.createElement("option");
+    option.value = network.ssid;
+    const open = (network.security || "open").toLowerCase() === "open";
+    option.textContent = network.ssid + (open ? " (no password)" : "");
+    pick.append(option);
+  }
+  const usable = pick.options.length > 1;
+  pick.classList.toggle("hidden", !usable);
+  label.classList.toggle("hidden", !usable);
+  note.classList.toggle("hidden", !usable);
+}
+
+el("ssid-pick").addEventListener("change", () => {
+  const chosen = el("ssid-pick").value;
+  if (!chosen) return;
+  el("ssid").value = chosen;
+  // A name that needs a password should lead straight to the password field.
+  el("psk").focus();
+});
+
 el("country").addEventListener("change", () => {
-  const other = el("country").value === "other";
-  if (other && !el("country-code")) {
-    const input = document.createElement("input");
-    input.id = "country-code";
-    input.maxLength = 2;
-    input.placeholder = "GB";
-    input.autocomplete = "off";
-    input.style.marginTop = "8px";
-    input.addEventListener("input", () => { input.value = input.value.toUpperCase(); });
-    el("country").after(input);
-    input.focus();
-  } else if (!other) {
+  if (el("country").value === "other") {
+    ensureCountryCode("").focus();
+  } else {
     el("country-code")?.remove();
   }
 });
@@ -180,6 +248,10 @@ el("join").addEventListener("click", async () => {
       return;
     }
     const data = await response.json().catch(() => ({}));
+    // A 429 or a 400 means the form is still the right screen. Clearing the
+    // editing flag here let the next poll replace the form - and the advice
+    // just shown - with the previous failure card.
+    editing = true;
     error(data.error || "The device refused that request.");
   } catch {
     // Losing the reply here is expected once the access point drops; the
@@ -210,4 +282,18 @@ load();
 // Keep polling while connecting too: the access point is down then, the fetch
 // simply fails, and when it comes back the page has to discover whether the
 // join worked. Stopping at `connecting` left a reload as the only way to know.
-setInterval(() => { if (!busy) load(); }, 15000);
+// A recursive timeout rather than setInterval: a poll that takes longer than
+// the interval cannot overlap the next one, and the delay is read each time so
+// a browser test can shorten it. Fifteen seconds is a guess nothing here has
+// measured against a real phone on a real access point.
+const POLL_MS = () => Number(window.DEBRA_POLL_MS) || 15000;
+function poll(delay) {
+  setTimeout(async () => {
+    if (!busy) await load();
+    poll(POLL_MS());
+  }, delay === undefined ? POLL_MS() : delay);
+}
+// Look again a second after the page opens: a join started on another device,
+// or a reload while the device was still associating, is then picked up quickly
+// instead of after a full interval.
+poll(1000);

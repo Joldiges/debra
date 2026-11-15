@@ -25,7 +25,7 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `setup-r2` | — | `.local/reviews/setup-r2-20261115/` | independent, `gpt-6.1-sol`; reviews current HEAD, including the r1 fixes |
+| Acceptance review `setup-r3` | — | `.local/reviews/setup-r3-20261115/` | independent, `gpt-6.1-sol`; reviews the r2 fixes, which are the first candidate that writes a persistent Wi-Fi profile |
 
 ## Done this round
 
@@ -34,7 +34,8 @@ not commit, push, or approve their own work.
 | Wi-Fi onboarding, identity and first baseline | N02 | `cd4790f`, fixed by `40ef8dc` and `ef370d5` — 67 tests; **not run on a device** |
 | Setup service at boot | N02 | `cf88922` — system unit, installer, 24 tests; never loaded by systemd |
 | The r1 review's remaining blockers | N02 | `ef370d5` — reserved admission, active-profile check, classified errors, baseline retry and atomicity, form kept while polling |
-| Nearby-network picker in the setup page | N02 | uncommitted — the radio is scanned once before the access point is raised, so a beginner chooses a name instead of typing it; 9 setup browser scenarios |
+| Nearby-network picker in the setup page | N02 | this round — the radio is scanned once before the access point is raised, so a beginner chooses a name instead of typing it; 13 setup browser scenarios |
+| The r2 review's blockers | N02 | this round — the profile is written where NetworkManager keeps it and promoted to autoconnect only after the join is verified; a per-attempt token replaces the SSID check; the reservation is released when the reply cannot be written; the country is set after the AP is down; the portal prints the address it is served on; the baseline is never overwritten, never archives itself, and `latest()` verifies the hash; the page keeps what was typed across a poll and shows a baseline failure |
 | Browser proof of the device list | — | `test_development_bypass_and_device_links` already drives the configured and discovered badges, the same-device case, a literal label, a discovery start failure, an empty scan and a refused advertisement |
 | Browser proof of the setup page | N02 | `508a7f9` — 7 Chromium scenarios; the page was unreachable and the tests caught it |
 | Installed-artifact tests and atomic rollback | B13 | `508a7f9`, `9d11d08` — 16 tests; two real gaps recorded rather than asserted away |

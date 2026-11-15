@@ -58,6 +58,13 @@ code { background: #101619; border: 1px solid var(--line); border-radius: 6px; p
     <p class="detail" id="country-note">Some radios stay switched off until the
        country is set, so this is asked before the network name.</p>
 
+    <label for="ssid-pick" id="ssid-pick-label">Nearby networks</label>
+    <select id="ssid-pick" class="hidden">
+      <option value="">Choose a network</option>
+    </select>
+    <p class="detail" id="ssid-pick-note">This list was read before the device
+       started its own network. If yours is missing, type its name below.</p>
+
     <label for="ssid">Wi-Fi network name</label>
     <input id="ssid" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="HomeWiFi">
 
@@ -97,6 +104,7 @@ code { background: #101619; border: 1px solid var(--line); border-radius: 6px; p
     <h1>This device is online</h1>
     <p class="ok">It is on <strong id="online-ssid"></strong> and ready to configure.</p>
     <dl id="online-values"></dl>
+    <p class="detail" id="baseline-note" role="status"></p>
     <p class="detail">If the device page does not open, its web control may not be
        installed yet. The Wi-Fi setup has still finished.</p>
   </section>

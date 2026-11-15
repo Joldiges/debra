@@ -39,6 +39,11 @@ def blank(hostname=""):
         "last_error": None,
         "attempts": 0,
         "last_attempt": None,
+        # Which in-flight attempt this record belongs to. `last_attempt` is a
+        # one-second timestamp, so two attempts in the same second - a retry
+        # after a lost reply is exactly that - would share it. A worker that was
+        # superseded must not be able to match its reservation by accident.
+        "attempt_token": None,
         "hotspot": None,
         "baseline": None,
         # Why the last baseline attempt failed, in words a person can read. It
@@ -62,8 +67,10 @@ def validate(data):
         # A record that validates but then raises KeyError in status() is worse
         # than one refused at the boundary.
         raise ValueError(f"Setup state is missing keys: {', '.join(sorted(missing))}")
-    if data.get("schema") != SCHEMA:
-        raise ValueError(f"Unsupported setup state schema: {data.get('schema')!r}")
+    schema = data.get("schema")
+    # `True == 1`, so a JSON `true` would otherwise pass as schema 1.
+    if isinstance(schema, bool) or schema != SCHEMA:
+        raise ValueError(f"Unsupported setup state schema: {schema!r}")
     if data.get("phase") not in PHASES:
         raise ValueError(f"Unknown setup phase: {data.get('phase')!r}")
     for key in ("hostname", "ssid", "address", "last_error", "baseline_error"):
@@ -78,7 +85,7 @@ def validate(data):
             or not 0 <= attempts <= 1000:
         # bool is an int subclass: True would otherwise pass as one attempt.
         raise ValueError("Attempts must be a whole number up to 1000")
-    for key, limit in (("last_attempt", 40), ("updated", 40)):
+    for key, limit in (("last_attempt", 40), ("updated", 40), ("attempt_token", 64)):
         value = data.get(key)
         if value is not None and (not isinstance(value, str) or len(value) > limit):
             raise ValueError(f"{key} must be a timestamp or null")

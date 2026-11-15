@@ -8,12 +8,20 @@ access point come back?) in one testable place instead of inside shell strings.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import secrets
 import subprocess
 import tempfile
 from pathlib import Path
+
+
+LOGGER = logging.getLogger("debra.setup.nm")
+
+# Where the keyfile plugin keeps profiles it will read again after a reboot.
+# A profile anywhere else is not persistent, however successfully it loads.
+PROFILES_DIR = "/etc/NetworkManager/system-connections"
 
 
 class NmError(Exception):
@@ -55,18 +63,63 @@ def _run(argv, timeout=45):
         raise NmError(f"{argv[0]} is not installed") from None
     except subprocess.TimeoutExpired:
         raise NmError(f"{argv[0]} did not answer in time") from None
+    except OSError:
+        # A permission or resource failure carries a path and often a filename
+        # in its text. None of that belongs on the page, in the state file or
+        # in the journal, so only the class of failure leaves here.
+        raise NmError(f"{argv[0]} could not be run") from None
     if result.returncode != 0:
         # Only the classification leaves this function; the raw text does not.
         raise NmError(public_failure(result.stderr or result.stdout, result.returncode))
     return result.stdout
 
 
+def _terse_split(line):
+    """Split one nmcli terse-mode line on unescaped colons.
+
+    `-t` escapes a colon inside a value as `\\:` and a backslash as `\\\\`, so a
+    network called `a:b` is one field and not two.
+    """
+    fields, current, escaped = [], [], False
+    for char in line:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == ":":
+            fields.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    fields.append("".join(current))
+    return fields
+
+
 def valid_psk(psk):
-    return isinstance(psk, str) and 8 <= len(psk) <= 63
+    """A WPA passphrase: 8-63 printable ASCII characters.
+
+    Control characters are refused rather than escaped. A newline in a keyfile
+    value is a second line, which is how `abcdefgh\npsk-flags=1` becomes two
+    settings instead of one password.
+    """
+    return (isinstance(psk, str) and 8 <= len(psk) <= 63
+            and all(" " <= char <= "~" for char in psk))
 
 
 def valid_ssid(ssid):
-    return isinstance(ssid, str) and 1 <= len(ssid) <= 32 and ssid.isprintable()
+    """A network name: 1-32 bytes of UTF-8, printable.
+
+    The limit is 32 *octets* on the wire, not 32 characters, so an accented
+    name is counted the way the radio counts it.
+    """
+    if not isinstance(ssid, str) or not ssid.isprintable():
+        return False
+    try:
+        size = len(ssid.encode("utf-8"))
+    except UnicodeEncodeError:
+        return False
+    return 1 <= size <= 32
 
 
 def valid_country(code):
@@ -83,47 +136,109 @@ def valid_hostname(name):
 
 
 def _keyfile_value(text):
-    """Escape what a NetworkManager keyfile treats as structure.
+    """Escape one value for a NetworkManager keyfile, exactly once.
 
-    A keyfile is an ini file, so a backslash, semicolon or hash inside a network
-    name would otherwise change the meaning of the line or start a comment.
+    A keyfile is a GLib key file. A value is one line; `#` only starts a
+    comment at the beginning of a line; a leading or trailing space is
+    stripped. So the escapes that matter are the line break, the backslash and
+    the spaces at either end. `;` and `#` *inside* a value are literal, and
+    escaping them makes GLib reject the file - the previous version did that
+    and a real parser refused `Caf; #1`.
     """
-    return "".join("\\" + char if char in "\\;#" else char for char in text)
+    first = len(text) - len(text.lstrip(" "))
+    last = len(text.rstrip(" ")) - 1
+    out = []
+    for index, char in enumerate(text):
+        if char == "\\":
+            out.append("\\\\")
+        elif char == "\n":
+            out.append("\\n")
+        elif char == "\r":
+            out.append("\\r")
+        elif char == "\t":
+            out.append("\\t")
+        elif char == " " and (index < first or index > last):
+            out.append("\\s")
+        else:
+            out.append(char)
+    return "".join(out)
 
 
-def write_keyfile(directory, ssid, psk, connection_id):
-    """Write one Wi-Fi profile to a private file and return its path.
+def _fsync_directory(directory):
+    """Make a rename in `directory` durable. Best effort, never raises."""
+    try:
+        handle = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(handle)
+    except OSError:
+        pass
+    finally:
+        os.close(handle)
+
+
+def write_keyfile(directory, ssid, psk, connection_id, autoconnect=False,
+                  interface=None):
+    """Write one Wi-Fi profile where NetworkManager will keep it.
 
     The password goes here rather than into an `nmcli` argument because argv is
-    world-readable in /proc while the command runs. The file is 0600 and is
-    deleted by the caller as soon as NetworkManager has read it.
+    world-readable in /proc while the command runs. The file is 0600 and stays
+    where it is: `nmcli connection load` loads a profile *from a location the
+    keyfile plugin reads*, it does not copy an arbitrary file into storage. A
+    profile in a temporary directory is not one NetworkManager will find again,
+    so the previous version's file was both rejected and deleted, and the
+    device had no household network after a reboot.
+
+    The profile is written under a name the keyfile plugin does not read and
+    renamed into place. NetworkManager watches this directory, so a file
+    created under its final name would be parsed while it was still empty or
+    half written, and a crash mid-write would leave a broken profile that looks
+    like a real one. The rename is atomic inside one directory.
+
+    `autoconnect` stays off until the join has been verified, so a trial that
+    fails never competes with the real network. `interface` pins the profile to
+    one radio, so a device with two Wi-Fi interfaces cannot bring the household
+    network up on the wrong one.
     """
-    lines = ["[connection]",
-             f"id={_keyfile_value(connection_id)}",
-             "type=wifi",
-             "autoconnect=true",
-             "",
-             "[wifi]",
-             "mode=infrastructure",
-             f"ssid={_keyfile_value(ssid)}",
-             ""]
+    directory = Path(directory or PROFILES_DIR)
+    connection = ["[connection]",
+                  f"id={_keyfile_value(connection_id)}",
+                  "type=wifi",
+                  "autoconnect=" + ("true" if autoconnect else "false")]
+    if interface:
+        connection.append(f"interface-name={_keyfile_value(interface)}")
+    lines = connection + ["",
+                          "[wifi]",
+                          "mode=infrastructure",
+                          f"ssid={_keyfile_value(ssid)}",
+                          ""]
     if psk:
         lines += ["[wifi-security]", "key-mgmt=wpa-psk", f"psk={_keyfile_value(psk)}", ""]
     lines += ["[ipv4]", "method=auto", "", "[ipv6]", "method=auto", ""]
-    fd, path = tempfile.mkstemp(prefix="debra-wifi-", suffix=".nmconnection", dir=directory)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        fd, staged = tempfile.mkstemp(prefix=f".{connection_id}-", suffix=".part",
+                                      dir=directory)
+    except OSError:
+        # A path and a filename are not a sentence for the setup page.
+        raise NmError("The Wi-Fi profile could not be saved on this device") from None
+    final = directory / f"{connection_id}.nmconnection"
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write("\n".join(lines))
             stream.flush()
             os.fsync(stream.fileno())
-        os.chmod(path, 0o600)
-    except BaseException:
+        os.chmod(staged, 0o600)
+        os.replace(staged, final)
+        _fsync_directory(directory)
+    except OSError:
         try:
-            os.unlink(path)
+            os.unlink(staged)
         except OSError:
             pass
-        raise
-    return Path(path)
+        raise NmError("The Wi-Fi profile could not be saved on this device") from None
+    return final
 
 
 class Nmcli:
@@ -141,8 +256,12 @@ class Nmcli:
         return None
 
     def country(self):
-        out = self._run(["nmcli", "general", "radio", "wifi"], timeout=15)
-        del out  # the radio state is read for its error, not its text
+        # `nmcli general radio wifi` is not a command; it fails, and the failure
+        # used to escape before `iw` was ever asked, so a device with a country
+        # already set was asked for one again. The real command is `nmcli radio`.
+        state = self._run(["nmcli", "radio", "wifi"], timeout=15).strip().lower()
+        if state.startswith("disabled"):
+            raise NmError("The Wi-Fi radio is switched off")
         try:
             text = self._run(["iw", "reg", "get"], timeout=15)
         except NmError:
@@ -196,6 +315,41 @@ class Nmcli:
         return {"interface": interface, "address": address, "gateway": gateway,
                 "routable": routable(address), "has_route": bool(gateway)}
 
+    def scan(self, interface, limit=20, timeout=30):
+        """Nearby networks, strongest first. Empty on any failure.
+
+        A scan must happen while the radio is free: asking for one with the
+        setup access point up can drop the person's phone off it. The caller
+        only calls this before raising the AP, and an empty list is a normal
+        answer - the page then falls back to typing the name.
+        """
+        if not interface:
+            return []
+        try:
+            out = self._run(["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY",
+                             "device", "wifi", "list", "--rescan", "yes",
+                             "ifname", interface], timeout=timeout)
+        except (NmError, AttributeError):
+            return []
+        seen = {}
+        for line in out.splitlines():
+            fields = _terse_split(line)
+            if len(fields) < 3:
+                continue
+            ssid, signal, security = fields[0].strip(), fields[1].strip(), fields[2].strip()
+            if not ssid:
+                # A hidden network has no name to offer; typing it still works.
+                continue
+            try:
+                strength = int(signal)
+            except ValueError:
+                strength = 0
+            if ssid not in seen or strength > seen[ssid]["signal"]:
+                seen[ssid] = {"ssid": ssid, "signal": strength,
+                              "security": security or "open"}
+        ordered = sorted(seen.values(), key=lambda item: (-item["signal"], item["ssid"]))
+        return ordered[:limit]
+
     def active_connection(self, interface):
         """The connection name NetworkManager has active on a device, or None."""
         if not interface:
@@ -228,53 +382,81 @@ class Nmcli:
                     return address
         return None
 
-    def connect(self, ssid, psk, timeout=60, keyfile_dir=None):
+    def connect(self, ssid, psk, timeout=60, keyfile_dir=None, interface=None):
         """Join a network and return the resulting uplink, or raise NmError.
 
-        The profile is loaded from a private keyfile rather than built from
-        command-line arguments, so the password is never in `ps` output. Loading
-        the profile and activating it are two steps because `nmcli device wifi
-        connect` is the only path that takes a password on the command line.
+        The profile is written to NetworkManager's own profile directory and
+        loaded from there, so the password is never in `ps` output and the
+        profile survives a reboot. Loading and activating are two steps because
+        `nmcli device wifi connect` is the only path that takes a password on
+        the command line.
 
-        A profile that fails is deleted: a leftover autoconnecting profile
-        competing with the household network is worse than no profile at all.
+        The profile autoconnects only after the join has been verified. A
+        failure deletes it and its file, so a wrong password never leaves a
+        profile competing with the household network on the next boot.
         """
         if not valid_ssid(ssid):
-            raise NmError("Network name must be 1-32 printable characters")
+            raise NmError("Network name must be 1-32 characters and printable")
         if psk is not None and psk != "" and not valid_psk(psk):
-            raise NmError("Wi-Fi password must be 8-63 characters")
+            raise NmError("Wi-Fi password must be 8-63 printable characters")
         connection_id = f"debra-wifi-{secrets.token_hex(4)}"
-        path = write_keyfile(keyfile_dir, ssid, psk or None, connection_id)
+        path = write_keyfile(keyfile_dir, ssid, psk or None, connection_id,
+                             interface=interface)
         try:
             self._run(["nmcli", "connection", "load", str(path)], timeout=30)
-        except NmError:
-            path.unlink(missing_ok=True)
-            raise
-        path.unlink(missing_ok=True)
-        try:
             self._run(["nmcli", "connection", "up", "id", connection_id],
                       timeout=timeout)
+            active = self.active()
+            if active is None:
+                raise NmError("Joined the network but NetworkManager reports no uplink")
+            # A connected Wi-Fi device is not proof that *this* profile is the
+            # one that came up: an older profile can win the race. An unknown
+            # profile is not success either - the previous check let None
+            # through, so a blank reading counted as a working household join.
+            current = self.active_connection(active["interface"])
+            if current != connection_id:
+                raise NmError("Joined the network, but a different saved network is active")
+            if interface and active["interface"] != interface:
+                # The profile names its interface, so this means NetworkManager
+                # ignored that and brought the network up somewhere else. The
+                # household network must be on the radio the page was reached
+                # over, not on a second interface nobody looked at.
+                raise NmError("Joined the network on a different Wi-Fi interface")
+            if not active["routable"]:
+                raise NmError("Joined the network but received no usable address")
+            if not active["has_route"]:
+                raise NmError("Joined the network but received no default route")
         except NmError:
-            try:
-                self._run(["nmcli", "connection", "delete", "id", connection_id],
-                          timeout=30)
-            except NmError:
-                pass
+            self._forget(connection_id, path)
             raise
-        active = self.active()
-        if active is None:
-            raise NmError("Joined the network but NetworkManager reports no uplink")
-        # A connected Wi-Fi device is not proof that *this* profile is the one
-        # that came up: an older profile could have won the race. Success means
-        # the profile that was just loaded is the active connection.
-        current = self.active_connection(active["interface"])
-        if current is not None and current != connection_id:
-            raise NmError("Joined the network, but a different saved network is active")
-        if not active["routable"]:
-            raise NmError("Joined the network but received no usable address")
-        if not active["has_route"]:
-            raise NmError("Joined the network but received no default route")
-        return active
+        # Keep the profile: it is the network this device must rejoin on the
+        # next boot. Only now is it allowed to connect on its own.
+        #
+        # This is not optional. A profile left with autoconnect off works until
+        # the next reboot and then leaves the device with no network at all, so
+        # a promotion that keeps failing is a failed join: the profile goes and
+        # the access point comes back while the person is still there to see it.
+        for attempt in (1, 2):
+            try:
+                self._run(["nmcli", "connection", "modify", connection_id,
+                           "connection.autoconnect", "yes"], timeout=30)
+                return active
+            except NmError as exc:
+                LOGGER.warning("Could not set the profile to autoconnect (attempt %d): %s",
+                               attempt, exc)
+        self._forget(connection_id, path)
+        raise NmError("Joined the network, but the profile could not be saved for the next boot")
+
+    def _forget(self, connection_id, path):
+        """Remove a profile that did not work, and its file."""
+        try:
+            self._run(["nmcli", "connection", "delete", "id", connection_id], timeout=30)
+        except NmError:
+            pass
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def start_hotspot(self, ssid, interface, password=None):
         if not valid_ssid(ssid):

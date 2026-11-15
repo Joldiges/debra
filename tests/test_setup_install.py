@@ -144,7 +144,10 @@ class InstalledArtifactTests(Fixture):
             self.assertEqual(file_mode(release / name), 0o600,
                              f"installed {name} must not be group/world accessible")
         self.assertEqual(file_mode(self.state), 0o700)
-        self.assertEqual(file_mode(self.state / "keyfiles"), 0o700)
+        # No Debra-owned keyfile directory: the Wi-Fi profile is written where
+        # NetworkManager's keyfile plugin reads it, so a staging directory here
+        # would only be a place a profile could be lost from.
+        self.assertFalse((self.state / "keyfiles").exists())
         self.assertEqual(file_mode(self.unit), 0o644,
                          "a system unit carries no secret and is world-readable")
         for path in self.scratch.rglob("*"):
@@ -204,6 +207,26 @@ class InstalledArtifactTests(Fixture):
         # Reinstalling the same payload is now a no-op, so the restored unit is
         # the one the installer would have written.
         self.assertFalse(self.install()["changed"])
+
+    def test_rollback_publishes_by_rename_not_by_writing_in_place(self):
+        # The final bytes are the same either way. What matters is that a
+        # service manager reading the unit can never see it half-written, so the
+        # last step must be a rename of a complete file.
+        first = self.install()
+        second = self.install(source=self.source_copy("v3", lambda copy: (
+            copy / "state.py").write_bytes((copy / "state.py").read_bytes() + b"\n# v3\n")))
+        before = self.unit.read_bytes()
+        with patch.object(installer.os, "replace", side_effect=OSError(5, "Input/output error")):
+            with self.assertRaises(OSError):
+                installer.restore(self.root, second["previous_unit"])
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "the unit was written in place instead of renamed")
+        self.assertEqual(sorted(path.name for path in self.unit.parent.iterdir()),
+                         [self.unit.name],
+                         "a half-written candidate was left beside the unit")
+        # And it still works once the rename can happen.
+        installer.restore(self.root, second["previous_unit"])
+        self.assertIn(runner_path(first["release"]), self.unit.read_text())
 
     def test_rollback_refuses_a_file_it_did_not_retain(self):
         self.install()
@@ -377,6 +400,25 @@ class ServiceTests(Fixture):
         self.assertNotIn("start_hotspot", network.phases())
         self.assertEqual(state_module.read(self.state / "setup.json")["phase"], "online")
 
+    def test_the_service_leaves_the_profile_where_network_manager_reads_it(self):
+        # The r2 review's blocker: a Debra-owned staging directory was
+        # configured and never used, and a profile outside the keyfile plugin's
+        # own directories is not one NetworkManager loads again after a reboot.
+        # The service must not hand the adapter one.
+        seen = {}
+        real = installer.onboarding.Onboarder
+
+        def capture(*args, **kwargs):
+            seen.update(kwargs)
+            return real(*args, **kwargs)
+
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        with patch.object(installer.onboarding, "Onboarder", side_effect=capture):
+            self.assertEqual(self.boot(network), 0)
+        self.assertIsNone(seen.get("keyfile_dir"),
+                          "the service is staging profiles outside NetworkManager's store")
+
     def test_a_device_with_no_wifi_interface_reports_instead_of_listening(self):
         network = FakeNetwork(interface=None)
         # The address cannot be bound here, so returning rather than raising
@@ -388,6 +430,25 @@ class ServiceTests(Fixture):
         self.assertEqual(data["phase"], "failed")
         self.assertIsNone(data["hotspot"])
         self.assertIsNone(network.hotspot)
+
+    def test_a_portal_that_cannot_bind_takes_the_access_point_back_down(self):
+        # The access point is already up when the bind happens. Leaving it up
+        # with no page gives a beginner a network that answers nothing and no
+        # way to find out why.
+        network = FakeNetwork()
+        with patch.object(onboarding, "serve",
+                          side_effect=OSError(98, "Address already in use")):
+            with self.assertLogs(installer.LOGGER, level="ERROR") as logs:
+                self.assertEqual(self.boot(network), 1)
+        self.assertIsNone(network.hotspot, "the setup network stayed up with no page")
+        data = state_module.read(self.state / "setup.json")
+        self.assertEqual(data["phase"], "failed")
+        self.assertIsNone(data["hotspot"])
+        self.assertEqual(data["last_error"],
+                         "The setup page could not start on this device")
+        self.assertIn("could not listen", "\n".join(logs.output))
+        self.assertNotIn("Address already in use", "\n".join(logs.output),
+                         "the raw error text reached the journal")
 
     def test_the_portal_stops_once_the_device_is_online(self):
         network = FakeNetwork()
@@ -412,6 +473,17 @@ class ServiceTests(Fixture):
             # The service writes the note a person needs before any page loads.
             self.assertIn("Debra-Setup-", note.read_text())
             self.assertEqual(file_mode(state_path), 0o600)
+            # And it reprints the note once the socket is bound. The access
+            # point here reports no address, so the first note carries the
+            # documented default; the printed address must be the one that is
+            # actually listening, or the first step of setup is a dead link.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and "127.0.0.1" not in note.read_text():
+                time.sleep(0.02)
+            text = note.read_text()
+            self.assertIn("127.0.0.1", text,
+                          "the note does not name the address the page is bound to")
+            self.assertNotIn("10.42.0.1", text)
             # A successful join is what the portal's own worker would record.
             data = state_module.read(state_path)
             data.update(phase="online", ssid="HomeWiFi", address="192.0.2.40",

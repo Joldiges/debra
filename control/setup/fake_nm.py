@@ -28,10 +28,6 @@ class FakeNetwork:
 
     # -- identity -----------------------------------------------------------
 
-    def set_hostname(self, hostname):
-        self.calls.append(("set_hostname", hostname))
-        self.hostname = hostname
-
     # -- radio --------------------------------------------------------------
 
     def wifi_interface(self):
@@ -43,9 +39,31 @@ class FakeNetwork:
         self.calls.append(("country",))
         return self.country_code
 
+    def set_hostname(self, hostname):
+        self.calls.append(("set_hostname", hostname))
+        if getattr(self, "fail_hostname", False):
+            try:
+                from . import nm as nm_module
+            except ImportError:
+                import nm as nm_module
+            raise nm_module.NmError("hostnamectl did not answer in time")
+        self.hostname_applied = hostname
+
     def set_country(self, code):
         self.calls.append(("set_country", code))
         self.country_code = code
+
+    def scan(self, interface, limit=20, timeout=30):
+        self.calls.append(("scan", interface))
+        if self.behaviour == "scan-fails":
+            try:
+                from . import nm as nm_module
+            except ImportError:
+                import nm as nm_module
+            raise nm_module.NmError("nmcli did not answer in time")
+        return [{"ssid": "HomeWiFi", "signal": 82, "security": "WPA2"},
+                {"ssid": "Neighbour", "signal": 40, "security": "WPA2"},
+                {"ssid": "Cafe", "signal": 71, "security": "open"}]
 
     def active(self):
         self.calls.append(("active",))
@@ -69,7 +87,7 @@ class FakeNetwork:
         self.calls.append(("stop_hotspot",))
         self.hotspot = None
 
-    def connect(self, ssid, psk, timeout=60, keyfile_dir=None):
+    def connect(self, ssid, psk, timeout=60, keyfile_dir=None, interface=None):
         try:
             from . import nm as nm_module
         except ImportError:

@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import os
+import secrets
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,9 +43,13 @@ class BaselineError(Exception):
 
 
 class _Collector:
-    def __init__(self, tar, root):
+    def __init__(self, tar, root, exclude=None):
         self.tar = tar
         self.root = Path(root).resolve()
+        # The directory this baseline is being written into. Without it, a
+        # capture of var/lib/debra archives the previous baselines, so each
+        # retry is bigger than the last until the size cap fails for ever.
+        self.exclude = Path(exclude).resolve() if exclude else None
         self.captured, self.skipped, self.total = [], [], 0
 
     def add(self, path):
@@ -55,6 +60,14 @@ class _Collector:
         except (OSError, ValueError):
             self.skipped.append({"path": str(path), "reason": "resolves outside the capture root"})
             return
+        if self.exclude is not None:
+            try:
+                resolved.relative_to(self.exclude)
+                self.skipped.append({"path": str(path.relative_to(self.root)),
+                                     "reason": "this baseline's own directory"})
+                return
+            except ValueError:
+                pass
         if path.is_symlink():
             # Recorded as a symlink; the target is never followed.
             self.tar.addfile(self.tar.gettarinfo(str(path), arcname=str(path.relative_to(self.root))))
@@ -78,13 +91,39 @@ class _Collector:
             return
         if info.st_size > MAX_BYTES or self.total + info.st_size > MAX_BYTES:
             raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
+        # Read the whole file before touching the tar stream. `tar.add()` writes
+        # the header and part of the body before a read can fail, and catching
+        # that failure left a truncated member in the archive that every later
+        # member was unreachable behind. A file that cannot be read is skipped
+        # without mutating the stream at all.
         try:
-            self.tar.add(str(path), arcname=str(path.relative_to(self.root)), recursive=False)
-        except (OSError, PermissionError) as exc:
+            with open(path, "rb") as stream:
+                chunks, size = [], 0
+                while True:
+                    chunk = stream.read(1 << 20)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > MAX_BYTES:
+                        raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
+                    chunks.append(chunk)
+        except OSError as exc:
             # A root-only keyfile read by a non-root run is the common case.
-            self.skipped.append({"path": str(path), "reason": exc.__class__.__name__})
+            self.skipped.append({"path": str(path),
+                                 "reason": exc.__class__.__name__})
             return
-        self.total += info.st_size
+        data = b"".join(chunks)
+        if len(data) != info.st_size:
+            # The file changed while it was being read. Recording it would put
+            # a size in the header that the body does not fill.
+            self.skipped.append({"path": str(path), "reason": "changed while being read"})
+            return
+        if self.total + len(data) > MAX_BYTES:
+            raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
+        self.tar.addfile(self.tar.gettarinfo(str(path),
+                                             arcname=str(path.relative_to(self.root))),
+                         io.BytesIO(data))
+        self.total += len(data)
         self.captured.append(str(path.relative_to(self.root)))
 
 
@@ -97,11 +136,10 @@ def capture(destination, paths=CAPTURE, root="/", stamp=None):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)
     stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive = destination / f"baseline-{stamp}.tar.gz"
     missing = []
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz", compresslevel=6) as tar:
-        collector = _Collector(tar, root)
+        collector = _Collector(tar, root, exclude=destination)
         for relative in paths:
             path = Path(root) / relative
             if not path.exists():
@@ -111,8 +149,13 @@ def capture(destination, paths=CAPTURE, root="/", stamp=None):
     payload = buffer.getvalue()
     if len(payload) > MAX_BYTES:
         raise BaselineError(f"compressed baseline would exceed {MAX_BYTES} bytes")
+    # One-second timestamps are not unique. A same-second retry, or two
+    # captures racing, must not overwrite the earlier baseline: an old manifest
+    # left beside a new archive is a backup that reports the wrong hash.
+    stem = _unique_stem(destination, f"baseline-{stamp}")
+    archive_name, manifest_name = f"{stem}.tar.gz", f"{stem}.json"
     manifest = {
-        "archive": archive.name,
+        "archive": archive_name,
         "created": stamp,
         "sha256": hashlib.sha256(payload).hexdigest(),
         "bytes": len(payload),
@@ -121,17 +164,65 @@ def capture(destination, paths=CAPTURE, root="/", stamp=None):
         "missing": missing,
         "note": "Configuration baseline, not whole-device recovery. Contains secrets.",
     }
-    # Write under a name nothing reads, then rename. A full disk partway through
-    # then leaves a .part file, never a final-named archive that looks complete;
-    # the manifest is the last thing to appear, so "a manifest exists" means the
-    # archive beside it is whole.
-    _write(destination / f".baseline-{stamp}.tar.gz.part", payload)
-    _write(destination / f".baseline-{stamp}.json.part",
-           (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8"))
-    os.replace(destination / f".baseline-{stamp}.tar.gz.part", archive)
-    os.replace(destination / f".baseline-{stamp}.json.part",
-               destination / f"baseline-{stamp}.json")
+    # Each file is written under a name nothing reads, flushed, and then linked
+    # to its final name. `os.link` refuses to replace an existing file, so a
+    # baseline is never overwritten, and the final name only ever refers to a
+    # complete file. The manifest is published last, so "a manifest exists"
+    # means the archive beside it was already whole.
+    token = secrets.token_hex(4)
+    _publish(destination, archive_name, payload, token)
+    try:
+        _publish(destination, manifest_name,
+                 (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8"),
+                 token)
+    except BaseException:
+        # Never leave an archive with no manifest: `latest()` would ignore it and
+        # a later retry would capture again on top of unexplained files.
+        try:
+            os.unlink(destination / archive_name)
+        except OSError:
+            pass
+        raise
+    _fsync_dir(destination)
     return manifest
+
+
+def _unique_stem(destination, stem):
+    """A name nothing in the directory already uses."""
+    candidate, index = stem, 0
+    while ((destination / f"{candidate}.tar.gz").exists()
+           or (destination / f"{candidate}.json").exists()):
+        index += 1
+        candidate = f"{stem}-{index}"
+    return candidate
+
+
+def _publish(destination, name, payload, token):
+    """Put one file at its final name without ever replacing an existing one."""
+    part = destination / f".{name}.{token}.part"
+    _write(part, payload)
+    try:
+        os.link(part, destination / name)
+    finally:
+        try:
+            os.unlink(part)
+        except OSError:
+            pass
+    return destination / name
+
+
+def _fsync_dir(directory):
+    """Make the new names durable, not just the file contents."""
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def _write(path, payload):
@@ -152,14 +243,31 @@ def _write(path, payload):
 
 
 def latest(destination):
-    """The most recent manifest, or None. Used to say whether a baseline exists."""
+    """The most recent usable manifest, or None.
+
+    A manifest is only a baseline if the archive beside it exists and still
+    hashes to what the manifest says. Without that check a damaged or
+    half-written archive is reported as the device's known-good point.
+    """
     destination = Path(destination)
     if not destination.is_dir():
         return None
-    manifests = sorted(destination.glob("baseline-*.json"))
-    if not manifests:
-        return None
-    try:
-        return json.loads(manifests[-1].read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    # Order by when each manifest was published, not by its name. A same-second
+    # collision gets a "-1" suffix, and "-" sorts before ".", so name order
+    # reports the older baseline as the newest.
+    found = []
+    for path in destination.glob("baseline-*.json"):
+        try:
+            found.append((path.stat().st_mtime_ns, path.name, path))
+        except OSError:
+            continue
+    for _, _, path in sorted(found, reverse=True):
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            archive = destination / manifest["archive"]
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if digest == manifest.get("sha256"):
+            return manifest
+    return None

@@ -25,6 +25,23 @@ import onboarding  # noqa: E402
 import state as state_module  # noqa: E402
 from fake_nm import FakeNetwork  # noqa: E402
 
+# GLib is the parser NetworkManager's keyfile plugin uses. Testing our escaping
+# against a string assertion proves nothing; testing it against this proves the
+# value comes back the way the person typed it.
+try:
+    import gi
+    gi.require_version("GLib", "2.0")
+    from gi.repository import GLib
+except (ImportError, ValueError):  # pragma: no cover - depends on the host
+    GLib = None
+
+
+def _glib_parse(text):
+    key_file = GLib.KeyFile()
+    key_file.load_from_data(text, len(text.encode("utf-8")), GLib.KeyFileFlags.NONE)
+    return {"ssid": key_file.get_string("wifi", "ssid"),
+            "psk": key_file.get_string("wifi-security", "psk")}
+
 
 class Temp(unittest.TestCase):
     def setUp(self):
@@ -65,15 +82,28 @@ class IdentityTests(Temp):
         # Punctuation is dropped rather than becoming part of a hostname.
         self.assertEqual(onboarding.hostname_from_serial("0000-00ab-cdef"), "debra-abcdef")
 
-    def test_identity_is_recorded_once_and_not_rewritten(self):
+    def test_identity_is_chosen_once_and_applied_every_time(self):
         serial = self.dir / "serial"
         serial.write_text("1000000012345678\n")
         network = FakeNetwork()
         onboarder = self.onboarder(network, serial_paths=(str(serial),))
         self.assertEqual(onboarder.ensure_identity(), "debra-345678")
         self.assertEqual(onboarder.ensure_identity(), "debra-345678")
-        self.assertEqual(network.phases().count("set_hostname"), 1)
+        # The name is chosen once. Applying it is idempotent and repeated,
+        # because a first application that failed used to be remembered as done
+        # and no later boot repaired it.
+        self.assertEqual(network.phases().count("set_hostname"), 2)
         self.assertEqual(state_module.read(self.state_path)["hostname"], "debra-345678")
+
+    def test_a_failed_application_is_retried_on_the_next_boot(self):
+        network = FakeNetwork()
+        network.fail_hostname = True
+        onboarder = self.onboarder(network)
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder.ensure_identity()
+        network.fail_hostname = False
+        onboarder.ensure_identity()
+        self.assertEqual(network.hostname_applied, "debra-demo1")
 
     def test_hotspot_name_is_derived_from_the_hostname(self):
         self.assertEqual(onboarding.hotspot_name("debra-345678"), "Debra-Setup-345678")
@@ -101,6 +131,23 @@ class StateTests(Temp):
             with self.assertRaises(ValueError, msg=str(broken)[:60]):
                 state_module.validate(broken)
 
+    def test_a_record_missing_a_key_is_refused_not_crashed_on(self):
+        # A record that validates and then raises KeyError in status() is worse
+        # than one refused at the boundary. The review deleted every required
+        # key and the old check accepted each one.
+        for key in state_module.blank("debra-demo1"):
+            broken = dict(state_module.blank("debra-demo1"))
+            del broken[key]
+            with self.assertRaises(ValueError, msg=key):
+                state_module.validate(broken)
+
+    def test_a_bool_is_not_a_schema_version(self):
+        # JSON `true` is 1 in Python, so a bare equality check accepted it.
+        data = state_module.blank("debra-demo1")
+        data["schema"] = True
+        with self.assertRaises(ValueError):
+            state_module.validate(data)
+
     def test_a_passphrase_can_never_be_stored(self):
         # The schema is closed, so a keyfile-shaped extra key is rejected rather
         # than quietly persisted next to the state.
@@ -121,8 +168,11 @@ class HotspotTests(Temp):
         self.assertGreaterEqual(len(status["hotspot"]["password"]), 8)
         # The hostname is applied before the access point is named after it, and
         # an already-set country is read rather than asked for again.
+        # The scan sits before the access point is raised, which is the only
+        # window where the radio is free enough to look around.
         self.assertEqual(network.phases(),
-                         ["set_hostname", "wifi_interface", "country", "start_hotspot"])
+                         ["set_hostname", "wifi_interface", "country", "scan",
+                          "start_hotspot"])
 
     def test_the_device_name_survives_the_first_hotspot(self):
         # The identity is set in the same record the hotspot then writes. When
@@ -130,7 +180,9 @@ class HotspotTests(Temp):
         status = self.onboarder(FakeNetwork()).start_hotspot()
         self.assertEqual(status["hostname"], "debra-demo1")
         self.assertEqual(state_module.read(self.state_path)["hostname"], "debra-demo1")
-        self.assertEqual(status["portal"], "http://debra-demo1.local/")
+        # The portal only admits the address it is served on, so the printed
+        # name is that address, not `<hostname>.local`.
+        self.assertEqual(status["portal"], "http://10.42.0.1/")
 
     def test_a_boot_with_no_uplink_keeps_the_name_too(self):
         status = self.onboarder(FakeNetwork()).resume()
@@ -279,19 +331,72 @@ class BaselineTests(Temp):
         (root / "etc" / "hostname").write_text("debra-345678\n")
         secret = root / "etc" / "NetworkManager" / "system-connections" / "home.nmconnection"
         secret.write_text("[wifi]\nssid=HomeWiFi\n")
-        import tarfile as tarfile_module
-        real_add = tarfile_module.TarFile.add
+        import builtins
+        real_open = builtins.open
 
-        def add(self, name, *args, **kwargs):
-            if str(name).endswith("home.nmconnection"):
+        def fake_open(path, *args, **kwargs):
+            if str(path).endswith("home.nmconnection"):
                 raise PermissionError(13, "Permission denied")
-            return real_add(self, name, *args, **kwargs)
+            return real_open(path, *args, **kwargs)
 
-        with patch.object(tarfile_module.TarFile, "add", add):
+        with patch("builtins.open", fake_open):
             manifest = baseline_module.capture(self.baseline_dir, root=str(root))
         self.assertIn("etc/hostname", manifest["captured"])
         self.assertEqual(manifest["skipped"][0]["path"], str(secret))
         self.assertEqual(manifest["skipped"][0]["reason"], "PermissionError")
+        self.assert_in_archive(manifest, ["etc/hostname"])
+
+    def test_a_read_that_fails_partway_does_not_poison_the_archive(self):
+        # tar.add() writes a header and part of a body before a read can fail.
+        # Catching that left a truncated member that every later file was
+        # unreachable behind, while the manifest still claimed they were saved.
+        root = self.dir / "root"
+        (root / "etc" / "NetworkManager" / "system-connections").mkdir(parents=True)
+        (root / "etc" / "hostname").write_text("debra-345678\n")
+        profile = root / "etc" / "NetworkManager" / "system-connections" / "home.nmconnection"
+        profile.write_bytes(b"x" * 2048)
+        import builtins
+        real_open = builtins.open
+
+        class Partial:
+            def __init__(self, path):
+                self._file = real_open(path, "rb")
+                self._served = False
+
+            def read(self, size=-1):
+                if not self._served:
+                    self._served = True
+                    return self._file.read(17)
+                raise OSError(5, "Input/output error")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self._file.close()
+
+        def fake_open(path, *args, **kwargs):
+            if str(path).endswith("home.nmconnection"):
+                return Partial(path)
+            return real_open(path, *args, **kwargs)
+
+        with patch("builtins.open", fake_open):
+            manifest = baseline_module.capture(self.baseline_dir, root=str(root))
+        self.assertIn("etc/hostname", manifest["captured"])
+        self.assertNotIn("etc/NetworkManager/system-connections/home.nmconnection",
+                         manifest["captured"])
+        # The later file must still be readable out of the published archive.
+        self.assert_in_archive(manifest, ["etc/hostname"])
+
+    def assert_in_archive(self, manifest, expected):
+        import tarfile as tarfile_module
+        archive = self.baseline_dir / manifest["archive"]
+        with tarfile_module.open(archive) as tar:
+            names = tar.getnames()
+        for name in expected:
+            self.assertIn(name, names, f"{name} missing from the published archive: {names}")
+        self.assertEqual(len(names), len(manifest["captured"]),
+                         "the archive and the manifest disagree about what was captured")
 
     def test_a_failed_baseline_does_not_undo_a_working_network(self):
         network = FakeNetwork()
@@ -368,6 +473,58 @@ class PortalTests(Temp):
             threading.Event().wait(0.01)
         self.assertEqual(state_module.read(self.state_path)["phase"], "online")
 
+    def test_the_join_runs_only_after_the_page_has_been_answered(self):
+        # The whole handover depends on this ordering: the reply is the last
+        # thing that can travel over the setup network. A review mutation that
+        # completed the join before writing the 202 passed every other test.
+        seen = {}
+        real_reply = onboarding.PortalHandler._reply
+
+        def reply(handler, code, body, content_type="application/json"):
+            if code == 202:
+                seen["replied"] = True
+            return real_reply(handler, code, body, content_type)
+
+        real_connect = self.network.connect
+
+        def connect(ssid, psk, timeout=60, keyfile_dir=None, interface=None):
+            seen["connect_saw_reply"] = seen.get("replied", False)
+            return real_connect(ssid, psk, timeout=timeout,
+                                keyfile_dir=keyfile_dir, interface=interface)
+
+        # The patches stay in place until the worker has finished: the worker
+        # starts after the reply and would otherwise run unpatched.
+        with patch.object(onboarding.PortalHandler, "_reply", reply), \
+                patch.object(self.network, "connect", connect):
+            code, _ = self.request("/api/join", {"ssid": "HomeWiFi",
+                                                 "psk": "correct horse"})
+            self.assertEqual(code, 202)
+            for _ in range(200):
+                if state_module.read(self.state_path)["phase"] in ("online", "failed"):
+                    break
+                threading.Event().wait(0.01)
+        self.assertTrue(seen.get("connect_saw_reply"),
+                        "the join ran before the page was answered")
+
+    def test_a_reply_that_cannot_be_delivered_releases_the_reservation(self):
+        real_reply = onboarding.PortalHandler._reply
+
+        def reply(handler, code, body, content_type="application/json"):
+            if code == 202:
+                raise BrokenPipeError(32, "Broken pipe")
+            return real_reply(handler, code, body, content_type)
+
+        with patch.object(onboarding.PortalHandler, "_reply", reply):
+            with self.assertRaises(OSError):
+                self.request("/api/join", {"ssid": "HomeWiFi", "psk": "correct horse"})
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["phase"], "hotspot",
+                         "a lost reply left the device connecting for ever")
+        self.assertIsNone(data["attempt_token"])
+        self.assertEqual(data["attempts"], 0)
+        self.assertNotIn("connect", self.network.phases(),
+                         "a join ran although its reply never arrived")
+
     def test_bad_input_is_refused_without_touching_the_network(self):
         for body, expected in (
             ({"ssid": ""}, 400),
@@ -429,6 +586,27 @@ class SetupPasswordTests(Temp):
         with self.assertLogs(onboarding.LOGGER, level="WARNING"):
             status = self.onboarder(card_note_path=note).start_hotspot()
         self.assertEqual(status["phase"], "hotspot")
+
+    def test_the_note_is_reprinted_with_the_address_the_page_actually_bound(self):
+        # The note is written when the access point comes up, before the socket
+        # exists. If the page binds somewhere else, that is the address a person
+        # has to type, and the earlier guess is a dead link.
+        note = self.dir / "boot" / "debra-setup.txt"
+        onboarder = self.onboarder(card_note_path=note)
+        onboarder.start_hotspot()
+        self.assertIn("http://10.42.0.1/", note.read_text(encoding="utf-8"))
+        onboarder.announce_portal("192.168.50.1")
+        text = note.read_text(encoding="utf-8")
+        self.assertIn("http://192.168.50.1/", text)
+        self.assertNotIn("10.42.0.1", text)
+        self.assertEqual(onboarder.status()["portal"], "http://192.168.50.1/")
+
+    def test_announcing_an_address_with_no_access_point_is_harmless(self):
+        note = self.dir / "boot" / "debra-setup.txt"
+        onboarder = self.onboarder(card_note_path=note)
+        onboarder.announce_portal("192.168.50.1")
+        self.assertFalse(note.exists(), "a note was written for a network that is not up")
+        self.assertIsNone(onboarder.status()["portal"])
 
 
 class CountryTests(Temp):
@@ -503,28 +681,69 @@ class BaselineRootTests(Temp):
 
 
 class Recorder:
-    """A stand-in for `_run` that answers like nmcli and remembers argv."""
+    """A stand-in for `_run` that answers like nmcli and remembers argv.
 
-    def __init__(self, address="192.0.2.40", gateway="192.0.2.1", up_fails=False):
+    It tracks the connection id the adapter generates, because a successful
+    join is now defined by NetworkManager naming *that* profile as the active
+    connection. A double that answers every query with IP fields is exactly the
+    bypass the review found: it made an unknown profile look like success.
+    """
+
+    def __init__(self, address="192.0.2.40", gateway="192.0.2.1", up_fails=False,
+                 active_profile=None, load_fails=False, modify_fails=False,
+                 interface="wlan0", profile_dir=None):
         self.calls, self.contents = [], []
         self.address, self.gateway, self.up_fails = address, gateway, up_fails
+        self.active_profile = active_profile
+        self.load_fails = load_fails
+        self.modify_fails = modify_fails
+        self.interface = interface
+        # The directory the keyfile plugin reads. `nmcli connection load` is not
+        # an arbitrary-file import, so a profile handed over from anywhere else
+        # is refused here the way a real NetworkManager would refuse it.
+        self.profile_dir = profile_dir
+        self.loaded_id = None
+        self.deleted = []
+        self.modified = []
 
     def __call__(self, argv, timeout=45):
         self.calls.append(list(argv))
         if argv[1:] == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
-            return "wlan0:wifi:connected\n"
+            return f"{self.interface}:wifi:connected\n"
         if argv[1:3] == ["-t", "-f"] and argv[4:6] == ["device", "show"]:
+            if argv[3] == "GENERAL.CONNECTION":
+                name = self.active_profile
+                if name is None:
+                    name = self.loaded_id if not self.up_fails else None
+                return f"GENERAL.CONNECTION:{name or ''}\n"
             return (f"IP4.ADDRESS[1]:{self.address}/24\n"
                     f"IP4.GATEWAY:{self.gateway}\n")
         if argv[1:3] == ["connection", "load"]:
+            if self.load_fails:
+                raise nm_module.NmError("NetworkManager refused the profile")
             path = Path(argv[3])
+            if self.profile_dir is not None and path.parent != Path(self.profile_dir):
+                raise nm_module.NmError(
+                    "Error: Cannot load connection profile: file is not in a profile directory")
             self.contents.append((path.read_text(encoding="utf-8"),
-                                  stat.S_IMODE(path.stat().st_mode)))
+                                  stat.S_IMODE(path.stat().st_mode),
+                                  str(path)))
             return ""
         if argv[1:4] == ["connection", "up", "id"]:
+            self.loaded_id = argv[4]
             if self.up_fails:
                 raise nm_module.NmError("The Wi-Fi password was refused by the network")
             return ""
+        if argv[1:4] == ["connection", "delete", "id"]:
+            self.deleted.append(argv[4])
+            return ""
+        if argv[1:3] == ["connection", "modify"]:
+            if self.modify_fails:
+                raise nm_module.NmError("NetworkManager refused the change")
+            self.modified.append(" ".join(argv[4:]))
+            return ""
+        if argv[1:3] == ["radio", "wifi"]:
+            return "enabled\n"
         return ""
 
 
@@ -537,19 +756,49 @@ class AdapterTests(Temp):
         self.assertNotIn("correct horse", flattened,
                          "the password is visible in argv to any other process")
         self.assertEqual(len(recorder.contents), 1)
-        text, mode = recorder.contents[0]
+        text, mode, path = recorder.contents[0]
         self.assertIn("psk=correct horse", text)
-        self.assertEqual(mode, 0o600, "the staged profile must be owner-only")
-        # The staged file is not left behind once NetworkManager has read it.
-        self.assertEqual(list(self.dir.glob("*.nmconnection")), [])
+        self.assertEqual(mode, 0o600, "the profile must be owner-only")
+        # The profile stays where NetworkManager will read it on the next boot.
+        # Deleting it, as the previous version did, meant the device forgot its
+        # household network the moment the setup network went away.
+        self.assertTrue(Path(path).exists(), "the working profile was deleted")
+        self.assertEqual(Path(path).parent, self.dir)
+        # It must not be allowed to compete until the join is verified.
+        self.assertIn("autoconnect=false", text)
+        self.assertIn(["nmcli", "connection", "modify", recorder.loaded_id,
+                       "connection.autoconnect", "yes"], recorder.calls)
 
-    def test_a_keyfile_value_cannot_break_out_of_its_line(self):
+    @unittest.skipUnless(GLib, "GLib is not installed on this host")
+    def test_a_keyfile_value_round_trips_through_a_real_parser(self):
+        # The previous escaping produced `Caf\; \#1`, which GLib rejects and
+        # which is not what the user typed. Ask the real parser.
+        for ssid, psk in (("Caf; #1", "pass;word#1"),
+                          (" Home ", " space pass "),
+                          ("back\\slash", "back\\slash1")):
+            with self.subTest(ssid=ssid):
+                directory = self.dir / ("rt-" + str(abs(hash(ssid))))
+                directory.mkdir()
+                recorder = Recorder()
+                nm_module.Nmcli(runner=recorder).connect(ssid, psk, keyfile_dir=directory)
+                text, _, _ = recorder.contents[0]
+                got = _glib_parse(text)
+                self.assertEqual(got["ssid"], ssid)
+                self.assertEqual(got["psk"], psk)
+
+    def test_a_newline_in_a_password_is_refused_not_escaped(self):
         recorder = Recorder()
-        nm_module.Nmcli(runner=recorder).connect("Caf; #1", "pass;word#1",
-                                                 keyfile_dir=self.dir)
-        text, _ = recorder.contents[0]
-        self.assertIn("ssid=Caf\\; \\#1", text)
-        self.assertIn("psk=pass\\;word\\#1", text)
+        with self.assertRaises(nm_module.NmError):
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "abcdefgh\npsk-flags=1",
+                                                     keyfile_dir=self.dir)
+        self.assertEqual(recorder.calls, [], "a newline password reached nmcli")
+
+    def test_a_network_name_longer_than_32_octets_is_refused(self):
+        recorder = Recorder()
+        with self.assertRaises(nm_module.NmError):
+            nm_module.Nmcli(runner=recorder).connect("é" * 17, "correct horse",
+                                                     keyfile_dir=self.dir)
+        self.assertEqual(recorder.calls, [])
 
     def test_an_address_without_a_default_route_is_not_success(self):
         recorder = Recorder(gateway="")
@@ -563,8 +812,48 @@ class AdapterTests(Temp):
         with self.assertRaises(nm_module.NmError):
             nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
                                                      keyfile_dir=self.dir)
-        self.assertIn(["nmcli", "connection", "delete", "id",
-                       recorder.calls[-1][4]], recorder.calls)
+        self.assertEqual(len(recorder.deleted), 1, "the failed profile was kept")
+        self.assertEqual(list(self.dir.glob("*.nmconnection")), [],
+                         "the failed profile file was kept")
+
+    def test_a_link_local_address_is_not_a_usable_uplink(self):
+        # The review's mutation removed this check and every test still passed,
+        # because the doubles only ever raised their own exceptions. This one
+        # goes through the adapter's own decision.
+        for address in ("169.254.7.7", ""):
+            with self.subTest(address=address):
+                recorder = Recorder(address=address)
+                with self.assertRaises(nm_module.NmError) as caught:
+                    nm_module.Nmcli(runner=recorder).connect(
+                        "HomeWiFi", "correct horse", keyfile_dir=self.dir)
+                self.assertIn("no usable address", str(caught.exception))
+                self.assertEqual(len(recorder.deleted), 1,
+                                 "the unusable profile was kept for the next boot")
+
+    def test_the_profile_is_pinned_to_the_radio_the_page_was_reached_over(self):
+        recorder = Recorder()
+        nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
+                                                 keyfile_dir=self.dir, interface="wlan0")
+        text, _, _ = recorder.contents[0]
+        self.assertIn("interface-name=wlan0", text)
+
+    def test_a_join_that_comes_up_on_another_radio_is_refused(self):
+        # Two Wi-Fi interfaces would otherwise let the household network come up
+        # on the one nobody reached the page over.
+        recorder = Recorder()
+        with self.assertRaises(nm_module.NmError) as caught:
+            nm_module.Nmcli(runner=recorder).connect(
+                "HomeWiFi", "correct horse", keyfile_dir=self.dir, interface="wlan1")
+        self.assertIn("different Wi-Fi interface", str(caught.exception))
+
+    def test_an_unknown_active_profile_is_not_success(self):
+        # A blank GENERAL.CONNECTION used to pass because the check only
+        # rejected a *known different* name.
+        recorder = Recorder(active_profile="HomeWiFi-old")
+        with self.assertRaises(nm_module.NmError) as caught:
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
+                                                     keyfile_dir=self.dir)
+        self.assertIn("different saved network", str(caught.exception))
 
     def test_a_bad_password_length_is_refused_before_anything_runs(self):
         recorder = Recorder()
@@ -572,6 +861,124 @@ class AdapterTests(Temp):
             nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "short",
                                                      keyfile_dir=self.dir)
         self.assertEqual(recorder.calls, [])
+
+
+class ProfileStorageTests(Temp):
+    """Where the household profile lives, and that it is still there later.
+
+    `nmcli connection load` reads a profile from the keyfile plugin's own
+    directories; it does not import an arbitrary file. The r2 acceptance review
+    reproduced the old behaviour: the profile went to a process temporary
+    directory, NetworkManager refused it, and the file was deleted afterwards
+    anyway. A join that only works until the next reboot is not a join.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.profiles = self.dir / "system-connections"
+        self.profiles.mkdir()
+        patcher = patch.object(nm_module, "PROFILES_DIR", str(self.profiles))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def recorder(self, **kwargs):
+        kwargs.setdefault("profile_dir", self.profiles)
+        return Recorder(**kwargs)
+
+    def test_the_profile_is_written_where_network_manager_reads_it(self):
+        recorder = self.recorder()
+        nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse")
+        text, mode, path = recorder.contents[0]
+        self.assertEqual(Path(path).parent, self.profiles,
+                         "the profile was staged somewhere NetworkManager does not read")
+        self.assertTrue(path.endswith(".nmconnection"),
+                        "the profile has no name the keyfile plugin will read")
+        self.assertEqual(mode, 0o600, "the profile must be owner-only")
+        self.assertTrue(Path(path).exists(),
+                        "the working profile did not survive the join")
+        self.assertIn("autoconnect=false", text,
+                      "the trial profile may compete before the join is verified")
+        self.assertEqual(recorder.modified, ["connection.autoconnect yes"],
+                         "the profile was never promoted to autoconnect")
+
+    def test_only_the_finished_profile_is_left_in_the_directory(self):
+        recorder = self.recorder()
+        nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse")
+        names = sorted(item.name for item in self.profiles.iterdir())
+        self.assertEqual(len(names), 1, f"a staging file was left behind: {names}")
+        self.assertTrue(names[0].endswith(".nmconnection"))
+
+    def test_network_manager_never_sees_a_half_written_profile(self):
+        # The keyfile plugin watches this directory. A file created under its
+        # final name is parsed while it is still empty or half written, and a
+        # crash leaves something that looks like a profile but is not one.
+        seen = []
+        real_fsync = os.fsync
+
+        def watch(handle):
+            seen.append(sorted(item.name for item in self.profiles.iterdir()))
+            return real_fsync(handle)
+
+        recorder = self.recorder()
+        with patch.object(nm_module.os, "fsync", side_effect=watch):
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse")
+        self.assertTrue(seen, "the profile was never made durable")
+        self.assertEqual([name for name in seen[0] if name.endswith(".nmconnection")], [],
+                         f"a partial profile was visible while it was being written: {seen[0]}")
+
+    def test_a_profile_that_does_not_work_leaves_nothing_behind(self):
+        recorder = self.recorder(up_fails=True)
+        with self.assertRaises(nm_module.NmError):
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse")
+        self.assertEqual(list(self.profiles.iterdir()), [],
+                         "a profile that never worked is still in the directory")
+
+    def test_another_network_already_saved_is_not_touched(self):
+        existing = self.profiles / "home.nmconnection"
+        existing.write_text("[connection]\nid=Home\n", encoding="utf-8")
+        recorder = self.recorder(up_fails=True)
+        with self.assertRaises(nm_module.NmError):
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse")
+        self.assertEqual(existing.read_text(encoding="utf-8"), "[connection]\nid=Home\n")
+        self.assertEqual([item.name for item in self.profiles.iterdir()],
+                         ["home.nmconnection"])
+
+    def test_a_profile_that_cannot_be_saved_for_the_next_boot_is_a_failed_join(self):
+        # Autoconnect off works until the reboot and then strands the device
+        # with no network at all, so it is not a success with a warning.
+        recorder = self.recorder(modify_fails=True)
+        with self.assertRaises(nm_module.NmError) as caught:
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse")
+        self.assertIn("could not be saved for the next boot", str(caught.exception))
+        self.assertEqual(len(recorder.deleted), 1, "the unsaved profile was kept")
+        self.assertEqual(list(self.profiles.iterdir()), [],
+                         "a profile that will not autoconnect was left behind")
+
+    def test_the_profile_is_pinned_to_the_radio_that_was_used(self):
+        recorder = self.recorder()
+        nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
+                                                 interface="wlan0")
+        text, _, _ = recorder.contents[0]
+        self.assertIn("interface-name=wlan0", text)
+
+    def test_a_join_that_comes_up_on_another_radio_is_not_success(self):
+        recorder = self.recorder(interface="wlan1")
+        with self.assertRaises(nm_module.NmError) as caught:
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
+                                                     interface="wlan0")
+        self.assertIn("different Wi-Fi interface", str(caught.exception))
+        self.assertEqual(list(self.profiles.iterdir()), [],
+                         "the profile that came up on the wrong radio was kept")
+
+    def test_a_directory_that_cannot_be_written_is_a_sentence_not_a_traceback(self):
+        recorder = self.recorder()
+        with patch.object(nm_module.tempfile, "mkstemp",
+                          side_effect=PermissionError(13, "Permission denied")):
+            with self.assertRaises(nm_module.NmError) as caught:
+                nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse")
+        self.assertEqual(str(caught.exception),
+                         "The Wi-Fi profile could not be saved on this device")
+        self.assertEqual(recorder.calls, [], "a profile was loaded that was never written")
 
 
 class MissingToolTests(unittest.TestCase):
@@ -635,7 +1042,7 @@ class AdmissionTests(Temp):
 
         def attempt():
             barrier.wait()
-            results.append(onboarder.admit("HomeWiFi", "correct horse", None)[0])
+            results.append(onboarder.admit("HomeWiFi")[0])
 
         threads = [threading.Thread(target=attempt) for _ in range(2)]
         for thread in threads:
@@ -649,7 +1056,7 @@ class AdmissionTests(Temp):
         network = FakeNetwork()
         onboarder = self.onboarder(network)
         onboarder.start_hotspot()
-        self.assertTrue(onboarder.admit("First", "correct horse", None)[0])
+        self.assertTrue(onboarder.admit("First")[0])
         # A second network is reserved by someone else in the meantime.
         data = state_module.read(self.state_path)
         data["ssid"] = "Second"
@@ -663,9 +1070,8 @@ class AdmissionTests(Temp):
     def test_a_second_admission_is_refused_while_one_is_in_flight(self):
         onboarder = self.onboarder()
         onboarder.start_hotspot()
-        self.assertTrue(onboarder.admit("HomeWiFi", "correct horse", None)[0])
-        self.assertEqual(onboarder.admit("HomeWiFi", "correct horse", None),
-                         (False, "busy"))
+        self.assertTrue(onboarder.admit("HomeWiFi")[0])
+        self.assertEqual(onboarder.admit("HomeWiFi"), (False, "busy"))
 
 
 class BaselineRetryTests(Temp):
@@ -681,6 +1087,19 @@ class BaselineRetryTests(Temp):
         self.assertIsNotNone(status["baseline"],
                              "a device that was already online never took its baseline")
 
+    def test_a_pointer_to_a_missing_baseline_does_not_suppress_a_capture(self):
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        onboarder = self.onboarder(network)
+        data = state_module.blank("debra-demo1")
+        data.update(phase="online", ssid="HomeWiFi", address="192.0.2.40",
+                    baseline=str(self.baseline_dir / "baseline-gone.tar.gz"))
+        state_module.write(self.state_path, data)
+        status = onboarder.resume()
+        self.assertIsNotNone(status["baseline"],
+                             "a pointer to a deleted archive suppressed the capture")
+        self.assertTrue(Path(status["baseline"]).is_file())
+
     def test_a_capture_failure_is_recorded_and_shown_not_swallowed(self):
         network = FakeNetwork()
         network.joined = "HomeWiFi"
@@ -688,11 +1107,16 @@ class BaselineRetryTests(Temp):
         data = state_module.blank("debra-demo1")
         data.update(phase="online", ssid="HomeWiFi", address="192.0.2.40")
         state_module.write(self.state_path, data)
-        with patch.object(baseline_module, "capture", side_effect=OSError("No space left on device")):
+        # A real ENOSPC carries the path it failed on. The page must say what
+        # happened without publishing the device's layout.
+        failure = OSError(28, "No space left on device",
+                          "/var/lib/debra/setup/baseline/.baseline-1.tar.gz.part")
+        with patch.object(baseline_module, "capture", side_effect=failure):
             with self.assertLogs(onboarding.LOGGER, level="WARNING"):
                 status = onboarder.resume()
         self.assertIsNone(status["baseline"])
-        self.assertIn("No space left on device", status["baseline_error"])
+        self.assertEqual(status["baseline_error"], "The device is out of disk space")
+        self.assertNotIn("/var/lib/debra", status["baseline_error"])
         # The next boot tries again rather than believing it is done.
         status = onboarder.resume()
         self.assertIsNotNone(status["baseline"])
@@ -774,7 +1198,7 @@ class BaselineAtomicityTests(Temp):
         real_open = os.open
 
         def failing_open(path, flags, mode=0o777):
-            if str(path).endswith(".tar.gz.part"):
+            if str(path).endswith(".part"):
                 raise OSError(28, "No space left on device")
             return real_open(path, flags, mode)
 
@@ -837,3 +1261,313 @@ class ActiveProfileTests(Temp):
         result = nm_module.Nmcli(runner=answer).connect("HomeWiFi", "correct horse",
                                                         keyfile_dir=self.dir)
         self.assertEqual(result["address"], "192.0.2.40")
+
+
+class ScanTests(Temp):
+    """Nearby networks are offered, never required."""
+
+    def test_the_scan_result_reaches_the_page(self):
+        status = self.onboarder(FakeNetwork()).start_hotspot()
+        self.assertEqual([item["ssid"] for item in status["networks"]],
+                         ["HomeWiFi", "Neighbour", "Cafe"])
+        self.assertEqual(status["networks"][0]["security"], "WPA2")
+
+    def test_a_failed_scan_is_an_empty_list_not_a_failed_hotspot(self):
+        network = FakeNetwork()
+        network.behaviour = "scan-fails"
+        status = self.onboarder(network).start_hotspot()
+        self.assertEqual(status["phase"], "hotspot")
+        self.assertEqual(status["networks"], [])
+
+    def test_an_adapter_with_no_scan_at_all_still_raises_the_access_point(self):
+        class NoScan(FakeNetwork):
+            scan = None  # not a callable: the adapter does not have one
+        status = self.onboarder(NoScan()).start_hotspot()
+        self.assertEqual(status["phase"], "hotspot")
+        self.assertEqual(status["networks"], [])
+
+    def test_no_scan_happens_when_the_access_point_is_already_up(self):
+        # Scanning with the AP up can drop the person's phone off it, so a
+        # re-raise must not scan.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        before = [call for call in network.calls if call[0] == "scan"]
+        onboarder.start_hotspot()
+        after = [call for call in network.calls if call[0] == "scan"]
+        self.assertEqual(len(after), len(before), "a re-raise scanned with the AP up")
+
+
+class ScanParsingTests(unittest.TestCase):
+    class Runner:
+        def __init__(self, output):
+            self.output, self.calls = output, []
+
+        def __call__(self, argv, timeout=45):
+            self.calls.append(list(argv))
+            return self.output
+
+    def test_an_escaped_colon_in_a_name_is_one_field(self):
+        runner = self.Runner("Home\\:WiFi:82:WPA2\n")
+        found = nm_module.Nmcli(runner=runner).scan("wlan0")
+        self.assertEqual(found, [{"ssid": "Home:WiFi", "signal": 82, "security": "WPA2"}])
+
+    def test_hidden_networks_are_skipped_and_duplicates_keep_the_strongest(self):
+        runner = self.Runner("Home:40:WPA2\n:99:WPA2\nHome:88:WPA3\n")
+        found = nm_module.Nmcli(runner=runner).scan("wlan0")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["signal"], 88)
+        self.assertEqual(found[0]["security"], "WPA3")
+
+    def test_strongest_first_and_bounded(self):
+        lines = "".join(f"Net{n}:{n}:WPA2\n" for n in range(30))
+        found = nm_module.Nmcli(runner=self.Runner(lines)).scan("wlan0", limit=5)
+        self.assertEqual(len(found), 5)
+        self.assertEqual([item["signal"] for item in found], [29, 28, 27, 26, 25])
+
+    def test_a_scan_asks_for_a_rescan_on_the_named_interface(self):
+        runner = self.Runner("")
+        nm_module.Nmcli(runner=runner).scan("wlan0")
+        self.assertIn("--rescan", runner.calls[0])
+        self.assertEqual(runner.calls[0][-2:], ["ifname", "wlan0"])
+
+    def test_a_failing_scan_returns_nothing(self):
+        class Broken:
+            def __call__(self, argv, timeout=45):
+                raise nm_module.NmError("nmcli did not answer in time")
+        self.assertEqual(nm_module.Nmcli(runner=Broken()).scan("wlan0"), [])
+        self.assertEqual(nm_module.Nmcli(runner=Broken()).scan(None), [])
+
+
+class FailurePathScanTests(Temp):
+    def test_a_failed_join_does_not_rescan_before_raising_the_access_point(self):
+        # The AP is about to come back. A scan can take tens of seconds, and the
+        # person would be disconnected with no page for that long.
+        network = FakeNetwork(behaviour="bad-psk")
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        scans_before = len([call for call in network.calls if call[0] == "scan"])
+        onboarder.join("HomeWiFi", "wrong password")
+        scans_after = len([call for call in network.calls if call[0] == "scan"])
+        self.assertEqual(scans_after, scans_before,
+                         "a failed join scanned before restoring the access point")
+        # The first boot's list is still offered.
+        self.assertEqual(len(onboarder.status()["networks"]), 3)
+
+
+class ReservationTests(Temp):
+    """One reservation, identified by a token, not by a network name."""
+
+    def test_a_retry_of_the_same_network_supersedes_the_old_worker(self):
+        # The same SSID can be tried twice with a corrected password, so the
+        # network name cannot identify which attempt a worker belongs to. The
+        # token can, and the old worker must lose.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        accepted, old_token = onboarder.admit("Home")
+        self.assertTrue(accepted)
+        onboarder.release(old_token)
+        onboarder._last_submit = 0.0
+        accepted, new_token = onboarder.admit("Home")
+        self.assertTrue(accepted)
+        self.assertNotEqual(old_token, new_token,
+                            "two attempts in one second share a token")
+        before = len(network.calls)
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            status = onboarder.join_reserved("Home", "old password", token=old_token)
+        self.assertEqual(len(network.calls), before,
+                         "the superseded worker touched the network")
+        self.assertEqual(status["phase"], "connecting")
+        # The current reservation still works.
+        status = onboarder.join_reserved("Home", "correct horse", token=new_token)
+        self.assertEqual(status["phase"], "online")
+
+    def test_a_reply_that_cannot_be_delivered_releases_the_reservation(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        accepted, token = onboarder.admit("HomeWiFi")
+        self.assertTrue(accepted)
+        self.assertEqual(state_module.read(self.state_path)["attempts"], 1)
+        onboarder.release(token)
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["phase"], "hotspot")
+        self.assertIsNone(data["attempt_token"])
+        self.assertEqual(data["attempts"], 0, "a released attempt still counted")
+        onboarder._last_submit = 0.0
+        self.assertTrue(onboarder.admit("HomeWiFi")[0],
+                        "the device stayed busy after a lost reply")
+
+    def test_releasing_a_superseded_reservation_changes_nothing(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        _, first = onboarder.admit("Home")
+        onboarder.release(first)
+        onboarder._last_submit = 0.0
+        _, second = onboarder.admit("Home")
+        onboarder.release(first)
+        self.assertEqual(state_module.read(self.state_path)["attempt_token"], second,
+                         "a stale release cancelled the current attempt")
+
+
+class CountryOrderingTests(Temp):
+    """The country is a radio change, so it happens after the page is answered."""
+
+    def test_admitting_never_touches_the_radio(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        before = list(network.calls)
+        accepted, _ = onboarder.admit("HomeWiFi")
+        self.assertTrue(accepted)
+        self.assertEqual(network.calls, before,
+                         "the radio was touched before the reply was written")
+        self.assertIsNone(state_module.read(self.state_path)["country"])
+
+    def test_the_country_is_set_after_the_access_point_is_down(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        _, token = onboarder.admit("HomeWiFi")
+        network.calls.clear()
+        status = onboarder.join_reserved("HomeWiFi", "correct horse", "GB", token)
+        self.assertEqual(status["phase"], "online")
+        phases = network.phases()
+        self.assertLess(phases.index("stop_hotspot"), phases.index("set_country"),
+                        "the country was set while the setup network was still up")
+        self.assertLess(phases.index("set_country"), phases.index("connect"))
+        self.assertEqual(state_module.read(self.state_path)["country"], "GB")
+
+    def test_a_country_that_cannot_be_set_brings_the_setup_network_back(self):
+        class NoCountry(FakeNetwork):
+            def set_country(self, code):
+                self.calls.append(("set_country", code))
+                raise nm_module.NmError("The Wi-Fi radio is switched off")
+        network = NoCountry()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        _, token = onboarder.admit("HomeWiFi")
+        status = onboarder.join_reserved("HomeWiFi", "correct horse", "GB", token)
+        self.assertEqual(status["phase"], "failed")
+        self.assertEqual(status["last_error"], "The Wi-Fi radio is switched off")
+        self.assertNotIn("connect", network.phases())
+
+
+class RunnerBoundaryTests(unittest.TestCase):
+    """`_run` itself, not a double of it: what actually leaves the boundary."""
+
+    class Result:
+        def __init__(self, returncode, stdout="", stderr=""):
+            self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+    def test_raw_stderr_never_leaves_the_runner(self):
+        result = self.Result(4, stderr="Error: psk: 'SYNTHETIC-SECRET-123' is wrong")
+        with patch.object(nm_module.subprocess, "run", return_value=result):
+            with self.assertRaises(nm_module.NmError) as caught:
+                nm_module._run(["nmcli", "connection", "up", "id", "x"])
+        self.assertNotIn("SYNTHETIC-SECRET-123", str(caught.exception))
+        self.assertEqual(str(caught.exception), "NetworkManager reported failure 4")
+
+    def test_a_missing_binary_names_the_tool_and_no_path(self):
+        failure = FileNotFoundError(2, "No such file or directory", "/usr/bin/nmcli")
+        with patch.object(nm_module.subprocess, "run", side_effect=failure):
+            with self.assertRaises(nm_module.NmError) as caught:
+                nm_module._run(["nmcli", "radio", "wifi"])
+        self.assertEqual(str(caught.exception), "nmcli is not installed")
+        self.assertNotIn("/usr/bin", str(caught.exception))
+
+    def test_a_permission_failure_names_no_path(self):
+        failure = PermissionError(
+            13, "Permission denied",
+            "/etc/NetworkManager/system-connections/home.nmconnection")
+        with patch.object(nm_module.subprocess, "run", side_effect=failure):
+            with self.assertRaises(nm_module.NmError) as caught:
+                nm_module._run(["nmcli", "radio", "wifi"])
+        self.assertEqual(str(caught.exception), "nmcli could not be run")
+        self.assertNotIn("system-connections", str(caught.exception))
+
+    def test_a_timeout_carries_no_command_line(self):
+        with patch.object(nm_module.subprocess, "run",
+                          side_effect=nm_module.subprocess.TimeoutExpired(["nmcli", "x"], 45)):
+            with self.assertRaises(nm_module.NmError) as caught:
+                nm_module._run(["nmcli", "x"])
+        self.assertEqual(str(caught.exception), "nmcli did not answer in time")
+        self.assertIsNone(caught.exception.__cause__, "a traceback carries the argv")
+
+
+class BaselinePublishTests(Temp):
+    """A baseline is never overwritten, never archives itself, never lies."""
+
+    def root_with(self, name="hostname", text="debra-demo1\n"):
+        root = self.dir / "publish-root"
+        (root / "etc").mkdir(parents=True, exist_ok=True)
+        (root / "etc" / name).write_text(text)
+        return root
+
+    def test_two_captures_in_the_same_second_do_not_overwrite_each_other(self):
+        root = self.root_with()
+        first = baseline_module.capture(self.baseline_dir, root=root, stamp="SAME")
+        second = baseline_module.capture(self.baseline_dir, root=root, stamp="SAME")
+        self.assertNotEqual(first["archive"], second["archive"])
+        for manifest in (first, second):
+            self.assertTrue((self.baseline_dir / manifest["archive"]).is_file())
+        # The newest one is the one reported, and its hash still matches.
+        self.assertEqual(baseline_module.latest(self.baseline_dir)["archive"],
+                         second["archive"])
+
+    def test_a_baseline_never_archives_its_own_directory(self):
+        # The capture reads var/lib/debra, which is where the baselines live. A
+        # capture that included itself would grow on every retry until the size
+        # cap failed for ever.
+        root = self.dir / "self-root"
+        (root / "var" / "lib" / "debra").mkdir(parents=True)
+        (root / "var" / "lib" / "debra" / "note.txt").write_text("hello\n")
+        destination = root / "var" / "lib" / "debra" / "baseline"
+        first = baseline_module.capture(destination, root=root, stamp="A")
+        second = baseline_module.capture(destination, root=root, stamp="B")
+        self.assertNotIn("var/lib/debra/baseline", " ".join(first["captured"]))
+        self.assertIn("var/lib/debra/note.txt", first["captured"])
+        self.assertEqual(first["captured"], second["captured"],
+                         "the second capture archived the first baseline")
+
+    def test_latest_ignores_a_manifest_whose_archive_is_damaged(self):
+        root = self.root_with()
+        manifest = baseline_module.capture(self.baseline_dir, root=root, stamp="C1")
+        archive = self.baseline_dir / manifest["archive"]
+        archive.write_bytes(b"not the archive the manifest describes")
+        self.assertIsNone(baseline_module.latest(self.baseline_dir),
+                          "a damaged archive was reported as the known-good point")
+
+    def test_latest_ignores_a_manifest_whose_archive_is_gone(self):
+        root = self.root_with()
+        manifest = baseline_module.capture(self.baseline_dir, root=root, stamp="C2")
+        (self.baseline_dir / manifest["archive"]).unlink()
+        self.assertIsNone(baseline_module.latest(self.baseline_dir))
+
+    def test_a_newer_damaged_baseline_falls_back_to_the_older_whole_one(self):
+        root = self.root_with()
+        good = baseline_module.capture(self.baseline_dir, root=root, stamp="D1")
+        damaged = baseline_module.capture(self.baseline_dir, root=root, stamp="D2")
+        (self.baseline_dir / damaged["archive"]).write_bytes(b"truncated")
+        self.assertEqual(baseline_module.latest(self.baseline_dir)["archive"],
+                         good["archive"])
+
+    def test_a_manifest_that_cannot_be_published_removes_its_archive(self):
+        root = self.root_with()
+        real_link = os.link
+        calls = {"n": 0}
+
+        def failing_link(src, dst):
+            # The archive is published first; the manifest is the second link.
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError(28, "No space left on device")
+            return real_link(src, dst)
+
+        with patch.object(baseline_module.os, "link", side_effect=failing_link):
+            with self.assertRaises(OSError):
+                baseline_module.capture(self.baseline_dir, root=root, stamp="E1")
+        names = sorted(path.name for path in self.baseline_dir.iterdir())
+        self.assertEqual(names, [], f"an archive with no manifest was left: {names}")

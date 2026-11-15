@@ -230,7 +230,6 @@ def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note
         staging.rename(release)
 
     directory(root, var, private=True)
-    directory(root, var / "keyfiles", private=True)
 
     text = unit_text(payload[TEMPLATE].decode("utf-8"), target(python),
                      target(lib) / "releases" / release_id / "install.py",
@@ -252,10 +251,19 @@ def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note
     # The previous unit (if any) is preserved before the atomic replacement.
     fd, name = tempfile.mkstemp(prefix=UNIT_NAME + ".", suffix=".pending", dir=unit_path.parent)
     candidate = Path(name)
-    with os.fdopen(fd, "w", encoding="utf-8") as stream:
-        stream.write(text)
-    candidate.chmod(0o644)
-    os.replace(candidate, unit_path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        candidate.chmod(0o644)
+        os.replace(candidate, unit_path)
+    except BaseException:
+        # A failed install must not leave a candidate beside the real unit: the
+        # next run would have to explain an unexplained file there.
+        try:
+            candidate.unlink()
+        except OSError:
+            pass
+        raise
     return {"release": release_id, "release_path": str(release),
             "unit": str(unit_path), "state": str(state_dir),
             "card_note": str(target(note)),
@@ -286,10 +294,17 @@ def restore(root, backup, *, lib=LIB, unit=UNIT):
     directory(root, unit.parent, private=False)
     fd, name = tempfile.mkstemp(prefix=UNIT_NAME + ".", suffix=".pending", dir=unit_path.parent)
     candidate = Path(name)
-    with os.fdopen(fd, "w", encoding="utf-8") as stream:
-        stream.write(text)
-    candidate.chmod(0o644)
-    os.replace(candidate, unit_path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        candidate.chmod(0o644)
+        os.replace(candidate, unit_path)
+    except BaseException:
+        try:
+            candidate.unlink()
+        except OSError:
+            pass
+        raise
     return {"unit": str(unit_path), "restored": str(backup.resolve())}
 
 
@@ -345,13 +360,17 @@ def serve(state_dir, card_note=None, network=None, address=None,
     listening socket is closed rather than left open.
     """
     state_dir = Path(state_dir)
-    for path in (state_dir, state_dir / "keyfiles"):
-        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     state_path = state_dir / "setup.json"
     network = network or nm_module.Nmcli()
+    # No keyfile directory is passed: the Wi-Fi profile is written where
+    # NetworkManager's keyfile plugin reads it, which is the only place a
+    # profile survives a reboot. A Debra-owned staging directory was configured
+    # here and never used, and a profile outside the plugin's directories is
+    # not one NetworkManager will load again.
     onboarder = onboarding.Onboarder(
         network, state_path, state_dir / "baseline", root=capture_root,
-        card_note_path=card_note, keyfile_dir=state_dir / "keyfiles")
+        card_note_path=card_note)
 
     wait_for_uplink(network, uplink_wait)
     status = onboarder.resume()
@@ -367,7 +386,30 @@ def serve(state_dir, card_note=None, network=None, address=None,
 
     if address is None:
         address = (hotspot_address(network, status), PORTAL_PORT)
-    server = onboarding.serve(onboarder, address=address)
+    try:
+        server = onboarding.serve(onboarder, address=address)
+    except OSError as exc:
+        # The access point is already up. Failing to bind leaves a setup
+        # network with no page, which a beginner cannot diagnose or escape, so
+        # take the access point back down and record why.
+        LOGGER.error("Setup page could not listen on %s: %s",
+                     address[0], exc.__class__.__name__)
+        try:
+            network.stop_hotspot()
+        except (AttributeError, nm_module.NmError):
+            pass
+        try:
+            data = state_module.read(state_path)
+            data.update(phase="failed", hotspot=None,
+                        last_error="The setup page could not start on this device")
+            state_module.write(state_path, data)
+        except (OSError, ValueError):
+            pass
+        return 1
+    # The note and the status were written from the address the radio reported
+    # when the access point came up. This is the address that is actually
+    # listening, and it is the one a person must type.
+    onboarder.announce_portal(address[0])
     LOGGER.info("setup page listening on http://%s/", server.host)
     stop = threading.Event()
 
@@ -431,8 +473,13 @@ def main(argv=None):
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         try:
             return serve(args.state_dir, args.card_note, capture_root=args.capture_root)
-        except (OSError, ValueError, nm_module.NmError) as exc:
-            LOGGER.error("%s", exc)
+        except nm_module.NmError as exc:
+            # Already classified by the adapter, so it is safe and useful.
+            LOGGER.error("The setup service stopped: %s", exc)
+            return 1
+        except (OSError, ValueError) as exc:
+            # The class, not the text: an OSError carries the path it failed on.
+            LOGGER.error("The setup service stopped: %s", exc.__class__.__name__)
             return 1
 
     if args.root.resolve() == Path("/") and os.geteuid() != 0:

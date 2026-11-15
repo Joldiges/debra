@@ -110,14 +110,14 @@ the operating system is at most `partial`.
 | State across reboots | Closed JSON schema, atomic owner-only writes, refuses unknown keys and phases | implemented | Nothing on the schema; corruption handling is an error by design |
 | Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist and are tested offline. Neither has been enabled or started on a device, and there is no image |
 | Raising the setup network | `nmcli device wifi hotspot` with a fixed profile name and a password derived from the device name | partial | Never executed on a radio. The password is written to `debra-setup.txt` on the boot partition so it can be printed and read, and it is never stored in the setup state. No idle timeout, no pinned channel |
-| Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. No captive-portal helper, so no phone will offer to open it; the address is in the boot-partition note, but no phone has been tried |
+| Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. No captive-portal helper, so no phone will offer to open it; the address is in the boot-partition note, but no phone has been tried. Nearby networks are scanned once, before the access point is raised, and offered in a picker; typing the name still works and is the fallback when the scan finds nothing |
 | Country | The country already on the device is read with `iw reg get`; the page asks only when there is none; `raspi-config nonint do_wifi_country` sets it | partial | The read is untested on a device. On a dual-band board with no country the radio is off, so the setup network cannot start at all, and asking inside the portal is still the wrong place to ask |
-| Joining | A private keyfile loaded with `nmcli connection load`, activated with `connection up`, then checked for an active device, a routable IPv4 address and a default route | partial | Never executed. No DNS or HTTP probe, so a LAN with no internet is still reported as success |
-| Wrong password | Setup network returns with a one-line reason; the page shows it and a retry | partial | The decision and the page are real and tested; whether `nmcli` produces that message, and how long the return takes, is unverified |
-| Attempt limits | One submission per 5 seconds, 10 attempts, then a 10-minute cooldown; a successful join resets the count | partial | The cooldown is tested offline only. The note asks for 5 per 10 minutes with the limit shown in the form |
-| First baseline | One owner-only archive plus manifest, captured once after the first successful join | implemented | The capture code is real and tested against a temporary root. It has never run on a Pi with real keyfiles |
+| Joining | An owner-only keyfile written into NetworkManager's own profile directory, staged under a name the keyfile plugin ignores and renamed into place, pinned to the setup radio, loaded with `nmcli connection load`, activated with `connection up`, checked for a routable IPv4 address, a default route, the loaded profile being the active connection and that connection being on the setup radio, then promoted to `autoconnect=yes` | partial | Never executed. The profile check matters because a connected radio is not proof that the intended network came up — an older saved profile can win. The directory matters because a profile the keyfile plugin will not read again is not a saved network. The staging name matters because the plugin watches that directory and would parse a half-written profile. A promotion that keeps failing is a failed join, not a warning: an unsaved profile works until the next reboot and then strands the device. No DNS or HTTP probe, so a LAN with no internet is still reported as success |
+| Wrong password | Setup network returns with a one-line reason; the page shows it and a retry | partial | The decision and the page are real and tested; whether `nmcli` produces that message, and how long the return takes, is unverified. nmcli's raw text is classified into one of five sentences and never shown or stored, so an error that echoes the passphrase cannot leak it |
+| Attempt limits | One submission per 5 seconds, 10 attempts, then a 10-minute cooldown; a successful join resets the count | partial | The cooldown is tested offline only. The page now says to wait ten minutes, because the counter lives in the state file and a power cycle does not clear it. The note asks for 5 per 10 minutes with the limit shown in the form |
+| First baseline | One owner-only archive plus manifest, captured once after the first successful join and retried on any online boot that has none | implemented | The capture code is real and tested against a temporary root. It has never run on a Pi with real keyfiles. The archive and manifest are written as `.part` files and renamed, so an interrupted capture leaves nothing that looks complete, and a failure is recorded in `baseline_error` rather than silently absent |
 | Finding the device afterwards | The last page names the device page URL and says what to do if it does not open | planned | No `debra-address.txt` and no mDNS announcement from this code. The address is the web prototype's port `8787`, which an image does not install |
-| Re-entry | A physical input, or N boots without an uplink, raises the setup network again | partial | The [boot unit](../../control/setup/README.md) raises the setup network when the last phase was `online` and the network is not reachable. No physical input, no boot counter, no bounded hotspot window |
+| Re-entry | A physical input, or N boots without an uplink, raises the setup network again | partial | The [boot unit](../../control/setup/README.md) raises the setup network when the last phase was `online` and the network is not reachable. No physical input, no boot counter, no bounded hotspot window. A device that failed with no access point at all is refused a join rather than crashing the page |
 | Account enrolment | First admin credential, SSH keys | planned | Nothing exists; see [N03](../roadmap.md) |
 | Browser setup after onboarding | HAT and driver selection, tools and settings, update and upgrade buttons | planned | The device page has volume, mute and read-only status only; see [web control](web-control.md) |
 
@@ -134,14 +134,19 @@ to a beginner:
 2. The page switches to a handover card that says, in advance, that this network
    has one radio, that the setup network has to switch off before it can join,
    that the page will disconnect, and that nothing is rebooted.
-3. The setup network stops, the device associates, and success is checked: an
-   activated profile with a routable IPv4 address. Association alone is not
-   success.
+3. The setup network stops, the device associates, and success is checked
+   against four things: a routable IPv4 address, a default route, the profile
+   that was just loaded being the active connection, and that connection being
+   on the radio the page was reached over. Association alone is not success, and
+   neither is a connected radio that came up on an older saved profile.
 4. On failure the setup network comes back, the same one, and the phase becomes
-   `failed` with a short reason from `nmcli` — for example "Secrets were
-   required, but not provided." The page then shows one reason and one button,
-   and the form keeps the network name while clearing the password, so the one
-   field that is probably wrong is empty and ready.
+   `failed`. The reason is one of a small set of sentences a person can act on —
+   "The Wi-Fi password was refused by the network", "That network was not
+   found" — because `nmcli`'s own text is classified at the boundary and never
+   shown or stored; an error that echoes the passphrase therefore cannot leak
+   it. The page shows one reason and one button, and the form keeps the network
+   name while clearing the password, so the one field that is probably wrong is
+   empty and ready.
 
 The device returns the setup network instead of rebooting for three reasons.
 A reboot destroys the only channel that could explain the failure, so the user
@@ -239,7 +244,7 @@ HTTP 202
 and a moment later the device has returned to a setup network with the reason:
 
 ```text
-{"phase": "failed", "hostname": "debra-demo1", "country": "GB", "ssid": "HomeWiFi", "address": null, "last_error": "Secrets were required, but not provided.", "attempts": 1, "last_attempt": "2026-11-15T22:24:03Z", "baseline": null, "hotspot": {"interface": "wlan0", "ssid": "Debra-Setup-demo1", "password": "debra-0f887027"}, "portal": "http://debra-demo1.local/", "updated": "2026-11-15T22:24:03Z"}
+{"phase": "failed", "hostname": "debra-demo1", "country": "GB", "ssid": "HomeWiFi", "address": null, "last_error": "The Wi-Fi password was refused by the network", "attempts": 1, "last_attempt": "2026-11-15T22:24:03Z", "baseline": null, "baseline_error": null, "hotspot": {"interface": "wlan0", "ssid": "Debra-Setup-demo1", "password": "debra-0f887027"}, "portal": "http://10.42.0.1/", "networks": [{"ssid": "HomeWiFi", "signal": 82, "security": "WPA2"}], "updated": "2026-11-15T22:24:03Z"}
 ```
 
 To look at a state directly, without clicking through it:
@@ -251,33 +256,32 @@ python3 -B control/setup/devserver.py --port 8097 --phase online --ssid "HomeWiF
 ```
 
 `--phase` accepts any of `unconfigured`, `hotspot`, `connecting`, `online` and
-`failed`. `--behaviour` accepts `ok` (the default), `bad-psk`, `no-address` and
-`no-uplink`. `--country GB` presets the country so the form skips that question.
-`--state-dir` keeps the state file somewhere you can read instead of a temporary
-directory under `/tmp/opencode`.
+`failed`. `--behaviour` accepts `ok` (the default), `bad-psk`, `no-address`,
+`no-uplink` and `scan-fails`. `--country GB` presets the country so the form
+skips that question. `--error` and `--baseline-error` set the two recorded
+reasons. `--state-dir` keeps the state file somewhere you can read instead of a
+temporary directory under `/tmp/opencode`.
 
-Three cautions, all from reading the code rather than from a run:
+Two cautions, both from reading the code rather than from a run:
 
 - **`--phase online` fakes the baseline.** It fills the field with a path and the
-  page says "captured", but nothing was captured.
-- **The `portal` field is not an address.** The status response reports
-  `http://wlan0/`, which is the interface name in the host position. Nothing on
-  the page uses it, but it would mislead anything that did.
-- **A successful join in the dev server captures the host's real configuration.**
-  The baseline step calls the real capture with `/` as its root, so on a laptop
-  with real NetworkManager profiles it copies those keyfiles into an owner-only
-  archive under the state directory. That is why the success behaviour was not
-  run on this laptop: `/etc/NetworkManager/system-connections` here holds real
-  household profiles. If you do run it, delete the state directory afterwards.
+  page says "captured", but nothing was captured. `--baseline-error` sets the
+  other side of that: no pointer, and a reason the page renders.
+- **The dev server's baseline root is a temporary directory**, not `/`. It was
+  changed after an earlier version captured the developer's own
+  `/etc/NetworkManager/system-connections`. A successful join in the dev server
+  therefore archives a fake tree, and no household keyfile is copied.
 
 The offline checks behind the tables above:
 
 ```bash
 python3 -B -m unittest tests.test_onboarding -v
+DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-30 tests, all passing on 2026-11-15. They prove the decisions and the HTTP
-contract against the fake; they prove nothing about a radio.
+115 onboarding tests and 12 browser scenarios, all passing on 2026-11-15. They
+prove the decisions and the HTTP contract against the fake; they prove nothing
+about a radio.
 
 ## Where the code and the older notes disagree
 
@@ -287,15 +291,15 @@ was written; the rest are still open, so the coordinator can decide them.
 
 | Point | [Revision 2 of the onboarding note](../notes/2026-11-15-wifi-onboarding-options-revision.md) | `control/setup/` today |
 | --- | --- | --- |
-| Hotspot security | WPA2 with a per-device passphrase printed on the device | **Resolved in code:** the passphrase is derived from the device name and written to the boot-partition note. Whether the note is actually printed is still open |
-| Trial profile and rollback | Credentials stored as a trial profile (`autoconnect=no`, retries 1), deleted on failure, old profile kept | `nmcli device wifi connect` creates and activates an ordinary autoconnecting profile; nothing is removed on failure and no previous profile is protected |
+| Hotspot security | WPA2 with a per-device passphrase printed on the device | **Partly resolved:** the passphrase is derived from the device name and written to the boot-partition note, so it is readable before any page loads. It is derivable by anyone who knows the device name, and that `nmcli` really raises a WPA2 access point with it is unverified |
+| Trial profile and rollback | Credentials stored as a trial profile (`autoconnect=no`, retries 1), deleted on failure, old profile kept | **Resolved in code:** the profile is written into NetworkManager's own profile directory with `autoconnect=false`, activated, verified, then promoted to `autoconnect=yes`. A failed attempt deletes the profile and its file, and a promotion that keeps failing is treated as a failed join. No profile has been loaded by a real NetworkManager |
 | Country | A precondition supplied at image build, because a disabled radio cannot host the portal | **Partly resolved:** the country already on the device is read first, so the question is only asked when there is none. The radio-off case is still an error |
 | Success test | Four layers: associated, routable address, default route, then DNS or an HTTP probe | **Three of four:** active device, routable address and default route. No DNS or HTTP probe, so a LAN with no internet still passes |
 | Finding the device | Write `debra-address.txt` to the boot partition and announce mDNS | Neither; the page prints a `.local:8787` URL and no announcement is made by this code |
 | Re-entry | Physical input, or 3 boots with no uplink; a bounded hotspot window | The boot unit now raises the setup network when the last phase was `online` and the network is unreachable. Still no timer, no input, no boot counter |
 | Rate limit | 5 submissions per 10 minutes, form visibly limited | **Partly resolved:** one per 5 seconds, 10 attempts, then a 10-minute cooldown instead of a permanent refusal. Still not the note's rate |
 | Password field after a failure | Cleared, SSID kept | **Resolved:** the password is cleared and the network name kept |
-| Passphrase handling | Hand it to NetworkManager without a copy | **Resolved:** written to an owner-only keyfile, loaded with `nmcli connection load`, then deleted. It never appears in argv, and a test asserts that |
+| Passphrase handling | Hand it to NetworkManager without a copy | **Resolved in code:** written to an owner-only keyfile in NetworkManager's profile directory and loaded from there. It never appears in argv, the escaping round-trips through the real GLib parser, and the setup state never holds it. It is *kept*, because deleting it left the device with no household network after a reboot |
 
 ## Open questions
 

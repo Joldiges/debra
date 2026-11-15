@@ -23,11 +23,13 @@ and no passphrase is stored in the setup state.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import socket
 import threading
 import time
@@ -48,6 +50,9 @@ LOGGER = logging.getLogger(__name__)
 
 HOTSPOT_PREFIX = "Debra-Setup"
 PORTAL_PORT = 80
+# What NetworkManager's shared mode usually assigns, and the fallback when the
+# access point's own address cannot be read.
+DEFAULT_PORTAL_ADDRESS = "10.42.0.1"
 SUBMIT_INTERVAL_S = 5
 MAX_ATTEMPTS = 10
 # After the last allowed attempt the page waits this long instead of refusing
@@ -86,10 +91,20 @@ def read_serial(paths=SERIAL_PATHS):
     return None
 
 
-def _public_text(exc, limit=200):
-    """One bounded line from an internal exception, safe to show a person."""
-    text = " ".join(str(exc).split())
-    return text[:limit] or exc.__class__.__name__
+def _baseline_reason(exc):
+    """One fixed sentence about why a baseline was not captured.
+
+    The exception's own text is not used: an OSError carries the path it failed
+    on, and a person reading the setup page has no use for the device's layout.
+    The journal keeps the detail.
+    """
+    if isinstance(exc, baseline_module.BaselineError):
+        return "The device state is larger than one baseline can hold"
+    if isinstance(exc, PermissionError):
+        return "Some device files could not be read"
+    if getattr(exc, "errno", None) == errno.ENOSPC:
+        return "The device is out of disk space"
+    return "The device state could not be saved"
 
 
 def hotspot_name(hostname):
@@ -132,13 +147,29 @@ class Onboarder:
         self.keyfile_dir = Path(keyfile_dir) if keyfile_dir else None
         self._last_submit = 0.0
         self._lock = threading.Lock()
+        # Nearby networks, scanned while the radio is free. Kept in memory: it
+        # is a convenience for the form, not state the device should remember.
+        self._networks = []
+        # The address the setup page is served on, read from the access point
+        # once it is up. None until then, so the fallback is explicit.
+        self._portal_address = None
 
     # -- identity -----------------------------------------------------------
 
     def ensure_identity(self):
-        """Set the hostname once, and keep it if it is already ours."""
+        """Choose the device name once, and apply it every time.
+
+        The name is chosen once. Applying it is idempotent and is retried on
+        every boot: a name that `hostnamectl` failed to take on the first boot
+        used to be remembered as done, so the page advertised a name the device
+        never answered to and no later boot repaired it.
+        """
         data = state_module.read(self.state_path)
         if data["hostname"]:
+            try:
+                self.network.set_hostname(data["hostname"])
+            except (AttributeError, nm_module.NmError) as exc:
+                LOGGER.warning("Device name recorded but not applied: %s", exc)
             return data["hostname"]
         hostname = (hostname_from_serial(read_serial(self.serial_paths))
                     or self.hostname
@@ -171,17 +202,27 @@ class Onboarder:
             "hotspot": ({**hotspot,
                          "password": hotspot_password(data["hostname"])}
                         if hotspot else None),
-            # The name, not the interface: an interface name there produced
-            # http://wlan0/, which no browser can follow.
-            "portal": (f"http://{data['hostname']}.local/" if data["hostname"] else None),
+            # The address the page is actually served on. A `.local` name here
+            # was rejected by the portal's own same-origin check.
+            "portal": (f"http://{self._portal_address or DEFAULT_PORTAL_ADDRESS}/"
+                       if hotspot else None),
+            # Names the device could see before it raised its own network, so
+            # the form can offer them instead of making a beginner type one.
+            # Empty is normal and means "type it".
+            "networks": list(self._networks),
             "updated": data["updated"],
         }
 
-    def start_hotspot(self, reason=None, phase="hotspot"):
+    def start_hotspot(self, reason=None, phase="hotspot", rescan=True):
         """Raise the setup access point and record it. Idempotent.
 
         `phase` is "failed" when this follows a failed attempt, so the page can
         show the reason and a retry instead of a blank form.
+
+        `rescan` is False on that failure path. The access point is about to be
+        raised again, and a scan can take tens of seconds, so scanning there
+        would leave the person disconnected with no page for that long. The list
+        from the first boot is still in memory and still useful.
         """
         data = state_module.read(self.state_path)
         if not data["hostname"]:
@@ -211,6 +252,11 @@ class Onboarder:
                 detected = None
             if detected:
                 data["country"] = detected
+        if rescan and not data["hotspot"]:
+            # The radio is still free here, which is the only safe moment to
+            # scan: asking for a scan with the access point up can drop the
+            # person's phone off it.
+            self.refresh_networks(interface)
         name = hotspot_name(hostname)
         password = hotspot_password(hostname)
         try:
@@ -219,37 +265,91 @@ class Onboarder:
             data.update(phase="failed", last_error=str(exc))
             state_module.write(self.state_path, data)
             return self.status()
+        try:
+            self._portal_address = self.network.device_address(interface)
+        except (AttributeError, nm_module.NmError):
+            self._portal_address = None
         data.update(phase=phase, hotspot={"ssid": name, "interface": interface},
                     last_error=reason)
         state_module.write(self.state_path, data)
         self._write_card_note(name, password, hostname)
         return self.status()
 
+    def refresh_networks(self, interface=None):
+        """Look for nearby networks while the radio is free. Never raises.
+
+        The result is a convenience for the form, not state: an empty list is a
+        normal answer, and the page then falls back to typing the name.
+        """
+        scan = getattr(self.network, "scan", None)
+        try:
+            found = scan(interface) if callable(scan) else []
+        except nm_module.NmError:
+            found = []
+        self._networks = list(found or [])
+        return self._networks
+
+    def announce_portal(self, address):
+        """Record the address the page is actually bound to, and reprint the note.
+
+        The note and the status are written when the access point comes up, so
+        they carry the address the radio reported then. If the page ends up
+        listening somewhere else, that is the address a person has to type:
+        a URL the portal's own same-origin check rejects is a dead end at the
+        first step of setup.
+        """
+        if not address:
+            return
+        self._portal_address = address
+        try:
+            data = state_module.read(self.state_path)
+        except (OSError, ValueError):
+            return
+        hotspot = data.get("hotspot")
+        if not hotspot:
+            return
+        self._write_card_note(hotspot.get("ssid") or hotspot_name(data["hostname"]),
+                              hotspot_password(data["hostname"]), data["hostname"])
+
     def _write_card_note(self, ssid, password, hostname):
         """Write the three things needed before any page can be loaded.
 
         Without the password the setup network cannot be joined at all, and a
         person with no console has no other way to learn it.
+
+        The address is the one the page is served on, not `<hostname>.local`.
+        The portal's same-origin check admits only the address it was given, so
+        the printed `.local` name returned 403 to the person following it.
         """
         if self.card_note_path is None:
             return
+        address = self._portal_address or DEFAULT_PORTAL_ADDRESS
         text = ("Debra setup\n\n"
                 f"Wi-Fi network: {ssid}\n"
                 f"Password:      {password}\n"
-                f"Then open:     http://{hostname}.local/\n")
+                f"Then open:     http://{address}/\n")
         try:
             self.card_note_path.parent.mkdir(parents=True, exist_ok=True)
             self.card_note_path.write_text(text, encoding="utf-8")
         except OSError as exc:
             LOGGER.warning("Setup note not written: %s", exc)
 
-    def admit(self, ssid, psk, country=None):
+    def admit(self, ssid):
         """Reserve the one in-flight attempt, or say why not.
 
         Two requests arriving together used to pass the same snapshot check and
         start two associations. Reserving under the lock closes that gap: the
         phase becomes `connecting` before the page is answered, so a second
         request sees a device that is already busy.
+
+        Returns `(True, token)` or `(False, reason)`. The token identifies this
+        particular attempt, so a worker whose reservation was superseded can
+        tell - the SSID alone cannot, because the same network can be tried
+        again with a corrected password.
+
+        Nothing here touches the radio. The country used to be set inside this
+        lock, before the reply was written, which could delay or disrupt the
+        only channel the person has.
         """
         with self._lock:
             data = state_module.read(self.state_path)
@@ -264,38 +364,52 @@ class Onboarder:
                 return False, "no-hotspot"
             if self.clock() - self._last_submit < SUBMIT_INTERVAL_S:
                 return False, "throttle"
-            if country and not data["country"]:
-                try:
-                    self.network.set_country(country)
-                    data["country"] = country
-                except nm_module.NmError as exc:
-                    data.update(phase="failed", last_error=str(exc))
-                    state_module.write(self.state_path, data)
-                    return False, "country"
-            # The page has already answered; from here the AP is expendable.
-            # A capped counter starts again after the cooldown, so the retry
-            # the page offers is always a retry that can work.
+            # A capped counter starts again after the cooldown, so the retry the
+            # page offers is always a retry that can work.
             self._last_submit = self.clock()
+            # The token is random, not the timestamp: `last_attempt` has
+            # one-second resolution and a retry can land in the same second as
+            # the attempt it replaces.
+            token = secrets.token_hex(8)
             data.update(phase="connecting", ssid=ssid, last_error=None,
                         attempts=min(data["attempts"], MAX_ATTEMPTS - 1) + 1,
-                        last_attempt=state_module.now())
+                        last_attempt=state_module.now(), attempt_token=token)
             state_module.write(self.state_path, data)
-            return True, None
+            return True, token
+
+    def release(self, token):
+        """Undo a reservation whose reply never reached the browser.
+
+        Without this, a client that disconnects between the reservation and the
+        reply leaves the device `connecting` for ever in this process, and every
+        later submission is refused as busy.
+        """
+        with self._lock:
+            data = state_module.read(self.state_path)
+            if data["phase"] != "connecting" or data["attempt_token"] != token:
+                return
+            data.update(phase="hotspot" if data["hotspot"] else "failed",
+                        ssid=None, last_attempt=None, attempt_token=None,
+                        attempts=max(0, data["attempts"] - 1))
+            state_module.write(self.state_path, data)
 
     def join(self, ssid, psk, country=None):
         """Admit and join in one call. The portal does the two steps separately."""
-        accepted, _ = self.admit(ssid, psk, country)
+        accepted, token = self.admit(ssid)
         if not accepted:
             return self.status()
-        return self.join_reserved(ssid, psk)
+        return self.join_reserved(ssid, psk, country, token)
 
-    def join_reserved(self, ssid, psk):
+    def join_reserved(self, ssid, psk, country=None, token=None):
         """Do the slow part of a join that `admit()` already reserved."""
         data = state_module.read(self.state_path)
-        if data["phase"] != "connecting" or data["ssid"] != ssid:
+        if (data["phase"] != "connecting" or data["ssid"] != ssid
+                or (token is not None and data["attempt_token"] != token)):
             # Something else moved the state on while this worker waited; the
-            # reservation is no longer this worker's to use.
-            LOGGER.warning("Join for %s abandoned: the device is no longer connecting", ssid)
+            # reservation is no longer this worker's to use. Checking the token
+            # as well as the SSID matters: the same network can be retried with
+            # a corrected password, and the old worker must not win that race.
+            LOGGER.warning("Join for %s abandoned: the reservation is no longer current", ssid)
             return self.status()
 
         try:
@@ -304,14 +418,29 @@ class Onboarder:
             # Losing the AP cleanup is not a reason to abandon the join.
             LOGGER.warning("Setup access point did not stop cleanly")
 
+        # The country is a radio change, so it happens after the page has been
+        # answered and the access point is already down. A failure here is a
+        # normal failure with a reason, not a broken reply.
+        if country and not data["country"]:
+            try:
+                self.network.set_country(country)
+                data = state_module.read(self.state_path)
+                data["country"] = country
+                state_module.write(self.state_path, data)
+            except nm_module.NmError as exc:
+                return self.start_hotspot(reason=str(exc), phase="failed", rescan=False)
+
         try:
-            active = self.network.connect(ssid, psk)
+            active = self.network.connect(
+                ssid, psk, keyfile_dir=self.keyfile_dir,
+                interface=(data.get("hotspot") or {}).get("interface"))
         except nm_module.NmError as exc:
-            return self.start_hotspot(reason=str(exc), phase="failed")
+            return self.start_hotspot(reason=str(exc), phase="failed", rescan=False)
 
         data = state_module.read(self.state_path)
         data.update(phase="online", ssid=ssid, address=active["address"],
-                    hotspot=None, last_error=None, attempts=0, last_attempt=None)
+                    hotspot=None, last_error=None, attempts=0,
+                    last_attempt=None, attempt_token=None)
         state_module.write(self.state_path, data)
         self._capture_baseline()
         return self.status()
@@ -335,8 +464,21 @@ class Onboarder:
         before it: a capture takes time, and the phase or the address may have
         changed while it ran.
         """
-        if state_module.read(self.state_path)["baseline"]:
-            return
+        data = state_module.read(self.state_path)
+        pointer = data["baseline"]
+        if pointer:
+            # A saved pointer is only a baseline if the archive is still there.
+            # Trusting the string alone meant a deleted or pruned archive
+            # suppressed every later capture, so the device reported a known-good
+            # point it did not have.
+            if Path(pointer).is_file():
+                return
+            LOGGER.warning("The recorded baseline is missing; capturing again")
+            try:
+                data["baseline"] = None
+                state_module.write(self.state_path, data)
+            except (OSError, ValueError):
+                pass
         try:
             manifest = baseline_module.capture(self.baseline_dir, root=self.root)
         except (baseline_module.BaselineError, OSError) as exc:
@@ -346,15 +488,22 @@ class Onboarder:
             LOGGER.warning("Baseline not captured: %s", exc)
             try:
                 data = state_module.read(self.state_path)
-                data["baseline_error"] = _public_text(exc)
+                data["baseline_error"] = _baseline_reason(exc)
                 state_module.write(self.state_path, data)
             except (OSError, ValueError):
                 LOGGER.warning("Baseline error could not be recorded")
             return
-        data = state_module.read(self.state_path)
-        data["baseline"] = str(self.baseline_dir / manifest["archive"])
-        data["baseline_error"] = None
-        state_module.write(self.state_path, data)
+        # The capture succeeded; recording that must not be the step that
+        # throws. A full disk here used to escape the handler, leave the error
+        # field empty and look like nothing had happened.
+        try:
+            data = state_module.read(self.state_path)
+            data["baseline"] = str(self.baseline_dir / manifest["archive"])
+            data["baseline_error"] = None
+            state_module.write(self.state_path, data)
+        except (OSError, ValueError) as exc:
+            LOGGER.warning("Baseline captured but not recorded: %s",
+                           _baseline_reason(exc))
 
     def resume(self):
         """Decide what a boot looks like, from the recorded state."""
@@ -489,29 +638,37 @@ class PortalHandler(BaseHTTPRequestHandler):
         # Reserve the attempt *before* answering. Two requests arriving together
         # used to pass the same snapshot check and start two associations; the
         # reservation makes the second one see a device that is already busy.
-        accepted, reason = self.server.onboarder.admit(ssid, psk or None, country)
+        accepted, token = self.server.onboarder.admit(ssid)
         if not accepted:
-            if reason == "locked":
+            if token == "locked":
                 # The counter is in the state file, so a power cycle cannot clear
                 # it. The advice has to be the wait that actually works.
                 self._reply(429, {"error": "Too many attempts. Wait ten minutes, "
                                            "then try again."})
-            elif reason == "throttle":
+            elif token == "throttle":
                 self._reply(429, {"error": "One attempt every few seconds. "
                                            "Try again shortly."})
-            elif reason in ("busy", "no-hotspot"):
-                self._reply(409, {"error": "The device is not waiting for setup right now"})
             else:
-                self._reply(400, {"error": "The country could not be set"})
+                self._reply(409, {"error": "The device is not waiting for setup right now"})
             return
         status = self.server.onboarder.status()
         # Answer before the network goes away: this reply is the last thing the
         # browser can receive over the setup access point.
-        self._reply(202, {"status": "connecting", "ssid": ssid,
-                          "hotspot": (status.get("hotspot") or {}).get("ssid")})
+        try:
+            self._reply(202, {"status": "connecting", "ssid": ssid,
+                              "hotspot": (status.get("hotspot") or {}).get("ssid")})
+        except OSError:
+            # The phone dropped between the reservation and the reply. Nothing
+            # was started, so the reservation must be released or every later
+            # submission is refused as busy until the process restarts.
+            LOGGER.warning("Join reply could not be delivered; the reservation is released")
+            self.server.onboarder.release(token)
+            return
+        # Not a daemon: the process must not exit while the baseline is being
+        # captured, because that is the only copy of the device's first state.
         worker = threading.Thread(target=self.server.onboarder.join_reserved,
-                                  args=(ssid, psk or None), daemon=True,
-                                  name="debra-onboarding")
+                                  args=(ssid, psk or None, country, token),
+                                  daemon=False, name="debra-onboarding")
         worker.start()
 
 

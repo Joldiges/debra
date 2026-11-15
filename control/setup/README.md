@@ -18,18 +18,28 @@ The unit runs on every boot and asks `Onboarder.resume()`
    usually joins its own network in that window, and the boot is then quiet.
 2. `resume()` decides from the recorded state. Online: nothing to do, the
    process exits 0 and no page is started.
-3. No usable uplink: it sets the device name, raises the setup access point,
-   writes the setup-network password to the boot partition, and serves the page
-   on the address the access point actually got. In shared mode that is
+3. No usable uplink: it sets the device name, looks for nearby networks while
+   the radio is still free, raises the setup access point, writes the
+   setup-network password to the boot partition, and serves the page on the
+   address the access point actually got. In shared mode that is
    `http://10.42.0.1/`, which is also the fallback when the address cannot be
-   read.
-4. A submission joins the household network. On success the phase becomes
-   `online`, the access point is gone, and the service closes the listening
-   socket within a couple of seconds rather than leaving the page open. It then
-   waits up to five seconds for the first baseline, because the join worker
-   captures it after recording the online phase. On failure the access point
-   comes back with the reason and the page keeps serving.
-5. After the first successful join the baseline is captured once. It is
+   read. The scan is a convenience for the form: a failure is an empty list and
+   the person types the name, which always works.
+4. A submission joins the household network. The profile is written into
+   NetworkManager's own store, pinned to the radio in use, and promoted to
+   autoconnect only after the join is verified, so the device rejoins the
+   household network on the next boot. On success the phase becomes `online`,
+   the access point is gone, and the service closes the listening socket within
+   a couple of seconds rather than leaving the page open. It then waits up to
+   five seconds for the first baseline, because the join worker captures it
+   after recording the online phase. On failure the access point comes back with
+   the reason and the page keeps serving.
+5. Once the socket is bound, the note on the boot partition is reprinted with
+   the address that is actually listening. The note written when the access
+   point came up carries the address the radio reported, and those two are not
+   always the same. A person typing an address the portal's own same-origin
+   check rejects is stuck at the first step of setup.
+6. After the first successful join the baseline is captured once. It is
    configuration recovery, not whole-device recovery, and it contains secrets.
 
 Nothing reboots the device to apply Wi-Fi, nothing restarts NetworkManager, and
@@ -113,7 +123,7 @@ useful for inspection or imaging. `--restore <unit>` is the rollback below.
 | `/usr/local/lib/debra/setup/previous-units/` | `0700` | Previous generated units, retained for rollback |
 | `/var/lib/debra/setup/setup.json` | `0600` | The setup state; no passphrase |
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
-| `/var/lib/debra/setup/keyfiles/` | `0700` | Transient keyfile before `nmcli connection load` deletes it |
+| `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; it is the only copy of that passphrase |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |
 
@@ -178,33 +188,81 @@ the web prototype are unaffected; they are separate units.
 
 Ordered by how likely it is to bite on a real first boot.
 
-1. **The portal's bind address is read from NetworkManager, with a fallback.**
+1. **The Wi-Fi profile has never been loaded by a real NetworkManager.** The
+   profile is written into `/etc/NetworkManager/system-connections` and loaded
+   from there, because a keyfile anywhere else is not one the keyfile plugin
+   will read again after a reboot. That the plugin accepts this file, that the
+   profile survives a reboot, and that `connection modify ... autoconnect yes`
+   takes effect are all untested. A profile that is not promoted leaves the
+   device with no network at all on the next boot, so the join treats a failed
+   promotion as a failed join and brings the setup network back.
+2. **The portal's bind address is read from NetworkManager, with a fallback.**
    It asks for the access point interface's IPv4 and binds that, falling back to
-   `10.42.0.1` when the read returns nothing. If both are wrong the bind fails,
-   the unit exits non-zero, and systemd retries three times in five minutes and
-   gives up — while the card note has already been written, so the person has a
-   setup network and no page. Neither path has run against a real radio.
-2. **The 30-second uplink wait is a guess.** If NetworkManager takes longer than
+   `10.42.0.1` when the read returns nothing. If the bind fails, the access
+   point is taken back down and the phase is recorded as `failed`, so the device
+   does not sit there offering a network with no page — but the person then has
+   neither a page nor a setup network, and needs a console. Neither path has run
+   against a real radio, and the listener is not rebound if a recreated access
+   point lands on a different subnet.
+3. **The 30-second uplink wait is a guess.** If NetworkManager takes longer than
    that to autoconnect on a slow card, a configured device raises a setup access
    point, and the household connection may not come up until the next boot. No
    boot has been timed.
-3. **Only Wi-Fi uplinks count.** `nmcli`-based `active()` looks at Wi-Fi devices,
+4. **Only Wi-Fi uplinks count.** `nmcli`-based `active()` looks at Wi-Fi devices,
    so a device with working Ethernet and no Wi-Fi still raises the setup access
    point.
-4. **Nothing has read a real root-only keyfile set.** The baseline has only ever
+5. **Nothing has read a real root-only keyfile set.** The baseline has only ever
    run against a temporary root.
-5. **The device name is applied with `hostnamectl`, which has never run.** The
-   adapter refuses a name that would not resolve as `<name>.local`, but no boot
-   has applied one, and a failure is logged and carried past rather than retried,
-   so the page can show a name the device does not answer to.
-6. **No captive-portal helper.** A phone will not offer to open the page; the
+6. **The device name is applied with `hostnamectl`, which has never run.** The
+   adapter refuses a name that would not resolve as `<name>.local`, and the name
+   is applied again on every boot, so a failure is retried rather than
+   remembered as done. No boot has applied one.
+7. **No captive-portal helper.** A phone will not offer to open the page; the
    address has to be typed from the card note.
-7. **If `/boot/firmware` is not mounted when the note is written**, the note is
+8. **The network scan has never run against a radio.** It is issued once, before
+   the access point is raised, because a scan with the access point up can drop
+   the person's phone off it. Whether that window is clean on a real driver, and
+   how long the scan takes, is untested. A failed or slow scan is not fatal, but
+   it does delay the page appearing.
+9. **If `/boot/firmware` is not mounted when the note is written**, the note is
    created on the root filesystem instead. The service logs a warning and the
    access point still starts.
-8. **The unit has never been loaded by systemd.** The tests read the rendered
-   unit as text; they do not run `systemd-analyze verify`, and they prove nothing
-   about polkit, D-Bus or a radio.
+10. **The unit has never been loaded by systemd.** The tests read the rendered
+    unit as text; they do not run `systemd-analyze verify`, and they prove
+    nothing about polkit, D-Bus or a radio.
+11. **The cooldown is words, not a countdown.** The page says to wait ten
+    minutes because the attempt counter lives in the state file and a power
+    cycle does not clear it. There is no retry-after the page can count down.
+
+## How the risky steps are kept small
+
+These are the decisions that the tests defend, and the reasons they exist:
+
+- **The page is answered before the radio is touched.** A submission reserves
+  the attempt, writes the `202`, and only then does a worker stop the access
+  point and associate. The reply is the last thing that can travel over the
+  setup network. If the reply cannot be written at all — the phone dropped —
+  the reservation is released, so the device is not left `connecting` for ever.
+- **A reservation is identified by a token, not by a network name.** The same
+  network can be retried with a corrected password, so the name cannot say which
+  attempt a worker belongs to. The token is random because the timestamp beside
+  it has one-second resolution.
+- **Success means the profile that was just loaded is the active connection**,
+  on the radio the page was reached over, with a routable address and a default
+  route. A connected radio is not proof of any of that.
+- **The country is set after the access point is down.** It is a radio change,
+  and doing it before the reply could disrupt the only channel the person has.
+- **A failed attempt deletes its profile and its file**, so a wrong password
+  never leaves a profile competing with the household network.
+- **A baseline is published, not overwritten.** Each file is written under a
+  name nothing reads, flushed, and linked into place; `os.link` refuses to
+  replace an existing file, and the manifest is published last. A same-second
+  retry gets a suffix instead of overwriting. A capture never archives its own
+  directory, a file is read whole before it is added to the archive, and
+  `latest()` only returns a manifest whose archive still hashes to what it says.
+- **The setup page prints the address it is served on**, not `<hostname>.local`:
+  the same-origin check admits only that address, and the `.local` name returned
+  `403`.
 
 The offline checks behind this page:
 

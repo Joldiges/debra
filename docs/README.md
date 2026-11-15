@@ -64,6 +64,10 @@ found claims stronger than their sources; read the review before using it.
 | [Optional network services](notes/2026-11-15-optional-network-services.md) | optional extras | Desk study only; NTP client and device health proposals, household-service exclusions; no devices contacted |
 | [Optional radio and presence](notes/2026-11-15-optional-radio-and-presence.md) | optional extras | Desk study only; separate ESP32 BLE proxy and separate home-radio infrastructure candidates; no devices contacted |
 | [Optional sensors and front panel](notes/2026-11-15-optional-sensors-and-front-panel.md) | optional extras | Desk study only; SHT40/BME280 candidates and nominal, not physical, fit comparisons; no devices contacted |
+| [Housed speaker modules, 30–110 mm](notes/2026-11-15-housed-speaker-module-survey.md) | V17 | Eight modules against the three DWEII envelopes. Published dimensions only; nothing measured or bought. Corroborates the 671's 31 vs 44 mm contradiction rather than resolving it |
+| [The v17 cover intersects the lid](notes/2026-11-15-v17-cover-lid-conflict.md) | V17 | Measured in CAD: 785.08 mm³ in one pair. The two parts are alternative front plates, not a cover behind the lid. Both ways out are recorded |
+| [Three microphone paths for a Pi Zero](notes/2026-11-15-pi-zero-microphone-paths.md) | ARMv6 | Desk research on 32-bit Raspberry Pi OS: which kernel symbols exist for a WM8960 HAT, a USB microphone and a bare I2S microphone. Nothing installed or measured |
+| [Case fastening survey](notes/2026-11-15-case-fastening-survey.md) | enclosures | Manufacturer data for heat-set inserts, thread-forming screws and snap fits. Insert hole size follows the insert, not the thread; no PLA or PETG figures are published. Nothing bought or tested |
 
 Two design specifications are also new and unreviewed:
 [RPiSpeaker v17 speaker mount options](design/rpispeaker-v17-speaker-mount-options.md)
