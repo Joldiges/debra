@@ -121,6 +121,16 @@ audible was played, so none of this disturbs a sleeping house.
 | Do HDMI sinks appear with no display connected? | **Yes, and this contradicts what was assumed.** `alsa_output.platform-107c701400.hdmi.hdmi-stereo` exists in `SUSPENDED` state with nothing plugged into either port. Only HDMI **0** appears; HDMI **1** does not |
 | Does a combine sink work, and does audio reach the speaker through it? | **Yes to both.** `pactl load-module module-combine-sink sink_name=debra_test slaves=<HAT sink>` returns a module id and creates a working sink. A tone played with `pw-play --target debra_test` measured −40.4 dBFS at the microphone, against −40.6 dBFS playing to the member sink directly, so it passes at unity |
 | Does the combine sink's own volume do what a user expects? | **No.** It is a second cubic attenuator multiplying with the member's: 100 % → 50 % cost **17.7 dB**, not 6, and 35 % cost 26.7 dB. Leave the virtual sink at 100 % and set levels on the members |
+| Does `module-echo-cancel` actually load, or does it only exist on disk? | **It loads.** `pactl load-module module-echo-cancel source_name=… sink_name=… aec_method=webrtc source_dont_move=true sink_dont_move=true` returns a module id on this image, with `libwebrtc-audio-processing-1.so.3` installed. The resulting source passes the microphone through: a 2 s recording from it measured −57.9 dBFS rms, so it is live audio and not silence |
+
+The echo-cancel source is the mechanism for stopping a reply from re-triggering
+the wake word, and the reason it matters is now measurable: at the volume the
+device runs at, a reply reaches the microphones around −40 dBFS, which is louder
+than a person speaking across a room. What is **not** tested is whether the
+cancellation actually works — that needs the wake word to fire, which needs
+speech, which needs a person. `source_dont_move` and `sink_dont_move` are not
+optional in that test: without them the module takes over the default source and
+the voice assistant starts listening to a node it did not expect.
 
 ### Consequence for the "all outputs" profile
 
