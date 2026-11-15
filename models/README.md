@@ -55,6 +55,9 @@ something you could slice.
 | [zero2w-hat-tray](parts/zero2w-hat-tray/README.md) | Base plate, locating lip and four screw standoffs for the Zero 2 W + HAT stack | **Not printed, not fit-tested**; no lid, no speaker chamber |
 | [dweii-671-case](parts/dweii-671-case/README.md) | Tub and lid for the whole device: DWEII 671 module at the front, Pi Zero 2 W + ReSpeaker HAT behind, Ø26 grille, two microphone ports over the sourced HAT port positions, 5 mm corner rounds | **Not printed, not fit-tested**: 71.02 × 54.37 × 33.2 mm. The Pi's own ports and the HAT's jack are enclosed by design |
 | [dweii-671-carrier](parts/dweii-671-carrier/README.md) | Baffle and rear pocket for the DWEII 701715519671 module: 45.6 × 29.6 × 15 mm pocket, Ø26 mm grille, 4 × M2.5 | **Not printed, not fit-tested**; pocket sized to the larger of two conflicting seller dimensions |
+| [dweii-462-case](parts/dweii-462-case/README.md) | Carrier for the 100 × 45 × 21 mm 5 W module: 102 × 47 × 23 mm cavity, 1.8 mm walls, four vents, flat recessed back, 4 × Ø2.2 × 7 mm pilots | **Not printed, not fit-tested**; no keyholes, no lid, and it carries the module without securing it |
+| [dweii-462-retainer](parts/dweii-462-retainer/README.md) | Frame that closes the 462 carrier's front: 101 × 46 mm opening, four holes on the carrier's pilots, tabs over assumed housing edges | **Provisional**: the frame alone does not retain the module; tabs, pads and spacers are not modelled or tested |
+| [rpispeaker-v17-lid](parts/rpispeaker-v17-lid/README.md) | Front lid concept for the original v17 body: Ø28 driver in an external sleeve protruding 10 mm, 100% open aperture | **Provisional**: the body's two pilots stop 1.21 mm short of the pocket floor, so fastening needs a body modification; no retainer, cable route unresolved |
 
 ## Not modelled yet
 

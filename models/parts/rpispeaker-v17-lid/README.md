@@ -30,8 +30,9 @@ connector slot is an assumed size and location, not a verified cable route.*
   body, protruding **10 mm** to Y 25.50. The sleeve projects from X 16.70 to
   48.30; its 0.45 mm overlap above the Pi-bay side and any attached components
   need collision checking. No Pi-bay front opening is assumed.
-- The given second-bay endpoints X 17.15–48.25 imply **31.10 mm**, not the
-  separately reported **31.85 mm**. The 30.50 mm inset uses the narrower
+- The second-bay endpoints X 17.15–48.25 give **31.10 mm**, which the
+  [correction note](../../../docs/notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md)
+  confirms is the bay width; the earlier 31.85 counted the outer wall. The 30.50 mm inset uses the narrower
   endpoints and supplies **0.30 mm per side** relative to them; Z clearance is
   also 0.30 mm per side relative to −33–33. This verifies the *bounding
   rectangle only*: the pocket's internal corner shape and local protrusions
@@ -87,7 +88,7 @@ are mm. Derived rows depend on both supplied dimensions and assumptions.
 
 | Parameter | Default | Source or status |
 | --- | ---: | --- |
-| `BAY_X_MIN`, `BAY_X_MAX` | 17.15, 48.25 | Supplied coordinates; inconsistent with reported 31.85 width |
+| `BAY_X_MIN`, `BAY_X_MAX` | 17.15, 48.25 | Supplied coordinates; the 31.10 mm span is the bay width, corrected from an earlier 31.85 |
 | `BAY_Z_MIN`, `BAY_Z_MAX` | −33, 33 | Supplied coordinates |
 | `FRONT_Y` | 15.50 | Supplied front plane |
 | `BAY_FLOOR_Y` | 8.50 | Supplied pocket floor; flat floor at screw pads **ASSUMED** |
