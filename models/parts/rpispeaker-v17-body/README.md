@@ -116,6 +116,26 @@ coordinates or even a similar volume would not prove identical geometry. The
 large missing/extra Pi-side shapes and omitted threads also preclude any claim
 of equivalent strength, fit or printability.
 
+## Where to tweak the speaker mount
+
+The timeline is grouped so the mount is one folder, not something to find among
+35 features. Folders are an editor convenience only: the exported build script
+leaves them out, and the geometry is unchanged by them.
+
+| Folder | Features | What it holds |
+| --- | --- | --- |
+| **Speaker mount: 2 measured holes (add your 4-screw pattern here)** | speaker pilot negative/positive core and countersink | The two Ø2.1755 threaded through holes with front countersinks, at X `PILOT_X` and Z ±`PILOT_Z` (36.5 mm apart). **These are two holes, not four.** Add the pattern you remember here |
+| Pi-side pilots (4, measured) | four cores and countersinks | The Pi mounting holes at ±`PI_PILOT_X`, ±`PI_PILOT_Z` |
+| Central opening: bore, counterbore, flare | `CENTRE_*` features | The Ø10 bore, Ø18 counterbore and flare |
+
+To add a four-screw pattern, add holes in that folder and drive them from new
+parameters (pitch in X and Z, diameter, countersink). Keep `PILOT_*` unchanged so
+the two measured holes stay identifiable, and note in this README that the added
+holes are **yours, not from the STEP**. Nothing in the repository claims the
+original has four; the
+[STEP search](../../../docs/notes/2026-11-15-v17-square-pattern-search.md) was
+inconclusive, which is different from negative.
+
 ## Parameters and limited change test
 
 The build script names the measured envelope, Pi references, speaker footprint,
