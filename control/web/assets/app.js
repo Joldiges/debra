@@ -29,6 +29,8 @@ if (fragment.has("key")) {
 }
 const fmt = (value, suffix = "") => value == null ? "Unavailable" : `${value}${suffix}`;
 const bytes = value => value == null ? "Unavailable" : `${(value / 1048576).toFixed(1)} MiB`;
+const cpuReading = value => typeof value !== "number" || !Number.isFinite(value) ? "Unavailable" :
+  `${value}%${value < 0 || value > 100 ? " · out of range" : ""}`;
 function rows(id, entries) {
   const list = el(id);
   list.replaceChildren();
@@ -51,13 +53,28 @@ async function api(path, body) {
     cache: "no-store",
     signal: AbortSignal.timeout(20000)
   });
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.error || "Device request failed");
+  let data;
+  try { data = await response.json(); } catch (error) {
+    if (response.ok) throw error;
+    data = {};
+  }
+  if (!response.ok || (path === "/api/status" && response.status !== 200)) {
+    const error = new Error(data?.error || "Device request failed");
     error.status = response.status;
     throw error;
   }
   return data;
+}
+function setBypassAvailable(available) {
+  bypassAvailable = available;
+  el("bypass").hidden = !available;
+  el("bypass-note").hidden = !available;
+}
+function revokeBypass() {
+  setBypassAvailable(false);
+  bypass = false;
+  el("pair").hidden = false;
+  el("dashboard").hidden = true;
 }
 function setOp(isVolume, value) {
   if (isVolume) volumeOp = value; else muteOp = value;
@@ -114,7 +131,7 @@ function render(data) {
   const m = data.memory;
   const p = data.power;
   rows("health-values", [
-    ["CPU total", fmt(data.cpu_percent.cpu, "%")],
+    ["CPU total", cpuReading(data.cpu_percent.cpu)],
     ["RAM used / total", `${bytes(m.MemTotal == null || m.MemAvailable == null ? null : m.MemTotal - m.MemAvailable)} / ${bytes(m.MemTotal)}`],
     ["CPU temperature", fmt(data.temperature_c, " °C")],
     ["Storage free", bytes(data.storage?.free_bytes)],
@@ -127,8 +144,8 @@ function render(data) {
   el("cores").replaceChildren();
   for (const [name, value] of Object.entries(data.cpu_percent)) {
     if (name === "cpu") continue;
-    const percent = typeof value === "number" && Number.isFinite(value)
-      ? Math.max(0, Math.min(100, value)) : null;
+    const valid = typeof value === "number" && Number.isFinite(value);
+    const percent = valid ? Math.max(0, Math.min(100, value)) : null;
     const row = document.createElement("div");
     row.className = "core";
     const label = document.createElement("span");
@@ -143,7 +160,7 @@ function render(data) {
     track.append(bar);
     const reading = document.createElement("span");
     reading.className = "core-value";
-    reading.textContent = percent == null ? "—" : `${percent}%`;
+    reading.textContent = cpuReading(value);
     row.append(label, track, reading);
     el("cores").append(row);
   }
@@ -176,13 +193,18 @@ async function refresh() {
   try {
     const result = await api("/api/status");
     if (started !== revision || busy) return;
+    if (bypass && result.auth !== "none") {
+      revokeBypass();
+      throw new Error("Device no longer reports keyless access");
+    }
+    if (bypass) setBypassAvailable(true);
     render(result);
     el("error").textContent = notices();
   } catch (error) {
     if (started !== revision || busy) return;
+    setBypassAvailable(false);
     if (error.status === 401) {
-      el("pair").hidden = false;
-      el("dashboard").hidden = true;
+      revokeBypass();
     }
     // A read failure is not a write outcome: keep any rejection or uncertainty
     // visible next to it rather than replacing it.
@@ -212,6 +234,7 @@ async function change(path, body) {
     audio(result);
   } catch (error) {
     if (started !== session) return;
+    if (error.status === 401) revokeBypass();
     if (DEFINITE.has(error.status)) {
       setOp(isVolume, {status: "rejected", target,
         message: `${error.message} Read the current state before retrying.`});
@@ -229,6 +252,9 @@ async function change(path, body) {
     // before the follow-up read. A failed read must not leave "applying…"
     // standing on a write that has already finished.
     audio(currentAudio);
+    if (!token && !bypass) {
+      for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
+    }
     el("error").textContent = notices();
     await refresh();
   }
@@ -248,6 +274,7 @@ el("pair-form").addEventListener("submit", async event => {
 });
 el("bypass").addEventListener("click", async () => {
   // Only reachable when the device itself reported that it runs without a key.
+  if (!bypassAvailable) return;
   token = "";
   bypass = true;
   sessionStorage.removeItem("debra-key");
@@ -279,6 +306,19 @@ el("volume").addEventListener("input", () => {
 el("apply").addEventListener("click", () => change("/api/audio/volume", {percent: Number(el("volume").value)}));
 el("mute").addEventListener("click", () => change("/api/audio/mute", {muted: !currentAudio.muted}));
 
+function canonicalDeviceUrl(url) {
+  if (typeof url !== "string" || url.length > 200) return null;
+  const match = /^(?:http):\/\/([A-Za-z0-9.-]+):([0-9]{1,5})\/?$/i.exec(url);
+  if (!match || match[0] !== url) return null;
+  const host = match[1].toLowerCase(), port = Number(match[2]);
+  const labels = host.split(".");
+  if (host.length > 253 || port < 1 || port > 65535 ||
+      labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
+  if (/^(?:[0-9]+|0x[0-9a-f]*)$/.test(labels[labels.length - 1]) &&
+      (labels.length !== 4 || labels.some(label => !/^(?:0|[1-9][0-9]{0,2})$/.test(label) || Number(label) > 255))) return null;
+  const canonical = `http://${host}:${port}/`;
+  return canonical.length <= 200 ? canonical : null;
+}
 async function loadDevices() {
   // The one-stop card: links this server was configured with. Optional, and a
   // failure here must not stop the page from working.
@@ -289,9 +329,10 @@ async function loadDevices() {
     const list = el("device-links");
     list.replaceChildren();
     for (const device of data.devices || []) {
-      if (typeof device?.url !== "string" || !device.url.startsWith("http://")) continue;
+      const url = canonicalDeviceUrl(device?.url);
+      if (!url) continue;
       const link = document.createElement("a");
-      link.href = device.url;
+      link.href = url;
       link.textContent = device.label ? `${device.name} · ${device.label}` : String(device.name);
       list.append(link);
     }
@@ -307,17 +348,24 @@ async function start() {
     await refresh();
     return;
   }
-  // No key in this tab. Ask the device whether it is running with the key off;
-  // a 401 means it still wants one, so only the form is offered.
-  try {
-    const probe = await fetch("/api/status", {cache: "no-store", signal: AbortSignal.timeout(20000)});
-    bypassAvailable = probe.ok;
-  } catch {
-    bypassAvailable = false;
-  }
-  el("bypass").hidden = !bypassAvailable;
-  el("bypass-note").hidden = !bypassAvailable;
   el("pair").hidden = false;
+  // A transient failure should not require a reload, but an old probe must not
+  // overwrite a newer pairing or disconnect decision.
+  const started = revision;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let available = false, unauthorized = false;
+    try {
+      const probe = await fetch("/api/status", {cache: "no-store", signal: AbortSignal.timeout(20000)});
+      unauthorized = probe.status === 401;
+      if (probe.status === 200) available = (await probe.json())?.auth === "none";
+    } catch {
+      // A non-JSON response or failed request is not proof of keyless access.
+    }
+    if (started !== revision) return;
+    setBypassAvailable(available);
+    if (available || unauthorized) return;
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+  }
 }
 
 start();

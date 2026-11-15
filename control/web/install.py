@@ -11,6 +11,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
 
@@ -38,6 +39,28 @@ def directory(path, private=False):
     info = path.stat()
     if info.st_uid != os.getuid() or (private and info.st_mode & 0o077):
         raise ValueError("Install directory must be owned by this user; private paths need 0700")
+
+
+def store_devices(state, devices):
+    data = json.dumps(devices, indent=1).encode() + b"\n"
+    stored = state / ("devices-" + hashlib.sha256(data).hexdigest() + ".json")
+    if not stored.exists() and not stored.is_symlink():
+        # No replacement: an old unit may still depend on this exact content.
+        fd, staged = tempfile.mkstemp(prefix=".devices.staged-", dir=state)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+        try:
+            os.link(staged, stored)
+        except FileExistsError:
+            pass
+    fd = os.open(stored, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or
+                info.st_size != len(data) or stream.read() != data):
+            raise ValueError("Existing device list differs or is not an owned regular file")
+        os.fchmod(stream.fileno(), 0o600)
+    return stored
 
 
 def install(home, source, sink, bind, port, hosts, python, auth="key", devices=None):
@@ -91,14 +114,7 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
     if devices:
         # Validated at startup too; copying it into the private state directory
         # keeps the unit independent of wherever the operator kept the file.
-        stored = state / "devices.json"
-        data = json.dumps(devices, indent=1).encode() + b"\n"
-        if not stored.exists() or stored.read_bytes() != data:
-            fd, staged = tempfile.mkstemp(prefix=".devices.staged-", dir=state)
-            with os.fdopen(fd, "wb") as stream:
-                stream.write(data)
-            os.replace(staged, stored)
-            stored.chmod(0o600)
+        stored = store_devices(state, devices)
         args.extend(["--devices", str(stored)])
     for host in hosts:
         args.extend(["--host", host])

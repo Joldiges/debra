@@ -4,12 +4,14 @@ DEBRA_BROWSER_TEST=1 python -B -m unittest discover -s tests -p test_web_browser
 Uses an already installed Chromium; never installs it or disables its sandbox.
 """
 
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 
 from control.web import server as web
@@ -22,6 +24,8 @@ window.testState = {
   posts: [], percent: 36, muted: false, delay: false, release: null, fail: false,
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
+  probe: new URLSearchParams(location.search).get("probe"), probes: 0, html401: false,
+  cpu: {cpu: 12, cpu0: 24},
   noAuth: new URLSearchParams(location.search).get("auth") === "none",
   devices: new URLSearchParams(location.search).get("auth") === "none"
     ? [{name: "debra-3c6b3f", url: "http://debra-3c6b3f.local:8787/", label: "Lab Pi 5"}]
@@ -33,8 +37,20 @@ window.fetch = async (path, options) => {
     return {ok: true, status: 200, json: async () => ({devices: state.devices})};
   }
   const authorized = Boolean(options.headers && options.headers.Authorization);
+  if (path === "/api/status" && !authorized && state.probe) {
+    state.probes++;
+    if (state.probe === "html") return {ok: true, status: 200, json: async () => { throw new SyntaxError("HTML"); }};
+    if (state.probe === "key") return {ok: true, status: 200, json: async () => ({auth: "key"})};
+    if (state.probe === "201") return {ok: true, status: 201, json: async () => ({auth: "none"})};
+    if (state.probe === "network") throw new Error("network failure");
+    if (state.probe === "503" || (state.probe === "retry" && state.probes === 1))
+      return {ok: false, status: 503, json: async () => ({error: "transient"})};
+  }
   if (!state.noAuth && !authorized) {
-    return {ok: false, status: 401, json: async () => ({error: "Access key required"})};
+    return {ok: false, status: 401, json: async () => {
+      if (state.html401) throw new SyntaxError("HTML");
+      return {error: "Access key required"};
+    }};
   }
   if (options.method === "POST") {
     const body = JSON.parse(options.body);
@@ -57,11 +73,11 @@ window.fetch = async (path, options) => {
   const data = path === "/api/status" ? {
     hostname: "Fixture device", model: "Test board", architecture: "fixture",
     os: "Fixture OS", selected_hardware: {speaker: "<script>untrusted</script>"},
-    uptime_s: 600, cpu_percent: {cpu: 12, cpu0: 24}, memory: {},
+    uptime_s: 600, cpu_percent: state.cpu, memory: {},
     power: {}, wifi: [], zram: [], swap_io: {}, zswap_enabled: null,
     storage: null, temperature_c: null,
     components: [{name: "LVA", active: "active", configuration: "Not yet inspected"}],
-    audio
+    audio, auth: state.noAuth ? "none" : "key"
   } : audio;
   if (state.delay && path === "/api/status") {
     await new Promise(resolve => { state.release = resolve; });
@@ -93,6 +109,22 @@ window.addEventListener("load", async () => {
     assert(cores[0].querySelector(".core-name").textContent === "CPU0", "core label missing");
     assert(cores[0].querySelector(".core-value").textContent === "24%", "core reading missing");
     assert(cores[0].querySelector(".core-bar").style.width === "24%", "core bar does not match the reading");
+    testState.cpu = {cpu: 150, cpu0: -1, cpu1: 150, cpu2: NaN, cpu3: Infinity, cpu4: "42"};
+    await refresh();
+    assert(document.querySelector("#health-values dd").textContent === "150% · out of range", "total CPU out-of-range reading was hidden or clamped");
+    const readings = [...document.querySelectorAll("#cores .core")];
+    assert(readings[0].querySelector(".core-value").textContent === "-1% · out of range", "negative CPU reading was hidden or clamped");
+    assert(readings[0].querySelector(".core-bar").style.width === "0%", "negative CPU bar was not clamped");
+    assert(readings[1].querySelector(".core-value").textContent === "150% · out of range", "high CPU reading was hidden or clamped");
+    assert(readings[1].querySelector(".core-bar").style.width === "100%", "high CPU bar was not clamped");
+    for (const row of readings.slice(2)) {
+      assert(row.querySelector(".core-value").textContent === "Unavailable", "invalid CPU reading not unavailable");
+      assert(row.querySelector(".core-bar").style.width === "0px", "invalid CPU bar was not empty");
+    }
+    testState.cpu.cpu = "42";
+    await refresh();
+    assert(document.querySelector("#health-values dd").textContent === "Unavailable", "invalid total CPU reading not unavailable");
+    testState.cpu = {cpu: 12, cpu0: 24};
     const volume = document.getElementById("volume");
     volume.value = "24";
     volume.dispatchEvent(new Event("input"));
@@ -320,6 +352,14 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("pair").hidden, "pairing card stayed after bypass");
     assert(!sessionStorage.getItem("debra-key"), "bypass stored a key");
     assert(testState.posts.length === 0, "bypass wrote audio");
+    testState.noAuth = false;
+    await refresh();
+    assert(document.getElementById("dashboard").hidden, "401 left bypass dashboard open");
+    assert(!document.getElementById("pair").hidden, "401 did not restore pairing");
+    assert(document.getElementById("bypass").hidden, "401 did not revoke bypass control");
+    assert(document.getElementById("bypass-note").hidden, "401 did not revoke bypass warning");
+    assert(!bypass, "401 retained active bypass");
+    assert(testState.posts.length === 0, "mode change wrote audio");
     result.textContent = "PASS: development bypass and one-stop device links";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
@@ -348,10 +388,138 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_PROBE = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait(30);
+    const mode = testState.probe;
+    if (mode === "retry") {
+      assert(document.getElementById("bypass").hidden, "503 showed bypass before retry");
+      await wait(300);
+      assert(testState.probes >= 2, "503 was not retried");
+      assert(!document.getElementById("bypass").hidden, "successful retry did not offer bypass");
+    } else if (mode === "none") {
+      assert(!document.getElementById("bypass").hidden, "explicit auth none did not offer bypass");
+    } else {
+      await wait(700);
+      assert(document.getElementById("bypass").hidden, `${mode} incorrectly offered bypass`);
+      assert(document.getElementById("bypass-note").hidden, `${mode} incorrectly showed warning`);
+      assert(testState.probes === 3, `${mode} did not stop after three attempts`);
+    }
+    assert(testState.posts.length === 0, "probe wrote audio");
+    result.textContent = "PASS: explicit auth probe " + mode;
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_POST_401 = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    await wait();
+    assert(!document.getElementById("dashboard").hidden, "bypass did not connect");
+    testState.noAuth = false;
+    testState.html401 = true;
+    document.getElementById("mute").click();
+    await wait();
+    assert(document.getElementById("dashboard").hidden, "POST 401 left dashboard open");
+    assert(document.getElementById("bypass").hidden && !bypass, "POST 401 retained bypass");
+    assert(document.getElementById("mute").disabled, "POST 401 left controls enabled");
+    assert(testState.posts.length === 0, "unauthorized write reached synthetic backend");
+    result.textContent = "PASS: non-JSON POST 401 revokes bypass";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+URL_CASES = {
+    "HTTP://DEVICE.Local:08787": "http://device.local:8787/",
+    "http://127.0.0.1:1/": "http://127.0.0.1:1/",
+    "http://device.local:65535": "http://device.local:65535/",
+    "http://device.local:80/": "http://device.local:80/",
+    "http://device.local:0/": None,
+    "http://device.local:65536/": None,
+    "http://device.local:99999/": None,
+    " http://device.local:8787/": None,
+    "http://device.local:87\t87/": None,
+    "http://device.local:8787/\n": None,
+    "http://device.local:8787/?": None,
+    "http://device.local:8787/#": None,
+    "http://user@device.local:8787/": None,
+    "http://device.local:8787/path": None,
+    "https://device.local:8787/": None,
+    "http://127.01.0.1:8787/": None,
+    "http://127.1:8787/": None,
+    "http://0x7f:8787/": None,
+    "http://bad-.local:8787/": None,
+    "http://a..local:8787/": None,
+}
+CHECK_URLS = r"""
+"use strict";
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    const cases = CASES;
+    for (const [url, expected] of Object.entries(cases)) {
+      if (canonicalDeviceUrl(url) !== expected) throw new Error(`URL contract disagrees for ${JSON.stringify(url)}`);
+    }
+    testState.devices = Object.keys(cases).map(url => ({name: "<img>", label: "<script>", url}));
+    await loadDevices();
+    const links = document.querySelectorAll("#device-links a");
+    if (links.length !== Object.values(cases).filter(Boolean).length) throw new Error("wrong URL link count");
+    if (document.querySelector("#device-links img, #device-links script")) throw new Error("device label became markup");
+    if (!links[0].textContent.includes("<img>")) throw new Error("device label not literal");
+    result.textContent = "PASS: browser URL contract and literal labels";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+""".replace("CASES", json.dumps(URL_CASES))
+
 
 @unittest.skipUnless(CHROMIUM and os.environ.get("DEBRA_BROWSER_TEST") == "1",
                      "opt-in; requires an already installed Chromium")
 class BrowserTests(unittest.TestCase):
+    def dump_dom(self, directory, host, suffix, attempts=3):
+        """Run headless Chromium, retrying a browser crash but never a verdict.
+
+        A crashed Chromium exits on a signal (a negative code) and leaves no
+        PASS in the DOM, so retrying cannot turn a failing check into a
+        passing one. Under load its renderer does abort occasionally, and a
+        red from that says nothing about the page.
+        """
+        for attempt in range(1, attempts + 1):
+            result = subprocess.run([
+                CHROMIUM, "--headless", "--disable-gpu", "--no-first-run",
+                "--disable-background-networking", "--disable-component-update",
+                "--no-default-browser-check", "--user-data-dir=" + directory,
+                "--dump-dom", "--virtual-time-budget=3000",
+                "http://" + host + "/" + suffix
+            ], capture_output=True, text=True, timeout=30)
+            if result.returncode >= 0:
+                return result
+            if attempt < attempts:
+                time.sleep(0.5 * attempt)
+        return result
+
     def run_browser(self, suffix, check_name):
         class Handler(web.Handler):
             def do_GET(self):
@@ -361,10 +529,12 @@ class BrowserTests(unittest.TestCase):
                         '<script src="/fixture.js"></script><script src="/app.js" defer></script>'
                         f'<script src="/{check_name}" defer></script>')
                     self.reply(200, body.encode(), "text/html")
-                elif self.path in ("/fixture.js", "/check.js", "/check-noauth.js", "/check-key.js"):
+                elif self.path in ("/fixture.js", "/check.js", "/check-noauth.js", "/check-key.js", "/check-probe.js", "/check-urls.js", "/check-post-401.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
-                              "/check-key.js": CHECK_KEY}[self.path]
+                              "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
+                              "/check-urls.js": CHECK_URLS,
+                              "/check-post-401.js": CHECK_POST_401}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -380,16 +550,14 @@ class BrowserTests(unittest.TestCase):
                 thread = threading.Thread(target=server.serve_forever, daemon=True)
                 thread.start()
                 try:
-                    result = subprocess.run([
-                        CHROMIUM, "--headless", "--disable-gpu", "--no-first-run",
-                        "--disable-background-networking", "--disable-component-update",
-                        "--no-default-browser-check", "--user-data-dir=" + directory,
-                        "--dump-dom", "--virtual-time-budget=3000",
-                        "http://" + host + "/" + suffix
-                    ], capture_output=True, text=True, timeout=30)
+                    result = self.dump_dom(directory, host, suffix)
                 finally:
                     server.shutdown()
                     thread.join()
+            self.assertGreaterEqual(
+                result.returncode, 0,
+                "Chromium crashed on every attempt (signal %d): %s"
+                % (-result.returncode, result.stderr[-1500:]))
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
             self.assertIn('<pre id="browser-test-result">PASS:', result.stdout,
                           result.stdout[-3000:] + result.stderr[-1000:])
@@ -399,6 +567,40 @@ class BrowserTests(unittest.TestCase):
 
     def test_key_mode_offers_no_bypass(self):
         self.run_browser("?auth=key", "check-key.js")
+
+    def test_html_200_does_not_offer_bypass(self):
+        self.run_browser("?auth=none&probe=html", "check-probe.js")
+
+    def test_json_auth_key_does_not_offer_bypass(self):
+        self.run_browser("?auth=none&probe=key", "check-probe.js")
+
+    def test_json_auth_none_offers_bypass(self):
+        self.run_browser("?auth=none&probe=none", "check-probe.js")
+
+    def test_transient_503_retries_and_offers_bypass(self):
+        self.run_browser("?auth=none&probe=retry", "check-probe.js")
+
+    def test_network_error_does_not_offer_bypass(self):
+        self.run_browser("?auth=none&probe=network", "check-probe.js")
+
+    def test_non_200_success_does_not_offer_bypass(self):
+        self.run_browser("?auth=none&probe=201", "check-probe.js")
+
+    def test_persistent_503_does_not_offer_bypass(self):
+        self.run_browser("?auth=none&probe=503", "check-probe.js")
+
+    def test_non_json_post_401_revokes_bypass(self):
+        self.run_browser("?auth=none", "check-post-401.js")
+
+    def test_browser_and_server_url_contract_and_literal_labels(self):
+        for url, expected in URL_CASES.items():
+            with self.subTest(url=url):
+                if expected is None:
+                    with self.assertRaises(ValueError):
+                        web.canonical_device_url(url)
+                else:
+                    self.assertEqual(web.canonical_device_url(url), expected)
+        self.run_browser("?auth=key", "check-urls.js")
 
     def test_real_browser_interactions_with_no_native_audio(self):
         self.run_browser("#key=" + "x" * 40, "check.js")

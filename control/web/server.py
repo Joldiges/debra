@@ -8,6 +8,7 @@ import argparse
 from contextlib import contextmanager
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import ipaddress
 import json
 import math
 import os
@@ -488,6 +489,33 @@ def valid_hosts(hosts):
                                urlsplit("http://" + h).netloc == h for h in hosts)
 
 
+def canonical_device_url(url):
+    # Restrict the grammar before parsing: URL parsers otherwise discard some
+    # whitespace and normalize numeric hostnames differently across platforms.
+    if not isinstance(url, str) or len(url) > 200:
+        raise ValueError("URL must be a string up to 200 characters")
+    match = re.fullmatch(r"(?i:http)://([A-Za-z0-9.-]+):([0-9]{1,5})/?", url, re.ASCII)
+    if not match:
+        raise ValueError("Expected http://host:port/ without a path, query or fragment")
+    host, port_text = match.groups()
+    host, port = host.lower(), int(port_text)
+    labels = host.split(".")
+    if (len(host) > 253 or not 1 <= port <= 65535 or
+            any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                for label in labels)):
+        raise ValueError("Invalid host or port")
+    if labels[-1].isdigit() or re.fullmatch(r"0x[0-9a-f]*", labels[-1]):
+        try:
+            if str(ipaddress.IPv4Address(host)) != host:
+                raise ValueError("Noncanonical IPv4 address")
+        except ipaddress.AddressValueError as exc:
+            raise ValueError("Invalid IPv4 address") from exc
+    canonical = f"http://{host}:{port}/"
+    if len(canonical) > 200:
+        raise ValueError("Canonical URL exceeds 200 characters")
+    return canonical
+
+
 def load_devices(path):
     """Read the optional one-stop device list.
 
@@ -508,11 +536,10 @@ def load_devices(path):
             raise ValueError("Device name must be 1-64 letters, digits, dot, dash or underscore")
         if not isinstance(url, str) or len(url) > 200:
             raise ValueError(f"Device {name}: url must be a string up to 200 characters")
-        parts = urlsplit(url)
-        if (parts.scheme != "http" or parts.username or parts.password or
-                parts.path not in ("", "/") or parts.query or parts.fragment or
-                not re.fullmatch(r"[A-Za-z0-9.-]+:\d{1,5}", parts.netloc)):
-            raise ValueError(f"Device {name}: url must be http://host:port/ with no path")
+        try:
+            url = canonical_device_url(url)
+        except ValueError as exc:
+            raise ValueError(f"Device {name}: invalid URL: {exc}") from exc
         if not isinstance(label, str) or len(label) > 80:
             raise ValueError(f"Device {name}: label must be a string up to 80 characters")
         devices.append({"name": name, "url": url, "label": label})

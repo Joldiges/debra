@@ -28,7 +28,15 @@ Use only on a **trusted local network**. HTTP does not encrypt the key or protec
 against a hostile network peer altering the page. Do not port-forward it,
 publish it through a tunnel, or reuse another service's password.
 
-One device bearer key controls both reads and volume/mute writes. It is kept in
+In the default `--auth key` mode, one device bearer key protects status reads and
+volume/mute writes, but **not** `GET /api/devices`: this public pre-pairing
+inventory discloses the configured device names, addresses and labels to any
+reachable client that passes the Host and cross-site checks. Do not put secrets
+in the list. The installer and server also accept `--auth none`, a development
+bypass: any reachable client can read full status and use the audio controls
+without a key. Use it only if that exposure is acceptable.
+
+The key is kept in
 an owner-only file on the device and browser `sessionStorage` for the tab;
 Disconnect clears that tab, not other tabs or already submitted operations.
 The service validates explicit Host authorities and same-origin requests, uses
@@ -124,6 +132,7 @@ working audio session. No dependency manager is needed for this stdlib slice.
 | `~/.config/debra/web/access.key` | Persistent device key, owner-only regular file |
 | `~/.config/debra/web/.access-key.staged-*` | Private key-publication artifacts; retained, not alternative active keys |
 | `~/.config/debra/web/hardware.json` | Optional retained `hat`/`speaker` string labels; not hardware verification |
+| `~/.config/debra/web/devices-<sha256>.json` | Private, content-addressed device list referenced by its unit; previous lists retained |
 | `~/.config/systemd/user/debra-web.service` | Generated user service; no key in arguments |
 | `~/.local/share/debra/web/previous-units/` | Previous generated service files, retained for rollback |
 
@@ -142,6 +151,13 @@ replacing a device; do not distribute it with an image.
 Injected write/publication failure recovery is tested, **not abrupt power-loss
 durability**: release/unit publication has no complete filesystem flush protocol,
 and neither filesystem integrity nor sudden-power-loss restoration is proven.
+
+An optional `--devices <path>` JSON array supplies the public inventory. Each
+entry has a `name`, `url` and optional `label`. URLs must use HTTP, an explicit
+port from 1 to 65535, and a DNS-style ASCII hostname or canonical IPv4 address;
+paths other than `/`, whitespace, control characters, credentials, `?` and `#`
+are refused. The server returns lowercase hostnames and scheme, a decimal port
+and a trailing slash. Both server and browser apply this same restricted form.
 
 ## Stop and roll back without touching audio
 
@@ -164,8 +180,11 @@ systemctl --user daemon-reload
 systemctl --user start debra-web.service
 ```
 
-The old unit references the retained old release. Restore the prior enabled/
-disabled state too. Confirm status access and unchanged native volume/mute.
+The old unit references the retained old release and its own device list, if any.
+Units created by older installers may instead reference a shared `devices.json`;
+those older lists cannot be recovered from the unit alone if overwritten. Restore
+the prior enabled/disabled state too. Confirm status access and unchanged native
+volume/mute.
 Fixture restoration is tested; device restoration must be recorded separately.
 This is **web-component rollback**, not whole-device recovery.
 

@@ -280,6 +280,19 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(self.request(Authorization=auth)[0], 401)
         self.assertEqual(self.request(path="/api/status?key=" + TOKEN, Authorization="")[0], 401)
 
+    def test_device_inventory_public_in_key_mode_but_status_protected(self):
+        # Send no Authorization header at all, not an empty bearer value.
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        for path, expected in (("/api/devices", 200), ("/api/status", 401)):
+            connection.request("GET", path, headers={"Host": self.host})
+            response = connection.getresponse()
+            raw = response.read()
+            self.assertEqual(response.status, expected, f"{path} without a key")
+            if path == "/api/devices":
+                self.assertIn("devices", json.loads(raw))
+        connection.close()
+        self.assertEqual(self.commands.calls, [])
+
     def test_unrecognized_host_and_cross_site_rejected(self):
         for headers in ({"Host": "attacker.test:8787"}, {"Origin": "http://attacker.test"},
                         {"Sec-Fetch-Site": "cross-site"}):
@@ -500,6 +513,37 @@ class DeviceListTests(unittest.TestCase):
         self.assertEqual(self.load([{"name": "debra-1", "url": "http://debra-1.local:8787/"}])[0]["name"],
                          "debra-1")
 
+    def test_canonical_url_contract(self):
+        cases = {
+            "HTTP://DEVICE.Local:08787": "http://device.local:8787/",
+            "http://127.0.0.1:1/": "http://127.0.0.1:1/",
+            "http://device.local:65535": "http://device.local:65535/",
+            "http://device.local:80/": "http://device.local:80/",
+            "http://device.local:0/": None,
+            "http://device.local:65536/": None,
+            "http://device.local:99999/": None,
+            " http://device.local:8787/": None,
+            "http://device.local:87\t87/": None,
+            "http://device.local:8787/\n": None,
+            "http://device.local:8787/?": None,
+            "http://device.local:8787/#": None,
+            "http://user@device.local:8787/": None,
+            "http://device.local:8787/path": None,
+            "https://device.local:8787/": None,
+            "http://127.01.0.1:8787/": None,
+            "http://127.1:8787/": None,
+            "http://0x7f:8787/": None,
+            "http://bad-.local:8787/": None,
+            "http://a..local:8787/": None,
+        }
+        for url, expected in cases.items():
+            with self.subTest(url=url):
+                if expected is None:
+                    with self.assertRaises(ValueError):
+                        self.load([{"name": "test", "url": url}])
+                else:
+                    self.assertEqual(self.load([{"name": "test", "url": url}])[0]["url"], expected)
+
     def test_rejects_anything_but_plain_http_host_port(self):
         for url in ("https://debra-1.local:8787/", "http://user:pw@debra-1.local:8787/",
                     "http://debra-1.local:8787/status", "http://debra-1.local:8787/?x=1",
@@ -694,13 +738,72 @@ class InstallerTests(unittest.TestCase):
         devices = [{"name": "debra-3c6b3f", "url": "http://debra-3c6b3f.local:8787/",
                     "label": "Lab Pi 5"}]
         self.install(devices=devices)
-        stored = self.state / "devices.json"
+        stored = next(self.state.glob("devices-*.json"))
         self.assertEqual(json.loads(stored.read_text()), devices)
         self.assertEqual(stored.stat().st_mode & 0o777, 0o600)
         self.assertIn(str(stored), self.unit.read_text())
         # Dropping the list is a normal install change, not a special case.
         self.install()
         self.assertNotIn("--devices", self.unit.read_text())
+
+    def test_list_only_change_rolls_back_to_immutable_previous_list(self):
+        first = [{"name": "first", "url": "http://first.local:8787/", "label": "A"}]
+        second = [{"name": "second", "url": "http://second.local:8787/", "label": "B"}]
+        self.install(devices=first)
+        old_unit = self.unit.read_bytes()
+        old_list = next(self.state.glob("devices-*.json"))
+        old_bytes = old_list.read_bytes()
+        result = self.install(devices=second)
+        self.assertTrue(result["changed"])
+        self.assertEqual(Path(result["previous_unit"]).read_bytes(), old_unit)
+        lists = list(self.state.glob("devices-*.json"))
+        self.assertEqual(len(lists), 2)
+        new_list = next(path for path in lists if path != old_list)
+        self.assertIn(str(new_list), self.unit.read_text())
+        self.assertEqual(json.loads(new_list.read_bytes()), second)
+        self.assertEqual(old_list.read_bytes(), old_bytes)
+        self.unit.write_bytes(Path(result["previous_unit"]).read_bytes())
+        self.assertIn(str(old_list), self.unit.read_text())
+        self.assertEqual(web.load_devices(old_list), first)
+
+    def test_identical_list_restores_private_mode_and_refuses_tampering(self):
+        devices = [{"name": "first", "url": "http://first.local:8787/"}]
+        self.install(devices=devices)
+        stored = next(self.state.glob("devices-*.json"))
+        stored.chmod(0o644)
+        self.assertFalse(self.install(devices=devices)["changed"])
+        self.assertEqual(stored.stat().st_mode & 0o777, 0o600)
+        stored.write_text("unexpected")
+        with self.assertRaises(ValueError):
+            self.install(devices=devices)
+        self.assertEqual(stored.read_text(), "unexpected")
+
+    def test_symlinked_content_addressed_list_is_refused(self):
+        devices = [{"name": "first", "url": "http://first.local:8787/"}]
+        self.install(devices=devices)
+        stored = next(self.state.glob("devices-*.json"))
+        saved = self.state / "saved-list.json"
+        stored.rename(saved)
+        stored.symlink_to(saved)
+        with self.assertRaises(OSError):
+            self.install(devices=devices)
+        self.assertEqual(json.loads(saved.read_text()), devices)
+
+    def test_upgrade_preserves_legacy_shared_list_for_previous_unit(self):
+        first = [{"name": "first", "url": "http://first.local:8787/"}]
+        second = [{"name": "second", "url": "http://second.local:8787/"}]
+        self.install(devices=first)
+        stored = next(self.state.glob("devices-*.json"))
+        legacy = self.state / "devices.json"
+        legacy.write_bytes(stored.read_bytes())
+        self.unit.write_text(self.unit.read_text().replace(str(stored), str(legacy)))
+        old_unit = self.unit.read_bytes()
+        old_list = legacy.read_bytes()
+        result = self.install(auth="none", devices=second)
+        self.assertTrue(result["changed"])
+        self.assertEqual(Path(result["previous_unit"]).read_bytes(), old_unit)
+        self.assertEqual(legacy.read_bytes(), old_list)
+        self.assertEqual(web.load_devices(legacy)[0]["name"], "first")
 
 
 if __name__ == "__main__":
