@@ -106,8 +106,10 @@ drawn point — it does not include a magnet clearance allowance.
 Two facts about the HAT itself matter more than the driver list:
 
 - The ReSpeaker 2-Mics Pi HAT ships **no speaker** and publishes **no amplifier
-  power rating**. It has a JST 2.0 speaker output and a 3.5 mm jack, so the safe
-  assumption is a small driver, and the real limit is unmeasured.
+  power rating**. It does carry an amplifier — a TPA2005D1, identified while
+  measuring the lab card — so a driver *can* be driven from it; what is unknown is
+  how much power it delivers. It has a JST 2.0 speaker output and a 3.5 mm jack,
+  so the safe assumption is a small driver, and the real limit is unmeasured.
 - The HAT's JST output looks like JST-PH 2 mm, which would match the Adafruit 3351
   module — but the pinout and polarity are undocumented. Treat that as a
   hypothesis to check with a meter before plugging anything in.

@@ -39,7 +39,7 @@ Assistant's group balance. Both are recorded in R03's traps.
 | Device | Transport | Turned on by | Stream | Server side | Evidence |
 | --- | --- | --- | --- | --- | --- |
 | Satellite1.1 HAT / Dev Kit / Smart Speaker | **Sendspin** (Snapcast before v0.2.0) | firmware **v0.2.0**, 2026-05-28 | 48 kHz | Music Assistant, no provider setup | `D` [S15][S33] |
-| HA Voice PE | **Sendspin** | firmware **25.12.0**, 2025-12-17, "public preview" | 48 kHz FLAC `media_pipeline` in the dev YAML | Music Assistant | `D` [S20][S21] |
+| HA Voice PE | **Sendspin** | firmware **25.12.0**, 2025-12-17, "public preview" | stream format **not established** — S20 carries only the one-line Sendspin announcement and S21 documents the ESPHome component, not a Voice PE development YAML | Music Assistant | `D` for Sendspin, `U` for the format [S20][S21] |
 | M5Stack Atom VoiceS3R | **Sendspin**, in vendor YAML only | ESPHome **2026.10.0** per the YAML; the vendor's prose says 2026.1.0 | 48 kHz stereo `speaker_source`, FLAC or PCM | Music Assistant | `D` (code, not prose) [S22] |
 | ReSpeaker Lite (XIAO ESP32-S3) | **Sendspin** | XMOS I2S firmware ≥ **1.1.0** at 48 kHz, then a community ESPHome config | 48 kHz | Music Assistant | `D` + `R` [S25][S26] |
 | ESP32-S3-BOX-3 | none in stock firmware | — | — | — | `D` [S23]; one third-party firmware claims a player `R` [S24] |

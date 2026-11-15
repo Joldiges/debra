@@ -58,7 +58,7 @@ ssh <device> "sudo tar --numeric-owner --one-file-system --acls --xattrs -C / -c
 
 | Property | Value |
 | --- | --- |
-| Size | about 1.1 GB compressed |
+| Size | 1.19 GiB compressed; 4.08 GB (4,081,418,240 bytes) when decompressed |
 | Covers | everything on the root filesystem except the exclusions above |
 | Does not cover | `/boot/firmware` — **taken separately**, see below |
 | Does not cover | Docker images, apt cache, swap, user caches |
@@ -124,8 +124,12 @@ SHA-256. All six match exactly:
 The mixer state is the one that matters most: without it the device boots silent
 with every service green, which is the fault that took a whole session to find.
 
-Extraction also read the entire 5.7 GB stream to completion without a checksum
-error, so the archive is not truncated.
+`zstd -t` passes, so what the archive contains is intact. That is **not** the same
+as the archive being complete: the frame decompresses to 4.08 GB while the root
+filesystem was described as 5.7 GB, and the difference is unexplained. Neither
+figure has been reconciled against the device, so do not read a passing test as
+"not truncated". Reconcile the sizes, or list the archive and compare entry by
+entry, before treating it as a whole-root copy.
 
 ## What is still unproven
 
