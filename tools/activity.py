@@ -331,6 +331,55 @@ def _session_cells(session: dict, by_id: dict, now: float) -> list[str]:
             _age(session["updated"], now), _why(session, by_id, now)]
 
 
+def _tui_state(session: dict) -> str:
+    return ("▶ run" if session["working"] is True
+            else "◼ done" if session["working"] is False
+            else "◻ new" if session["working"] is None else "?")
+
+
+def _tui_why(session: dict, by_id: dict, now: float) -> str:
+    """The same reason as the report, in a token short enough to never truncate.
+
+    The report explains in prose; a column that repeats "finished; parent busy"
+    on every row is noise, and truncating it to "finished; parent bu…" is worse.
+    """
+    why = _why(session, by_id, now)
+    if why.startswith("running "):
+        return "run " + why.split(" ", 1)[1]
+    if why.startswith("long turn "):
+        return "long " + why.split(" ", 2)[2]
+    return {
+        "running": "run",
+        "never started": "never",
+        "finished; parent busy": "done+busy",
+        "finished": "done",
+        "just finished": "done",
+        "waiting for you": "yours",
+        "parent deleted": "orphaned",
+    }.get(why, why)
+
+
+def _tui_model(label: str) -> str:
+    """Shorten a model label to the word that distinguishes it.
+
+    Every row used to print deepseek/deepseek-v4.1-flash-1017#high, which spent
+    the column on a shared provider and version and still got cut.
+    """
+    model, _, variant = label.partition("#")
+    tail = model.rsplit("/", 1)[-1]
+    for word in ("flash", "terra", "sol", "opus", "sonnet"):
+        if word in tail:
+            return word + (f"·{variant}" if variant else "")
+    return tail + (f"·{variant}" if variant else "")
+
+
+def _tui_session_cells(session: dict, by_id: dict, now: float) -> list[str]:
+    return [_tui_state(session), "sub" if session["child"] else "main",
+            session["title"], _tui_model(_model_label(session)),
+            f"${session['cost']:.2f}", _age(session["updated"], now),
+            _tui_why(session, by_id, now)]
+
+
 def _ordered_sessions(sessions: list[dict], limit: int) -> tuple[list[dict], list[dict]]:
     working = sorted((s for s in sessions if s["working"] is True),
                      key=lambda s: s["created"], reverse=True)
@@ -666,24 +715,44 @@ def write(markdown: str) -> Path:
 
 
 TUI_HEADERS = ["State", "Kind", "Title", "Model", "Cost", "Age", "Why"]
-TUI_MIN_WIDTHS = [7, 4, 5, 5, 6, 3, 5]
-TUI_MAX_WIDTHS = [7, 4, 34, 30, 12, 8, 20]
+TUI_MIN_WIDTHS = [6, 4, 8, 5, 6, 3, 10]
+TUI_MAX_WIDTHS = [6, 4, 48, 26, 8, 6, 18]
 TUI_SEPARATOR = " | "
+# How much of any extra width each column deserves. Why outranks Title because
+# a Why cut to "finished; parent bu…" tells James nothing at all.
+TUI_WEIGHTS = {0: 0, 1: 0, 2: 40, 3: 25, 4: 10, 5: 10, 6: 35}
+# Always shown, in preference order: this is what a session table is for.
+TUI_ESSENTIAL_COLUMNS = [0, 2, 6]
+# The room a column needs to show a real value rather than "terr…". A column
+# that can only reach its minimum is dropped instead of spoiling the values.
+TUI_USEFUL_WIDTHS = [6, 4, 14, 11, 7, 3, 10]
 
 
-def _tui_widths(columns: int) -> list[int] | None:
-    """Fit all seven columns, or return None if even their minima will not fit."""
-    widths = TUI_MIN_WIDTHS.copy()
-    remaining = columns - sum(widths) - len(TUI_SEPARATOR) * (len(widths) - 1)
+def _tui_widths(columns: int, shown: list[int] | None = None) -> list[int] | None:
+    """Widths for the shown columns, or None if even their minima will not fit.
+
+    Extra space is shared by weight rather than handed out in a fixed order:
+    growing Why first starved Model, and growing Title first truncated Why to
+    "finished; parent bu…", which is worse than not showing it.
+    """
+    shown = list(range(len(TUI_MIN_WIDTHS))) if shown is None else list(shown)
+    widths = [TUI_MIN_WIDTHS[index] for index in shown]
+    remaining = columns - sum(widths) - len(TUI_SEPARATOR) * (len(shown) - 1)
     if remaining < 0:
         return None
-    # Share additional space between the variable columns rather than letting a
-    # long title push the model or explanation entirely off-screen.
+    total = sum(TUI_WEIGHTS[index] for index in shown) or 1
+    for position, index in enumerate(shown):
+        grow = min(remaining * TUI_WEIGHTS[index] // total,
+                   TUI_MAX_WIDTHS[index] - widths[position])
+        widths[position] += grow
+        remaining -= grow
+    # Round-robin what is left (rounding, or a capped column) so no single
+    # column swallows it.
     while remaining:
         grew = False
-        for index in (2, 3, 6, 4, 5):
-            if remaining and widths[index] < TUI_MAX_WIDTHS[index]:
-                widths[index] += 1
+        for position, index in enumerate(shown):
+            if remaining and widths[position] < TUI_MAX_WIDTHS[index]:
+                widths[position] += 1
                 remaining -= 1
                 grew = True
         if not grew:
@@ -691,8 +760,31 @@ def _tui_widths(columns: int) -> list[int] | None:
     return widths
 
 
+def _tui_can_show(columns: int, shown: list[int]) -> bool:
+    """Every shown column must fit a real value, not just its minimum."""
+    widths = _tui_widths(columns, shown)
+    return widths is not None and all(
+        width >= TUI_USEFUL_WIDTHS[index] for width, index in zip(widths, shown))
+
+
+def _tui_visible_columns(columns: int) -> list[int]:
+    """Drop the least useful columns while the important ones still fit.
+
+    A narrow terminal used to truncate Why and Model into "done+b…" and
+    "terra·fle…", which is noise. Kind, then Model, then Cost and Age go first.
+    """
+    shown = list(TUI_ESSENTIAL_COLUMNS)
+    if not _tui_can_show(columns, shown):
+        return shown
+    for index in (5, 4, 3, 1):
+        candidate = sorted(shown + [index])
+        if _tui_can_show(columns, candidate):
+            shown = candidate
+    return shown
+
+
 def _tui_too_small(lines: int, columns: int) -> bool:
-    return lines < 4 or _tui_widths(columns) is None
+    return lines < 4 or _tui_widths(columns, TUI_ESSENTIAL_COLUMNS) is None
 
 
 def _cell_width(char: str) -> int:
@@ -721,20 +813,6 @@ def _tui_fit(text: str, width: int) -> str:
     return text + " " * max(0, width - length)
 
 
-def _tui_text_window(text: str, width: int, offset: int) -> str:
-    """Scroll supporting text horizontally; session table columns stay fixed."""
-    text = "".join(" " if unicodedata.category(char).startswith("C") else char
-                   for char in text)
-    skipped = 0
-    index = 0
-    while index < len(text) and skipped < offset:
-        skipped += _cell_width(text[index])
-        index += 1
-    if offset:
-        return "…" + _tui_fit(text[index:], max(0, width - 1)) if width else ""
-    return _tui_fit(text, width)
-
-
 def _rate_band(rate: float | None) -> int:
     """Curses pair number for the existing absolute model-rate bands."""
     if rate is None:
@@ -742,59 +820,82 @@ def _rate_band(rate: float | None) -> int:
     return 1 if rate < 0.05 else 2 if rate < 0.12 else 3 if rate < 0.30 else 4
 
 
-def _tui_rows(meta: dict, limit: int) -> tuple[list, str | None]:
-    """Session rows as (cells, colour band), rebuilt from untruncated data."""
-    agents = meta["agents"]
-    sessions = agents["sessions"]
-    working, recent = _ordered_sessions(sessions, limit)
-    by_id = {s["id"]: s for s in sessions}
-    now = time.time()
-    rates = meta.get("rates", {})
-    rows = [(_session_cells(s, by_id, now), _rate_band(rates.get(_model_label(s))))
-            for s in working + recent]
-    return rows, agents["error"]
-
-
-def _tui_content(text: str, meta: dict, limit: int) -> list:
-    """Table rows first, then the same supporting information as Markdown."""
-    rows, error = _tui_rows(meta, limit)
-    content = list(rows)
-    if error:
-        content.append((error, 0))
-    elif not content:
-        content.append(("No sessions to display.", 0))
-
-    # Preserve the runner, summary, explanatory text, model-rate legend and web
-    # sections from this very snapshot. Session rows themselves are rebuilt from
-    # their untruncated data so the TUI can use the available terminal width.
-    lines = text.splitlines()
-    agent_start = lines.index("## Agent sessions")
-    content.extend((line, 0) for line in lines[:agent_start])
-    summary_end = next((i for i in range(agent_start + 1, len(lines))
-                        if lines[i].startswith("### Working now")), None)
-    if summary_end is not None:
-        content.extend((line, 0) for line in lines[agent_start:summary_end])
-        details_start = next((i for i in range(summary_end, len(lines))
-                              if lines[i].startswith("- `working`")), len(lines))
-        content.extend((line, 0) for line in lines[summary_end:details_start]
-                       if line.startswith("### "))
-        content.extend((line, 0) for line in lines[details_start:])
-    else:
-        content.extend((line, 0) for line in lines[agent_start:])
-    return content
-
-
-# Each tab is (label, entries). An entry is ("text", line, 0) or ("row", cells, band).
+# Each tab holds entries: ("text", text, style), ("header", cells), ("row", cells, band).
 TUI_TABS = (("What I need from you", "Needs"), ("Agent sessions", "Sessions"),
             ("Research runner", "Research"), ("Development web server", "Status"))
 
 
-def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
-    """Split the snapshot into tabs, with the session table rebuilt to fit.
+def _tui_plain(text: str) -> str:
+    """One Markdown line as terminal text: no asterisks, no backticks, no pipes."""
+    text = text.replace("**", "").replace("`", "")
+    text = text.replace("The answer changes: ", "→ ")
+    stripped = text.lstrip()
+    if stripped.startswith("- "):
+        text = text[: len(text) - len(stripped)] + "• " + stripped[2:]
+    return text.rstrip()
 
-    Splitting the Markdown keeps one source of truth: a section added to the
-    report appears as a tab without touching the TUI, and the words in the
-    terminal are the words in the file.
+
+def _tui_sessions_entries(meta: dict, limit: int) -> list:
+    """The session tab, built from data so it carries its own headings."""
+    agents = meta.get("agents") or {}
+    sessions = agents.get("sessions") or []
+    if agents.get("error"):
+        return [("text", agents["error"], "dim")]
+    working_sessions, recent = _ordered_sessions(sessions, limit)
+    by_id = {s["id"]: s for s in sessions}
+    now = time.time()
+    rates = meta.get("rates", {})
+    entries = [("text", f"{len(working_sessions)} working · "
+                        f"{sum(s['working'] is False for s in sessions)} idle · "
+                        f"{len(sessions)} known · cost ${sum(s['cost'] for s in sessions):.2f}",
+                "normal"), ("blank", "", 0)]
+    for label, group in (("Working now", working_sessions), ("Recently active", recent)):
+        if not group:
+            continue
+        entries.append(("text", f"{label} ({len(group)})", "bold"))
+        entries.append(("header", list(TUI_HEADERS)))
+        for session in group:
+            entries.append(("row", _tui_session_cells(session, by_id, now),
+                            _rate_band(rates.get(_model_label(session)))))
+        entries.append(("blank", "", 0))
+    if not working_sessions and not recent:
+        entries.append(("text", "No sessions to display.", "normal"))
+    return entries
+
+
+def _tui_table_entries(block: list[str]) -> list[tuple]:
+    """A Markdown table as aligned text: pipes and dashes are not information.
+
+    The report keeps its pipes because it is Markdown; a terminal that drew
+    them literally looked like escaped data, which is the noise this view exists
+    to remove.
+    """
+    rows = []
+    for line in block:
+        cells = [cell.strip().replace("`", "").replace("**", "")
+                 for cell in line.strip().strip("|").split("|")]
+        if cells and all(re.fullmatch(r":?-{2,}:?", cell) for cell in cells):
+            continue  # the | --- | --- | rule under the header
+        rows.append(cells)
+    if not rows:
+        return []
+    columns = max(len(row) for row in rows)
+    widths = [max(len(row[index]) for row in rows if len(row) > index)
+              for index in range(columns)]
+    entries = []
+    for number, row in enumerate(rows):
+        text = " | ".join(cell.ljust(widths[index]) if index < columns - 1 else cell
+                          for index, cell in enumerate(row)).rstrip()
+        entries.append(("text", text, "bold" if number == 0 else "normal"))
+    return entries
+
+
+def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
+    """Split the report into fixed-order tabs.
+
+    Most tabs are the report's own words, because one source of truth means
+    the terminal cannot drift from the file it writes. Sessions are rebuilt
+    from data so the table fits the terminal and keeps its headings.
     """
     sections, order, current = {}, [], None
     for line in text.splitlines():
@@ -805,42 +906,84 @@ def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
             continue
         if current is not None:
             sections[current].append(line)
-    rows, rows_error = _tui_rows(meta, limit)
     allowed = {heading: label for heading, label in TUI_TABS}
     tabs = []
     for heading in order:
         base = heading.split(" (")[0].strip()
         if base not in allowed:
             continue
-        entries = []
-        table_done = False
-        for line in sections[heading]:
-            if base == "Agent sessions":
-                # The Markdown table is pre-truncated for a fixed width; the
-                # terminal rebuilds it, so its pipe rows are dropped here.
+        if base == "Agent sessions":
+            entries = _tui_sessions_entries(meta, limit)
+        else:
+            entries = []
+            lines = sections[heading]
+            index = 0
+            while index < len(lines):
+                line = lines[index]
                 if line.startswith("|"):
-                    if not table_done:
-                        entries.extend(("row", cells, band) for cells, band in rows)
-                        if rows_error:
-                            entries.append(("text", rows_error, 0))
-                        elif not rows:
-                            entries.append(("text", "No sessions to display.", 0))
-                        table_done = True
+                    block = []
+                    while index < len(lines) and lines[index].startswith("|"):
+                        block.append(lines[index])
+                        index += 1
+                    entries.extend(_tui_table_entries(block))
                     continue
-                if line.startswith("### "):
+                index += 1
+                plain = _tui_plain(line)
+                if not plain:
+                    entries.append(("blank", "", 0))
                     continue
-            entries.append(("text", line, 0))
-        if base == "Agent sessions" and not table_done:
-            entries.extend(("row", cells, band) for cells, band in rows)
+                if line.startswith(("- ", "  ")):
+                    entries.append(("text", plain,
+                                    "bold" if line.startswith("- ") else "normal"))
+                else:
+                    entries.append(("text", plain, "normal"))
         tabs.append({"label": allowed[base], "base": base, "entries": entries})
-    # Tab order is fixed by TUI_TABS, not by where a section happens to sit in
-    # the report, so tabs do not jump about when a section is added.
     rank = {heading: index for index, (heading, _label) in enumerate(TUI_TABS)}
     tabs.sort(key=lambda tab: rank[tab["base"]])
     if not tabs:
-        tabs.append({"label": "Report", "entries": [("text", line, 0)
-                                                    for line in text.splitlines()]})
+        tabs.append({"label": "Report", "base": "",
+                     "entries": [("text", _tui_plain(line), "normal")
+                                 for line in text.splitlines()]})
     return tabs
+
+
+def _tui_wrap(text: str, width: int, indent: int = 0) -> list[str]:
+    """Wrap to the terminal instead of truncating: the question matters most."""
+    width = max(12, width - indent)
+    if not text.strip():
+        return [""]
+    out, line = [], ""
+    for word in text.split():
+        if not line:
+            line = word
+        elif len(line) + 1 + len(word) <= width:
+            line += " " + word
+        else:
+            out.append(line)
+            line = word
+    out.append(line)
+    return out
+
+
+def _tui_lines(tab: dict, width: int) -> list[tuple]:
+    """Flatten a tab into display rows, wrapped for this width."""
+    rows = []
+    for entry in tab["entries"]:
+        if entry[0] == "row":
+            rows.append(("cells", entry[1], entry[2]))
+        elif entry[0] == "header":
+            rows.append(("cells", entry[1], None))
+        elif entry[0] == "blank":
+            rows.append(("text", "", "dim"))
+        else:
+            raw = entry[1]
+            indent = len(raw) - len(raw.lstrip(" "))
+            body = raw.strip()
+            bullet = body.startswith("• ")
+            for index, piece in enumerate(_tui_wrap(body, width, indent)):
+                pad = indent + 2 if bullet and index else indent
+                rows.append(("text", " " * pad + piece, entry[2]))
+    return rows
 
 
 def _tui_clamp(offset: int, total: int, visible: int) -> int:
@@ -909,6 +1052,27 @@ def _tui_put(screen, y: int, x: int, text: str, attr: int = 0) -> None:
         pass
 
 
+def _tui_paint(screen, frame: dict, previous: dict | None, width: int) -> dict:
+    """Write only the lines that changed; return the frame now on screen.
+
+    Repainting every line on every tick flickers and, on a slow link, redraws a
+    page of identical text. A line is rewritten when any of its pieces changed,
+    and a line that has gone is blanked so nothing stale is left behind.
+    """
+    blank = " " * max(0, width)
+    for y in sorted(set(previous or ()) - set(frame)):
+        _tui_put(screen, y, 0, blank)
+    for y in sorted(frame):
+        pieces = frame[y]
+        if previous is not None and previous.get(y) == pieces:
+            continue
+        if previous is not None:
+            _tui_put(screen, y, 0, blank)  # a shorter line must not leave a tail
+        for x, text, attr in pieces:
+            _tui_put(screen, y, x, text, attr)
+    return {y: pieces for y, pieces in frame.items()}
+
+
 def _tui_tab_bar(tabs: list[dict], active: int, width: int) -> str:
     """A one-line tab bar; it degrades to numbers when the labels do not fit."""
     labels = [f" {index + 1}:{tab['label']} " for index, tab in enumerate(tabs)]
@@ -918,6 +1082,10 @@ def _tui_tab_bar(tabs: list[dict], active: int, width: int) -> str:
         bar = " ".join(("[%d]" if index == active else "%d") % (index + 1)
                         for index in range(len(tabs)))
     return bar
+
+
+def _tui_rule(width: int) -> str:
+    return "─" * max(0, width)
 
 
 def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) -> None:
@@ -935,17 +1103,21 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
     error = None
     active = 0
     offsets: dict[int, int] = {}
-    text_offset = 0
+    frame = None
+    size = (0, 0)
 
     def collect() -> None:
         try:
             meta: dict = {}
             text = render(port, limit, meta)
             write(text)
-            meta["refreshed"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            meta["refreshed"] = time.strftime("%H:%M:%S")
             results.put((text, meta, None))
-        except Exception as exc:
+        except Exception as exc:  # the view must survive a failed probe
             results.put((None, None, f"refresh unavailable ({exc.__class__.__name__})"))
+
+    def dim() -> int:
+        return getattr(curses, "A_DIM", 0) if curses else 0
 
     while True:
         if not pending and not paused and time.monotonic() >= next_refresh:
@@ -962,7 +1134,9 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
                 pass
 
         height, width = screen.getmaxyx()
-        screen.erase()
+        if (height, width) != size:
+            screen.erase()
+            frame, size = None, (height, width)
         if _tui_too_small(height, width):
             if height and width:
                 _tui_put(screen, 0, 0, _tui_fit("terminal too small", max(0, width - 1)))
@@ -971,55 +1145,71 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
                 key = screen.getch()
             except curses.error:
                 continue
-            if _tui_key_action(key, 1) in (("quit", 0),):
+            if _tui_key_action(key, 1) == ("quit", 0):
                 return
             continue
 
         tabs = (_tui_tabs(snapshot[0], snapshot[1], limit) if snapshot
-                else [{"label": "Loading", "entries": [("text", error or "Loading snapshot…", 0)]}])
+                else [{"label": "Loading", "base": "",
+                       "entries": [("text", error or "Loading snapshot…", "normal")]}])
         active = max(0, min(active, len(tabs) - 1))
-        entries = tabs[active]["entries"]
-        widths = _tui_widths(width)
-        visible = height - 2
-
-        # The tab bar, then the active tab's content, then a status line.
-        _tui_put(screen, 0, 0, _tui_fit(_tui_tab_bar(tabs, active, width), width), curses.A_BOLD)
-        offset = offsets.get(active, 0)
-        offset = _tui_clamp(offset, len(entries), visible)
-        for y, entry in enumerate(entries[offset:offset + visible], 1):
-            if entry[0] == "row":
-                x = 0
-                for index, (cell, size) in enumerate(zip(entry[1], widths)):
-                    attr = 0
-                    if index == 3 and entry[2] and colours:
-                        attr = curses.color_pair(entry[2])
-                        if entry[2] == 3 and curses.COLORS <= 208:
-                            attr |= curses.A_BOLD
-                    _tui_put(screen, y, x, _tui_fit(cell, size), attr)
-                    x += size
-                    if index < len(widths) - 1:
-                        _tui_put(screen, y, x, TUI_SEPARATOR)
-                        x += len(TUI_SEPARATOR)
-            else:
-                _tui_put(screen, y, 0, _tui_text_window(entry[1], width, text_offset))
-        offsets[active] = offset
 
         if snapshot:
             meta = snapshot[1]
             agents = meta.get("agents") or {"sessions": []}
             sessions = agents["sessions"]
-            working = str(sum(s["working"] is True for s in sessions))
-            total = f"${sum(s['cost'] for s in sessions):.4f}"
-            refreshed = meta["refreshed"].split()[-1]
+            working = sum(s["working"] is True for s in sessions)
+            total = f"${sum(s['cost'] for s in sessions):.2f}"
+            refreshed = meta["refreshed"]
         else:
-            working, total, refreshed = "?", "?", "pending"
-        footer = (f" {active + 1}/{len(tabs)} {tabs[active]['label']} | port:{port} | "
-                  f"{working} working | {total} | {refreshed}"
-                  + (" | PAUSED" if paused else "")
-                  + " | tab/n:next jk:scroll space:pause r:now q:quit")
+            working, total, refreshed = 0, "$?", "…"
+        title = (f" activity · {refreshed} · {working} working · {total}"
+                 + (" · PAUSED" if paused else "") + (" · loading" if pending and not snapshot else ""))
         if error:
-            footer += f" | {error}"
-        _tui_put(screen, height - 1, 0, _tui_fit(footer, width), curses.A_REVERSE)
+            title += f" · {error}"
+        pieces: dict[int, list] = {
+            0: [(0, _tui_fit(title, width), curses.A_BOLD)],
+            1: [(0, _tui_fit(_tui_tab_bar(tabs, active, width), width), curses.A_BOLD)],
+            2: [(0, _tui_rule(width), dim())],
+        }
+
+        rows = _tui_lines(tabs[active], width)
+        visible = max(1, height - 5)
+        offset = _tui_clamp(offsets.get(active, 0), len(rows), visible)
+        offsets[active] = offset
+        shown = _tui_visible_columns(width)
+        widths = _tui_widths(width, shown) or TUI_MIN_WIDTHS[:len(shown)]
+        for y, row in enumerate(rows[offset:offset + visible], 3):
+            if row[0] == "cells":
+                cells, band = row[1], row[2]
+                x = 0
+                line = []
+                for position, index in enumerate(shown):
+                    cell, cell_width = cells[index], widths[position]
+                    attr = 0
+                    if band is None:
+                        attr = curses.A_BOLD | dim()
+                    elif index == 3 and band and colours:
+                        attr = curses.color_pair(band)
+                        if band == 3 and getattr(curses, "COLORS", 0) <= 208:
+                            attr |= curses.A_BOLD
+                    line.append((x, _tui_fit(cell, cell_width), attr))
+                    x += cell_width
+                    if position < len(shown) - 1:
+                        line.append((x, TUI_SEPARATOR, dim()))
+                        x += len(TUI_SEPARATOR)
+                pieces[y] = line
+            else:
+                attr = curses.A_BOLD if row[2] == "bold" else dim() if row[2] == "dim" else 0
+                pieces[y] = [(0, _tui_fit(row[1], width), attr)]
+
+        span = (f" rows {offset + 1}-{min(len(rows), offset + visible)}/{len(rows)}"
+                if len(rows) > visible else "")
+        footer = (" j/k scroll · h/l tab · 1-4 select · space pause · r refresh · q quit"
+                  + span + f" · {tabs[active]['label']}")
+        pieces[height - 2] = [(0, _tui_rule(width), dim())]
+        pieces[height - 1] = [(0, _tui_fit(footer, width), curses.A_REVERSE)]
+        frame = _tui_paint(screen, pieces, frame, width)
         try:
             screen.refresh()
             key = screen.getch()
@@ -1033,19 +1223,17 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
             return
         if kind == "tab":
             active = (active + amount) % len(tabs)
-            text_offset = 0
         elif kind == "select":
             active = min(amount, len(tabs) - 1)
-            text_offset = 0
         elif kind == "scroll":
-            offsets[active] = _tui_clamp(offset + amount, len(entries), visible)
+            offsets[active] = _tui_clamp(offset + amount, len(rows), visible)
         elif kind == "page":
             offsets[active] = _tui_clamp(offset + amount * max(1, visible - 1),
-                                         len(entries), visible)
+                                         len(rows), visible)
         elif kind == "top":
             offsets[active] = 0
         elif kind == "bottom":
-            offsets[active] = _tui_clamp(len(entries), len(entries), visible)
+            offsets[active] = _tui_clamp(len(rows), len(rows), visible)
         elif kind == "pause":
             paused = not paused
         elif kind == "refresh":
@@ -1066,7 +1254,8 @@ def _positive_interval(value: str) -> float:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--watch", type=float, metavar="SECONDS",
-                        help="refresh continuously instead of printing once")
+                        help="refresh continuously instead of printing once "
+                             "(the TUI is the interactive view)")
     parser.add_argument("--tui", action="store_true",
                         help="interactive terminal table (q quits; arrows scroll)")
     parser.add_argument("--interval", type=_positive_interval, default=2.0, metavar="SECONDS",
@@ -1098,8 +1287,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     # Colour is for a terminal only: the status file stays plain Markdown, and a
     # redirected or captured run must not gain escape sequences.
-    paint = (sys.stdout.isatty() and not args.no_color
-             and not os.environ.get("NO_COLOR"))
+    terminal = sys.stdout.isatty()
+    paint = terminal and not args.no_color and not os.environ.get("NO_COLOR")
+    previous_page = None
     while True:
         meta: dict = {}
         text = render(args.port, limit, meta)
@@ -1111,9 +1301,15 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         display = _paint(text, meta.get("rates")) if paint else text
         if args.watch:
-            print("\033[2J\033[H" + display, flush=True)
-            print(f"(written to {target}; refreshing every {args.watch:g}s; Ctrl+C to stop"
-                  + ("; --all for every session)" if not args.all else ")"))
+            if terminal:
+                print("\033[2J\033[H" + display, flush=True)
+                print(f"(written to {target}; refreshing every {args.watch:g}s; "
+                      "Ctrl+C to stop" + ("; --all for every session)" if not args.all else ")"))
+            elif display != previous_page:
+                # Piped or redirected, a cleared screen is just a wall of text:
+                # print the page when it changes, and stay quiet when it does not.
+                previous_page = display
+                print(display, flush=True)
             time.sleep(max(1.0, args.watch))
         else:
             print(display)

@@ -42,6 +42,8 @@ not commit, push, or approve their own work.
 | Demo case: Pi Zero + DWEII 671, bays, lid with mic and LED openings | — | `3d7c07f` |
 | Tabbed TUI with stable scroll positions | — | `d4ba492` |
 | Queue refiller from a repository backlog | — | `059a3ba` |
+| Tabbed TUI that redraws only changed lines, and drops columns instead of truncating them | — | this round |
+| Two unattended studies: the ARMv6 audio stack, first-boot identity | — | `35d43c3` |
 
 ## Queued
 

@@ -24,6 +24,42 @@ import tools.activity as activity  # noqa: E402  (path set above)
 import tools.scheduled_runner as runner  # noqa: E402  (path set above)
 
 
+class RecordingScreen:
+    """The slice of a curses window the TUI uses, recording what it is told."""
+
+    def __init__(self, height=24, width=100, keys=(-1, ord("q"))):
+        self.height, self.width, self.keys = height, width, list(keys)
+        self.writes, self.erases, self.frames = [], 0, 0
+
+    def getmaxyx(self):
+        return self.height, self.width
+
+    def erase(self):
+        self.erases += 1
+
+    def addstr(self, y, x, text, attr=0):
+        self.writes.append((y, x, text))
+
+    def refresh(self):
+        self.frames += 1
+
+    def getch(self):
+        return self.keys.pop(0) if self.keys else ord("q")
+
+    def timeout(self, milliseconds):
+        pass
+
+
+def fake_curses():
+    """A curses module with the constants and calls the screen loop touches."""
+    return mock.Mock(
+        error=activity.curses.error if activity.curses else Exception,
+        A_BOLD=1, A_REVERSE=2, A_DIM=4, COLORS=256,
+        KEY_DOWN=258, KEY_UP=259, KEY_RIGHT=261, KEY_LEFT=260,
+        KEY_NPAGE=338, KEY_PPAGE=339, has_colors=lambda: False,
+        color_pair=lambda number: 0, curs_set=lambda state: None)
+
+
 class ActivityTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(prefix="activity-", dir="/tmp/opencode")
@@ -573,24 +609,98 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(activity._tui_fit("e\u0301xx", 2), "e\u0301…")
 
     def test_tui_tiny_terminal_decision(self):
-        minimum = sum(activity.TUI_MIN_WIDTHS) + 6 * len(activity.TUI_SEPARATOR)
+        essential = [activity.TUI_MIN_WIDTHS[index] for index in activity.TUI_ESSENTIAL_COLUMNS]
+        minimum = sum(essential) + (len(essential) - 1) * len(activity.TUI_SEPARATOR)
         self.assertTrue(activity._tui_too_small(0, 0))
         self.assertTrue(activity._tui_too_small(3, minimum))
         self.assertTrue(activity._tui_too_small(4, minimum - 1))
         self.assertFalse(activity._tui_too_small(4, minimum))
         self.assertFalse(activity._tui_too_small(24, 80))
 
-    def test_tui_supporting_text_can_scroll_horizontally(self):
-        self.assertEqual(activity._tui_text_window("abcdefghij", 5, 0), "abcd…")
-        self.assertEqual(activity._tui_text_window("abcdefghij", 5, 3), "…def…")
-        self.assertEqual(activity._tui_text_window("abcdefghij", 5, 7), "…hij ")
-        self.assertEqual(activity._tui_text_window("a界bc", 3, 3), "…bc")
-
     def test_recent_session_tie_keeps_markdown_idle_before_unknown(self):
         unknown = self.session("unknown-session", working=None, updated=1)
         idle = self.session("idle-session", working=False, updated=1)
         text = self.render_with_sessions([unknown, idle])
         self.assertLess(text.index("idle-session"), text.index("unknown-session"))
+
+    def test_tui_paint_writes_only_the_lines_that_changed(self):
+        screen = RecordingScreen()
+        first = {0: [(0, "title", 1)], 3: [(0, "row a", 0), (6, "|", 0)]}
+        screen.writes.clear()
+        frame = activity._tui_paint(screen, first, None, 20)
+        # A blanked screen needs its pieces, not a fresh blank before each line.
+        self.assertEqual(sorted({y for y, _x, _text in screen.writes}), [0, 3])
+        self.assertEqual(len(screen.writes), 3)
+        screen.writes.clear()
+        self.assertEqual(activity._tui_paint(screen, first, frame, 20), frame)
+        self.assertEqual(screen.writes, [])  # an unchanged refresh writes nothing
+        second = {0: [(0, "title", 1)], 3: [(0, "row b", 0), (6, "|", 0)]}
+        screen.writes.clear()
+        activity._tui_paint(screen, second, frame, 20)
+        self.assertEqual([y for y, _x, _text in screen.writes], [3, 3, 3])
+        gone = {0: [(0, "title", 1)]}
+        screen.writes.clear()
+        activity._tui_paint(screen, gone, second, 20)
+        self.assertEqual(screen.writes, [(3, 0, " " * 20)])
+
+    def test_tui_screen_erases_only_when_the_terminal_resizes(self):
+        screen = RecordingScreen(keys=[-1] * 12 + [ord("q")])
+        banner = "# What is running — now\n\n## What I need from you (0)\n"
+        with mock.patch.object(activity, "render", return_value=banner), \
+             mock.patch.object(activity, "write"), \
+             mock.patch.object(activity, "curses", fake_curses()):
+            activity._tui_screen(screen, 8787, 24, 60.0, False)
+        self.assertEqual(screen.erases, 1)
+
+    def test_tui_wrapped_bullet_keeps_its_hanging_indent(self):
+        rows = activity._tui_lines(
+            {"entries": [("text", "• " + "word " * 20, "bold")]}, 30)
+        self.assertGreater(len(rows), 1)
+        self.assertTrue(rows[0][1].startswith("• "))
+        for row in rows[1:]:
+            self.assertTrue(row[1].startswith("  "), row)
+
+    def test_tui_wrapped_sublines_keep_the_report_indentation(self):
+        rows = activity._tui_lines(
+            {"entries": [("text", "  Blocks: " + "word " * 20, "normal")]}, 30)
+        self.assertTrue(rows[0][1].startswith("  Blocks:"))
+        for row in rows[1:]:
+            self.assertTrue(row[1].startswith("  "), row)
+
+    def test_tui_narrow_terminals_drop_columns_instead_of_truncating_values(self):
+        self.assertEqual(activity._tui_visible_columns(140), [0, 1, 2, 3, 4, 5, 6])
+        narrow = activity._tui_visible_columns(60)
+        self.assertIn(2, narrow)  # Title
+        self.assertIn(6, narrow)  # Why
+        self.assertNotIn(1, narrow)  # Kind goes first
+        self.assertNotIn(3, narrow)  # then Model, rather than "terr…"
+        widths = activity._tui_widths(60, narrow)
+        self.assertIsNotNone(widths)
+        for width, index in zip(widths, narrow):
+            self.assertGreaterEqual(width, activity.TUI_USEFUL_WIDTHS[index])
+
+    def test_tui_essential_columns_survive_a_narrow_terminal(self):
+        shown = activity._tui_visible_columns(28)
+        self.assertEqual(shown, activity.TUI_ESSENTIAL_COLUMNS)
+        self.assertIsNone(activity._tui_widths(28, shown))
+        self.assertFalse(activity._tui_too_small(10, 30))
+
+    def test_tui_markdown_table_becomes_aligned_text(self):
+        entries = activity._tui_table_entries(
+            ["| Task | Status |", "| --- | --- |", "| `a` | done |", "| bbbbbb | new |"])
+        self.assertEqual([entry[1] for entry in entries],
+                         ["Task   | Status", "a      | done", "bbbbbb | new"])
+        self.assertEqual(entries[0][2], "bold")
+        self.assertEqual(entries[1][2], "normal")
+
+    def test_tui_tabs_draw_no_markdown_table_pipes(self):
+        text = ("# What is running\n\n## Research runner\n"
+                "| Recent task | Status |\n| --- | --- |\n| `T1` | done |\n")
+        tabs = {tab["label"]: tab for tab in activity._tui_tabs(text, {}, 5)}
+        drawn = "\n".join(entry[1] for entry in tabs["Research"]["entries"])
+        self.assertNotIn("---", drawn)
+        self.assertNotIn("`", drawn)
+        self.assertRegex(drawn, r"T1\s+\| done")  # padded under "Recent task"
 
     def test_tui_model_rate_band_boundaries(self):
         for rate, band in ((None, 0), (0.0, 1), (0.049, 1), (0.05, 2),
@@ -705,6 +815,24 @@ class ActivityTests(unittest.TestCase):
         narrow = activity._tui_tab_bar(tabs, 1, 10)
         self.assertEqual(narrow, "1 [2]")
 
+    def test_watch_prints_a_repeated_page_only_once_when_piped(self):
+        page = "# What is running — now\n\n## What I need from you (0)\n- nothing\n"
+        output = io.StringIO()
+        ticks = {"count": 0}
+
+        def sleep(_seconds):
+            ticks["count"] += 1
+            if ticks["count"] >= 4:
+                raise KeyboardInterrupt
+
+        with mock.patch.object(activity, "render", return_value=page), \
+             mock.patch.object(activity, "write"), \
+             mock.patch.object(activity.time, "sleep", side_effect=sleep), \
+             contextlib.redirect_stdout(output):
+            with self.assertRaises(KeyboardInterrupt):
+                activity.main(["--watch", "1"])
+        self.assertEqual(output.getvalue().count("What is running"), 1)
+
     def test_tui_default_interval(self):
         output = io.StringIO()
         with mock.patch.object(output, "isatty", return_value=True), \
@@ -720,7 +848,7 @@ class ActivityTests(unittest.TestCase):
                     activity.main(["--interval", value])
                 self.assertEqual(exc.exception.code, 2)
 
-    def test_tui_content_preserves_order_limit_and_supporting_details(self):
+    def test_tui_tabs_keep_order_limit_headings_and_supporting_sections(self):
         sessions = [self.session("older work", working=True, created=1, updated=100),
                     self.session("newer work", working=True, created=2, updated=1),
                     self.session("recent", updated=3), self.session("hidden", updated=2)]
@@ -731,27 +859,29 @@ class ActivityTests(unittest.TestCase):
              mock.patch.object(activity, "web_snapshot",
                                return_value={"port": 8787, "listening": False}):
             text = activity.render(8787, 3, meta)
-        content = activity._tui_content(text, meta, 3)
-        rows = [(row, band) for row, band in content if isinstance(row, list)]
-        self.assertEqual([row[2] for row, _ in rows], ["newer work", "older work", "recent"])
-        self.assertEqual(rows[0][1], 2)
-        supporting = "\n".join(row for row, _ in content if isinstance(row, str))
-        self.assertIn("## Research runner", supporting)
-        self.assertIn("## Agent sessions", supporting)
-        self.assertIn("1 hidden", supporting)
-        self.assertIn("Model rate, blended", supporting)
-        self.assertIn("Not listening on port 8787", supporting)
+        tabs = activity._tui_tabs(text, meta, 3)
+        # Fixed tab order, whatever order the sections appear in the report.
+        self.assertEqual([tab["label"] for tab in tabs],
+                         ["Needs", "Sessions", "Research", "Status"])
+        entries = tabs[1]["entries"]
+        rows = [entry for entry in entries if entry[0] == "row"]
+        self.assertEqual([row[1][2] for row in rows], ["newer work", "older work", "recent"])
+        self.assertEqual(rows[0][2], 2)
+        self.assertIn(("header", activity.TUI_HEADERS), entries)
+        status = "\n".join(entry[1] for entry in tabs[3]["entries"] if entry[0] == "text")
+        self.assertIn("Not listening on port 8787", status)
 
-    def test_tui_content_reports_unavailable_sessions(self):
+    def test_tui_tabs_report_unavailable_sessions(self):
         meta = {}
         with mock.patch.object(activity, "sessions_snapshot",
                                return_value={"error": "opencode unavailable", "sessions": []}), \
              mock.patch.object(activity, "web_snapshot",
                                return_value={"port": 8787, "listening": False}):
             text = activity.render(8787, 24, meta)
-        content = activity._tui_content(text, meta, 24)
-        self.assertIn(("opencode unavailable", 0), content)
-        self.assertIn(("## Development web server", 0), content)
+        tabs = {tab["label"]: tab for tab in activity._tui_tabs(text, meta, 24)}
+        self.assertIn(("text", "opencode unavailable", "dim"),
+                      tabs["Sessions"]["entries"])
+        self.assertIn("Status", tabs)
 
 
 if __name__ == "__main__":
