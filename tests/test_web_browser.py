@@ -346,6 +346,15 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("device-links").children.length === 1, "device link not rendered");
     assert(document.getElementById("device-links").children[0].href ===
            "http://debra-3c6b3f.local:8787/", "device link target changed");
+    assert(document.getElementById("device-links").children[0].textContent.includes("Configured"),
+           "configured device source missing");
+    testState.devices.push({name: "new", url: "http://new.local:8787/",
+                            label: "<img src=x>", source: "discovered"});
+    await loadDevices();
+    const discovered = document.getElementById("device-links").children[1];
+    assert(discovered.textContent.includes("Discovered"), "discovered device source missing");
+    assert(discovered.textContent.includes("<img src=x>"), "discovered label not literal");
+    assert(!discovered.querySelector("img"), "discovered label became markup");
     document.getElementById("bypass").click();
     await wait();
     assert(!document.getElementById("dashboard").hidden, "bypass did not connect");

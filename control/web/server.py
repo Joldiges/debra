@@ -25,6 +25,11 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+if __package__:
+    from . import discovery
+else:
+    import discovery
+
 
 ASSETS = Path(__file__).with_name("assets")
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
@@ -39,6 +44,69 @@ SERVICES = (
 )
 REQUEST_TIMEOUT = 15
 COMMAND_TIMEOUT = 2
+DISCOVERY_INTERVAL = 30
+
+
+class DiscoveryCache:
+    def __init__(self, browse=discovery.browse, interval=DISCOVERY_INTERVAL):
+        self.browse, self.interval = browse, interval
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.devices = ()
+        self.thread = None
+
+    def scan(self):
+        try:
+            result = self.browse()
+            if not isinstance(result, dict) or result.get("error") is not None:
+                devices = ()
+            else:
+                records = result["devices"]
+                if not isinstance(records, list):
+                    raise ValueError("Invalid discovery result")
+                valid = []
+                for record in records:
+                    try:
+                        # host and addresses are auxiliary discovery data, not links.
+                        item = {key: record[key] for key in ("name", "url")}
+                        item["label"] = record.get("label", "")
+                        valid.append(dict(validate_device(item), source="discovered"))
+                    except (AttributeError, KeyError, TypeError, ValueError):
+                        continue
+                devices = tuple(valid)
+        except Exception:
+            # A broken discovery implementation must not take down the page.
+            devices = ()
+        with self.lock:
+            self.devices = devices
+
+    def snapshot(self):
+        with self.lock:
+            return self.devices
+
+    def run(self):
+        while not self.stop.is_set():
+            self.scan()
+            if self.stop.wait(self.interval):
+                break
+
+    def start(self):
+        try:
+            self.thread = threading.Thread(target=self.run, daemon=True, name="debra-discovery")
+            self.thread.start()
+        except (OSError, RuntimeError):
+            # Resource exhaustion must not prevent configured links being served.
+            self.thread = None
+
+
+def merge_devices(configured, discovered):
+    result, seen = [], set()
+    for device in (*configured, *discovered):
+        url = device["url"]
+        if url not in seen:
+            seen.add(url)
+            result.append(device)
+    return result
 
 
 class Unavailable(Exception):
@@ -305,7 +373,7 @@ class Server(ThreadingHTTPServer):
     request_queue_size = 8
     request_timeout = REQUEST_TIMEOUT
 
-    def __init__(self, address, backend, token, hosts, devices=None):
+    def __init__(self, address, backend, token, hosts, devices=None, discovery=None):
         # token None is the explicit development bypass (`--auth none`). It is a
         # mode, not a missing key: every request then carries no authentication.
         if token is not None and not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
@@ -313,9 +381,15 @@ class Server(ThreadingHTTPServer):
         self.backend, self.token = backend, token
         self.auth_mode = "none" if token is None else "key"
         self.devices = tuple(devices or ())
+        self.discovery = discovery
         self.hosts = frozenset(hosts)
         self.slots = threading.BoundedSemaphore(8)
         super().__init__(address, Handler)
+
+    def server_close(self):
+        if self.discovery is not None:
+            self.discovery.stop.set()
+        super().server_close()
 
     def verify_request(self, request, client_address):
         request.settimeout(5)
@@ -402,7 +476,11 @@ class Handler(BaseHTTPRequestHandler):
             name, mime = STATIC[self.path]
             self.reply(200, (ASSETS / name).read_bytes(), mime)
         elif self.path == "/api/devices":
-            self.reply(200, {"devices": list(self.server.devices)})
+            try:
+                discovered = self.server.discovery.snapshot() if self.server.discovery else ()
+            except Exception:
+                discovered = ()
+            self.reply(200, {"devices": merge_devices(self.server.devices, discovered)})
         elif self.path == "/api/status":
             try:
                 data = self.server.backend.status(deadline=self.deadline)
@@ -516,6 +594,23 @@ def canonical_device_url(url):
     return canonical
 
 
+def validate_device(item):
+    if not isinstance(item, dict) or set(item) - {"name", "url", "label"}:
+        raise ValueError("Each device allows only name, url and label")
+    name, url, label = item.get("name"), item.get("url"), item.get("label", "")
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", name):
+        raise ValueError("Device name must be 1-64 letters, digits, dot, dash or underscore")
+    if not isinstance(url, str) or len(url) > 200:
+        raise ValueError(f"Device {name}: url must be a string up to 200 characters")
+    try:
+        url = canonical_device_url(url)
+    except ValueError as exc:
+        raise ValueError(f"Device {name}: invalid URL: {exc}") from exc
+    if not isinstance(label, str) or len(label) > 80:
+        raise ValueError(f"Device {name}: label must be a string up to 80 characters")
+    return {"name": name, "url": url, "label": label}
+
+
 def load_devices(path):
     """Read the optional one-stop device list.
 
@@ -527,23 +622,7 @@ def load_devices(path):
         raise ValueError("Device list must be a JSON array")
     if len(data) > 50:
         raise ValueError("Device list allows at most 50 entries")
-    devices = []
-    for item in data:
-        if not isinstance(item, dict) or set(item) - {"name", "url", "label"}:
-            raise ValueError("Each device allows only name, url and label")
-        name, url, label = item.get("name"), item.get("url"), item.get("label", "")
-        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", name):
-            raise ValueError("Device name must be 1-64 letters, digits, dot, dash or underscore")
-        if not isinstance(url, str) or len(url) > 200:
-            raise ValueError(f"Device {name}: url must be a string up to 200 characters")
-        try:
-            url = canonical_device_url(url)
-        except ValueError as exc:
-            raise ValueError(f"Device {name}: invalid URL: {exc}") from exc
-        if not isinstance(label, str) or len(label) > 80:
-            raise ValueError(f"Device {name}: label must be a string up to 80 characters")
-        devices.append({"name": name, "url": url, "label": label})
-    return devices
+    return [validate_device(item) for item in data]
 
 
 def main():
@@ -596,7 +675,9 @@ def main():
                 any(not isinstance(v, str) or len(v) > 160 for v in metadata.values())):
             parser.error("hardware.json allows only hat/speaker labels up to 160 characters")
     backend = Backend(args.sink, metadata)
-    with Server((args.bind, args.port), backend, token, hosts, devices) as server:
+    discovery = DiscoveryCache()
+    with Server((args.bind, args.port), backend, token, hosts, devices, discovery) as server:
+        discovery.start()
         print("Debra web prototype listening; no audio settings changed", flush=True)
         server.serve_forever()
 

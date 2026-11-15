@@ -18,7 +18,7 @@ import tempfile
 from server import Backend, init_state, load_devices, valid_hosts
 
 
-PAYLOAD = ("server.py", "assets/index.html", "assets/style.css", "assets/app.js")
+PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css", "assets/app.js")
 MARKER = "# Managed by Debra web prototype\n"
 
 

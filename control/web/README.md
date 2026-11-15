@@ -30,7 +30,7 @@ publish it through a tunnel, or reuse another service's password.
 
 In the default `--auth key` mode, one device bearer key protects status reads and
 volume/mute writes, but **not** `GET /api/devices`: this public pre-pairing
-inventory discloses the configured device names, addresses and labels to any
+inventory discloses configured and discovered device names, addresses and labels to any
 reachable client that passes the Host and cross-site checks. Do not put secrets
 in the list. The installer and server also accept `--auth none`, a development
 bypass: any reachable client can read full status and use the audio controls
@@ -56,7 +56,7 @@ Python 3.10+, `pactl` with JSON support, systemd user services, and an already
 working audio session. No dependency manager is needed for this stdlib slice.
 
 1. Copy the reviewed `control/web/` directory to a private staging directory on
-   the device, or use a reviewed checkout. The installer copies only four fixed
+   the device, or use a reviewed checkout. The installer copies only five fixed
    runtime files, never a repository or `.local/`.
    The commands below assume the checkout root is the working directory, so
    `control/web/install.py` resolves. If you staged the folder somewhere else,
@@ -158,6 +158,28 @@ port from 1 to 65535, and a DNS-style ASCII hostname or canonical IPv4 address;
 paths other than `/`, whitespace, control characters, credentials, `?` and `#`
 are refused. The server returns lowercase hostnames and scheme, a decimal port
 and a trailing slash. Both server and browser apply this same restricted form.
+
+Local `_debra._tcp` mDNS discovery is on when the web service runs; it needs
+`avahi-browse` and a working Avahi daemon, but no Python packages. The first
+scan starts in a background thread at startup and is bounded by an 8-second
+command timeout. Until it finishes, only configured entries are shown. After
+each scan the thread waits 30 seconds before starting the next; during a scan
+the previous result remains cached. A failed, timed-out or empty scan clears
+discovered entries, leaving the configured list. The page refreshes the list
+every 5 seconds, including before pairing. Configured entries come first and
+win when URLs match; each URL appears once. Discovered records use the same
+name, label and URL checks as configured records.
+The server also browses its own advertisement if Avahi returns it; repeated
+announcements with the same instance and port coalesce across interfaces, and
+matching canonical URLs merge. Different names/ports or URL aliases for the same
+physical device are not generally recognized as one identity.
+
+Discovery is a convenience, **never authentication or proof of reachability**:
+any local peer can make an announcement, and plain HTTP cannot authenticate the
+destination. Verify the destination before entering a key. Discovery can also
+be unavailable or blocked by the network; keep the configured list as a
+fallback. The installed server and `tools/discover.py` use the same browse and
+parsing implementation in `control/web/discovery.py`.
 
 ## Stop and roll back without touching audio
 

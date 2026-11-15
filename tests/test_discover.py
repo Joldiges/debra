@@ -1,10 +1,12 @@
-"""Offline tests for tools/discover.py. Synthetic avahi output only: no network,
+"""Offline tests for shared discovery. Synthetic avahi output only: no network,
 no avahi daemon, no device. The parser is the part worth testing; the browse
 call is stubbed."""
 
 import subprocess
 import sys
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -12,7 +14,8 @@ SOURCE = Path(__file__).resolve().parent.parent
 if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
-import tools.discover as discover  # noqa: E402
+from control.web import discovery as discover  # noqa: E402
+from tools import discover as cli  # noqa: E402
 
 RESOLVED = (
     '=;eth0;IPv4;Debra debra-3c6b3f;_debra._tcp;local;debra-3c6b3f.local;192.168.0.8;8787;'
@@ -96,6 +99,34 @@ class BrowseTests(unittest.TestCase):
         self.assertIn("-t", argv)
         self.assertEqual(argv[-1], discover.SERVICE)
         self.assertEqual(run.call_args.kwargs["timeout"], discover.BROWSE_TIMEOUT_S)
+
+
+class CliTests(unittest.TestCase):
+    def run_cli(self, result, args=()):
+        output = StringIO()
+        with mock.patch.object(discover, "browse", return_value=result), redirect_stdout(output):
+            code = cli.main(list(args))
+        return code, output.getvalue()
+
+    def test_error_empty_and_json_exit_codes_and_output(self):
+        error = {"devices": [], "error": "avahi-browse is not installed"}
+        self.assertEqual(self.run_cli(error), (1, "Discovery unavailable: avahi-browse is not installed\n"))
+        self.assertEqual(self.run_cli(error, ["--json"]),
+                         (0, '{\n "devices": [],\n "error": "avahi-browse is not installed"\n}\n'))
+        self.assertEqual(self.run_cli({"devices": [], "error": None}),
+                         (0, "No _debra._tcp service found. Is the device advertising?\n"))
+
+    def test_table_and_device_list(self):
+        result = {"devices": discover.parse(RESOLVED), "error": None}
+        code, output = self.run_cli(result)
+        self.assertEqual(code, 0)
+        self.assertEqual(output,
+                         f"{'Name':22s} {'Label':28s} {'URL':34s} Address\n"
+                         f"{'debra-3c6b3f':22s} {'Lab Pi 5':28s} "
+                         f"{'http://debra-3c6b3f.local:8787/':34s} 192.168.0.8\n")
+        with mock.patch.object(discover, "browse", return_value=result):
+            self.assertEqual(cli.device_list(), [{"name": "debra-3c6b3f", "label": "Lab Pi 5",
+                                                   "url": "http://debra-3c6b3f.local:8787/"}])
 
 
 if __name__ == "__main__":

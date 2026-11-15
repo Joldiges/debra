@@ -1,12 +1,14 @@
 """Offline web/installer checks. Commands and audio are fakes; HTTP is loopback."""
 
 import http.client
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 import importlib.util
+from io import StringIO
 import json
 import os
 from pathlib import Path
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -15,6 +17,7 @@ import unittest
 from unittest.mock import patch
 
 from control.web import server as web
+from control.web import discovery
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -559,6 +562,193 @@ class DeviceListTests(unittest.TestCase):
             self.load([{"name": f"debra-{n}", "url": "http://debra-1.local:8787/"} for n in range(51)])
 
 
+class DiscoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.configured = [
+            {"name": "first", "url": "http://first.local:8787/", "label": "My label"},
+            {"name": "second", "url": "http://second.local:8787/", "label": "Second"},
+        ]
+        self.cache = web.DiscoveryCache(browse=lambda: {"devices": [], "error": None})
+        self.server = web.Server(("127.0.0.1", 0), None, TOKEN, [], self.configured, self.cache)
+        self.host = f"127.0.0.1:{self.server.server_port}"
+        self.server.hosts = frozenset([self.host])
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.close)
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        if self.cache.thread is not None:
+            self.cache.thread.join(timeout=2)
+
+    def request(self, path):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=2)
+        try:
+            connection.request("GET", path, headers={"Host": self.host})
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def scan(self, records, error=None):
+        self.cache.browse = lambda: {"devices": records, "error": error}
+        self.cache.scan()
+
+    def test_merge_canonical_urls_configured_first_and_label_wins(self):
+        self.scan([
+            {"name": "claim", "url": "HTTP://FIRST.LOCAL:08787", "label": "Spoofed"},
+            {"name": "new", "url": "HTTP://NEW.LOCAL:08787", "label": "Kitchen",
+             "host": "new.local", "addresses": ["192.0.2.1"]},
+            {"name": "duplicate", "url": "http://new.local:8787/", "label": "Other"},
+        ])
+        code, data = self.request("/api/devices")
+        self.assertEqual(code, 200)
+        self.assertEqual(data["devices"], self.configured + [
+            {"name": "new", "url": "http://new.local:8787/", "label": "Kitchen",
+             "source": "discovered"}])
+        self.assertEqual(self.request("/api/status")[0], 401)
+
+    def test_duplicate_configured_urls_appear_once(self):
+        self.server.devices = (*self.configured, dict(self.configured[0], label="Duplicate"))
+        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+
+    def test_invalid_discovered_hosts_ports_names_and_labels_are_dropped(self):
+        records = [
+            {"name": "badhost", "url": "http://bad-.local:8787/", "label": ""},
+            {"name": "badport", "url": "http://okay.local:65536/", "label": ""},
+            {"name": "bad name", "url": "http://okay.local:8787/", "label": ""},
+            {"name": "badlabel", "url": "http://okay.local:8787/", "label": "x" * 81},
+            {"name": "good", "url": "http://okay.local:8787/"},
+            None,
+        ]
+        self.scan(records)
+        self.assertEqual(self.request("/api/devices")[1]["devices"], self.configured + [
+            {"name": "good", "url": "http://okay.local:8787/", "label": "",
+             "source": "discovered"}])
+
+    def test_error_timeout_exception_and_empty_clear_previous_cache(self):
+        record = {"name": "new", "url": "http://new.local:8787/", "label": "New"}
+        for outcome in ("error", "timeout", "exception", "empty", "malformed"):
+            with self.subTest(outcome=outcome):
+                self.scan([record])
+                self.assertEqual(len(self.request("/api/devices")[1]["devices"]), 3)
+                if outcome == "error":
+                    self.scan([record], "browse failed")
+                elif outcome == "empty":
+                    self.scan([])
+                else:
+                    def fail():
+                        if outcome == "timeout":
+                            raise subprocess.TimeoutExpired("avahi-browse", 8)
+                        if outcome == "exception":
+                            raise RuntimeError("unexpected")
+                        return {"devices": None, "error": None}
+                    self.cache.browse = fail
+                    self.cache.scan()
+                self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+
+    def test_missing_avahi_clears_cache_using_default_browser(self):
+        self.scan([{"name": "old", "url": "http://old.local:8787/", "label": "Old"}])
+        self.cache.browse = web.DiscoveryCache().browse
+        with patch.object(discovery.subprocess, "run", side_effect=FileNotFoundError()):
+            self.cache.scan()
+        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+
+    def test_request_serves_cache_while_background_scan_is_blocked(self):
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        def blocked_browse():
+            started.set()
+            release.wait(4)
+            return {"devices": [], "error": None}
+        self.cache.browse = blocked_browse
+        self.cache.start()
+        self.assertTrue(started.wait(1))
+        start = time.monotonic()
+        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+        self.assertLess(time.monotonic() - start, 1)
+        self.assertTrue(self.cache.thread.is_alive())
+        release.set()
+
+    def test_last_good_cache_remains_during_next_scan(self):
+        record = {"name": "new", "url": "http://new.local:8787/", "label": "New"}
+        self.scan([record])
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        def blocked_browse():
+            started.set()
+            release.wait(4)
+            return {"devices": [], "error": None}
+        self.cache.browse = blocked_browse
+        self.cache.start()
+        self.assertTrue(started.wait(1))
+        self.assertEqual(self.request("/api/devices")[1]["devices"][-1]["name"], "new")
+        release.set()
+
+    def test_shared_parser_change_reaches_cli_and_server(self):
+        from tools import discover
+        text = '\n'.join([
+            '=;eth0;IPv4;Debra\\; test;_debra._tcp;local;debra.local;192.0.2.1;8787;'
+            '"name=debra-1" "label=Kitchen"',
+            '=;wifi;IPv6;Debra\\; test;_debra._tcp;local;debra.local;::1;8787;'
+            '"name=debra-1" "label=Kitchen"',
+            '=;eth0;IPv4;Other;_http._tcp;local;other.local;192.0.2.2;80;',
+        ])
+        original_parse = discovery.parse
+        def changed_parse(output):
+            records = original_parse(output)
+            for record in records:
+                record["label"] = "Changed parser"
+            return records
+        self.cache.browse = web.DiscoveryCache().browse
+        output = StringIO()
+        with patch.object(discovery.subprocess, "run",
+                          return_value=subprocess.CompletedProcess([], 0, text, "")) as run, \
+                patch.object(discovery, "parse", side_effect=changed_parse) as parse:
+            with redirect_stdout(output):
+                self.assertEqual(discover.main(["--json"]), 0)
+            self.cache.scan()
+        self.assertEqual(parse.call_count, 2)
+        self.assertEqual(json.loads(output.getvalue())["devices"][0]["label"], "Changed parser")
+        self.assertEqual(self.request("/api/devices")[1]["devices"], self.configured + [
+            {"name": "debra-1", "url": "http://debra.local:8787/",
+             "label": "Changed parser", "source": "discovered"}])
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args.args[0], ["avahi-browse", "-rtp", "-t", "_debra._tcp"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 8)
+
+    def test_self_announcement_on_two_interfaces_is_one_device(self):
+        text = '\n'.join([
+            '=;eth0;IPv4;Debra self;_debra._tcp;local;self.local;192.0.2.1;8787;"name=self"',
+            '=;wlan0;IPv6;Debra self;_debra._tcp;local;self.local;::1;8787;"name=self"',
+        ])
+        self.cache.browse = web.DiscoveryCache().browse
+        with patch.object(discovery.subprocess, "run",
+                          return_value=subprocess.CompletedProcess([], 0, text, "")):
+            self.cache.scan()
+        self.assertEqual(self.request("/api/devices")[1]["devices"], self.configured + [
+            {"name": "self", "url": "http://self.local:8787/", "label": "Debra self",
+             "source": "discovered"}])
+
+    def test_serve_starts_discovery_without_waiting_for_a_request(self):
+        with tempfile.TemporaryDirectory(prefix="web-start-", dir="/tmp/opencode") as temp:
+            argv = ["server.py", "serve", "--state-dir", temp, "--sink", SINK, "--auth", "none"]
+            with patch.object(sys, "argv", argv), patch.object(web, "DiscoveryCache") as cache, \
+                    patch.object(web, "Server") as server, patch("builtins.print"):
+                web.main()
+        cache.return_value.start.assert_called_once_with()
+        self.assertIs(server.call_args.args[5], cache.return_value)
+        server.return_value.__enter__.return_value.serve_forever.assert_called_once_with()
+
+    def test_worker_start_failure_leaves_configured_links_available(self):
+        with patch.object(threading.Thread, "start", side_effect=RuntimeError("no threads")):
+            self.cache.start()
+        self.assertIsNone(self.cache.thread)
+        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+
+
 class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="web-install-", dir="/tmp/opencode")
@@ -663,6 +853,57 @@ class InstallerTests(unittest.TestCase):
                          sorted(installer.PAYLOAD))
         self.assertFalse(self.install()["changed"])
         self.assertEqual(web.load_key(self.state), key)
+
+    def test_installed_server_serves_configured_devices_without_avahi(self):
+        help_result = subprocess.run([sys.executable, "-B", str(SOURCE / "install.py"), "--help"],
+                                     cwd=self.home, capture_output=True, text=True, timeout=5)
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("--sink", help_result.stdout)
+        configured = [{"name": "first", "url": "http://first.local:8787/", "label": "First"}]
+        result = self.install(devices=configured)
+        release = self.home / ".local/share/debra/web/releases" / result["release"]
+        for name in installer.PAYLOAD:
+            self.assertEqual((release / name).read_bytes(), (SOURCE / name).read_bytes())
+        empty_path = self.home / "empty-path"
+        empty_path.mkdir()
+        env = dict(os.environ, PATH=str(empty_path), PYTHONNOUSERSITE="1")
+        env.pop("PYTHONPATH", None)
+        probe = subprocess.run([sys.executable, "-B", "-c",
+                                "import discovery, json; print(json.dumps(discovery.browse()))"],
+                               cwd=release, env=env, capture_output=True, text=True, timeout=5)
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertEqual(json.loads(probe.stdout),
+                         {"devices": [], "error": "avahi-browse is not installed"})
+        devices = self.home / "configured.json"
+        devices.write_text(json.dumps(configured))
+        with socket.socket() as reservation:
+            reservation.bind(("127.0.0.1", 0))
+            port = reservation.getsockname()[1]
+        host = f"127.0.0.1:{port}"
+        process = subprocess.Popen(
+            [sys.executable, "-B", str(release / "server.py"), "serve", "--state-dir", str(self.state),
+             "--sink", SINK, "--auth", "none", "--port", str(port), "--host", host,
+             "--devices", str(devices)], cwd=self.home, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=0.5)
+                    connection.request("GET", "/api/devices", headers={"Host": host})
+                    response = connection.getresponse()
+                    status, body = response.status, json.loads(response.read())
+                    connection.close()
+                    break
+                except (OSError, http.client.HTTPException):
+                    if process.poll() is not None or time.monotonic() >= deadline:
+                        self.fail("Installed server did not start")
+                    time.sleep(0.05)
+            self.assertEqual((status, body), (200, {"devices": configured}))
+            self.assertIsNone(process.poll())
+        finally:
+            process.terminate()
+            process.communicate(timeout=5)
 
     def test_update_preserves_recoverable_previous_unit(self):
         self.install()

@@ -319,9 +319,11 @@ function canonicalDeviceUrl(url) {
   const canonical = `http://${host}:${port}/`;
   return canonical.length <= 200 ? canonical : null;
 }
+let loadingDevices = false;
 async function loadDevices() {
-  // The one-stop card: links this server was configured with. Optional, and a
-  // failure here must not stop the page from working.
+  // A slow response must not overlap later refreshes or block the dashboard.
+  if (loadingDevices) return;
+  loadingDevices = true;
   try {
     const response = await fetch("/api/devices", {cache: "no-store", signal: AbortSignal.timeout(20000)});
     if (!response.ok) return;
@@ -333,17 +335,20 @@ async function loadDevices() {
       if (!url) continue;
       const link = document.createElement("a");
       link.href = url;
-      link.textContent = device.label ? `${device.name} · ${device.label}` : String(device.name);
+      const name = device.label ? `${device.name} · ${device.label}` : String(device.name);
+      link.textContent = `${name} · ${device.source === "discovered" ? "Discovered" : "Configured"}`;
       list.append(link);
     }
     el("devices").hidden = list.children.length === 0;
   } catch {
-    el("devices").hidden = true;
+    // Keep the last visible list on a temporary HTTP failure.
+  } finally {
+    loadingDevices = false;
   }
 }
 
 async function start() {
-  await loadDevices();
+  loadDevices();
   if (token) {
     await refresh();
     return;
@@ -370,3 +375,4 @@ async function start() {
 
 start();
 setInterval(refresh, 3000);
+setInterval(loadDevices, 5000);
