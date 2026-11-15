@@ -36,7 +36,59 @@ window.testState = {
   discovery: {enabled: false, found: 0, seconds_since_scan: null, error: null, refused: []}
 };
 const state = window.testState;
+const setupPayload = () => ({
+  writable: false,
+  reason: "This page reports what the device is built to do; it cannot change any of it yet.",
+  hardware: {
+    detected_hat: "ReSpeaker 2-Mics Pi HAT", detected_source: "fixture",
+    retained_label: "ReSpeaker 2-Mics Pi HAT v2", retained_note: "fixture",
+    cards: ["seeed2micvoicec", "vc4hdmi0"], cards_source: "/proc/asound/cards",
+    selectable: false, reason: "Changing the HAT is a device-tree and driver write (A02).",
+    options: [
+      {id: "respeaker-2mic-hat-v2", label: "ReSpeaker 2-Mics Pi HAT v2",
+       summary: "Two microphones and a codec.", detected: true,
+       card: {name: "seeed2micvoicec", present: true}, applied: true,
+       caveats: ["Positions are an estimate, not a measurement."]},
+      {id: "none", label: "No HAT: 3.5 mm jack or USB audio", summary: "Board output.",
+       detected: false, card: {name: null, present: null}, applied: null,
+       caveats: ["This page cannot tell which output is in use."]}
+    ]
+  },
+  settings: {
+    music: {id: "music", label: "Music player", summary: "Which receiver plays music.",
+            value: null, selectable: false,
+            options: [{id: "sendspin", label: "SendSpin",
+                       observed: {user: {unit_found: true, active: "active", enabled: "enabled"},
+                                  system: null}},
+                      {id: "snapcast", label: "Snapcast (alternative)",
+                       observed: {user: null, system: null}}],
+            reason: "No music setting is stored on the device yet (C01)."},
+    interruption: {id: "interruption", label: "During an announcement", summary: "Duck or pause.",
+                   value: null, selectable: false,
+                   options: [{id: "duck", label: "Lower the music"},
+                             {id: "pause", label: "Pause the music"}],
+                   reason: "Not implemented or tested on a device yet (A03)."},
+    update_policy: {id: "update-policy", label: "Update policy", summary: "How versions change.",
+                    value: null, selectable: false,
+                    options: [{id: "pinned", label: "Pinned versions"}],
+                    reason: "Nothing on the device can be pinned yet (U01)."}
+  },
+  updates: {
+    available: false,
+    reason: "No update mechanism exists, so none of these buttons can do anything.",
+    actions: [{id: "check", label: "Check for updates", enabled: false, reason: "No source (U01)."},
+              {id: "update", label: "Install updates", enabled: false, reason: "No transaction (U02)."},
+              {id: "rollback", label: "Roll back the last change", enabled: false,
+               reason: "No snapshot (B02)."}]
+  }
+});
 window.fetch = async (path, options) => {
+  if (path === "/api/setup") {
+    if (options && options.method && options.method !== "GET") {
+      throw new Error("the page must not write to /api/setup");
+    }
+    return {ok: true, status: 200, json: async () => setupPayload()};
+  }
   if (path === "/api/devices") {
     return {ok: true, status: 200,
             json: async () => ({devices: state.devices, self: state.self, discovery: state.discovery})};
@@ -333,6 +385,57 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_SETUP = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    await loadSetup();
+    const hats = [...document.querySelectorAll("#setup-hats .choice")];
+    assert(hats.length === 2, "expected two HAT options, saw " + hats.length);
+    assert(hats[0].textContent.includes("ReSpeaker 2-Mics Pi HAT v2"), "HAT label missing");
+    assert(hats[0].textContent.includes("an ALSA card named seeed2micvoicec is listed"),
+           "detected card not reported");
+    assert(hats[1].textContent.includes("no sound card of its own to check"),
+           "the no-HAT option claimed a card");
+    assert(hats.every(row => row.textContent.includes("Positions are an estimate")
+                        || row.textContent.includes("cannot tell which output")),
+           "a caveat was dropped");
+    const radios = [...document.querySelectorAll("#setup-hats input[type=radio]")];
+    assert(radios.length === 2 && radios.every(radio => radio.disabled),
+           "a HAT choice is selectable although nothing can change it");
+    assert(radios.every(radio => !radio.checked), "a HAT was shown as chosen");
+    const selects = [...document.querySelectorAll("#setup-settings select")];
+    assert(selects.length === 3, "expected three settings, saw " + selects.length);
+    assert(selects.every(select => select.disabled), "a setting is selectable");
+    assert(selects.every(select => select.value === ""), "a setting showed a value");
+    const buttons = [...document.querySelectorAll("#setup-updates button")];
+    assert(buttons.length === 3, "expected three update actions, saw " + buttons.length);
+    assert(buttons.every(button => button.disabled), "an update action is usable");
+    assert(document.querySelectorAll("#setup .badge.planned").length >= 5,
+           "planned controls are not labelled");
+    for (const control of [...radios, ...selects, ...buttons]) {
+      const id = control.getAttribute("aria-describedby");
+      assert(id && document.getElementById(id)?.textContent.length > 10,
+             "a disabled control does not explain itself");
+    }
+    assert(document.getElementById("setup-hardware-source").textContent.includes("seeed2micvoicec"),
+           "the ALSA card list is not shown");
+    assert(document.getElementById("setup-status").textContent.includes("cannot change"),
+           "the read-only reason is missing");
+    assert(testState.posts.length === 0, "the setup card wrote to the device");
+    result.textContent = "PASS: setup card renders disabled choices with reasons";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_NOAUTH = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -575,12 +678,15 @@ class BrowserTests(unittest.TestCase):
                         '<script src="/fixture.js"></script><script src="/app.js" defer></script>'
                         f'<script src="/{check_name}" defer></script>')
                     self.reply(200, body.encode(), "text/html")
-                elif self.path in ("/fixture.js", "/check.js", "/check-noauth.js", "/check-key.js", "/check-probe.js", "/check-urls.js", "/check-post-401.js"):
+                elif self.path in ("/fixture.js", "/check.js", "/check-noauth.js",
+                                   "/check-key.js", "/check-probe.js", "/check-urls.js",
+                                   "/check-post-401.js", "/check-setup.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
                               "/check-urls.js": CHECK_URLS,
-                              "/check-post-401.js": CHECK_POST_401}[self.path]
+                              "/check-post-401.js": CHECK_POST_401,
+                              "/check-setup.js": CHECK_SETUP}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -647,6 +753,9 @@ class BrowserTests(unittest.TestCase):
                 else:
                     self.assertEqual(web.canonical_device_url(url), expected)
         self.run_browser("?auth=key", "check-urls.js")
+
+    def test_setup_card_renders_disabled_choices_with_reasons(self):
+        self.run_browser("#key=" + "x" * 40, "check-setup.js")
 
     def test_real_browser_interactions_with_no_native_audio(self):
         self.run_browser("#key=" + "x" * 40, "check.js")
