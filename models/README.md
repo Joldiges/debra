@@ -29,7 +29,8 @@ what the model actually is — including the parts it does not have yet.
 | Folder | What it is | Status |
 | --- | --- | --- |
 | [zero2w-respeaker-stack](assemblies/zero2w-respeaker-stack/README.md) | Pi Zero 2 W + ReSpeaker HAT stacked on a header, with a 40 mm driver beside them | **Reference assembly, CAD-only**: proves the stack clears itself and is ~21 mm tall; no tray, no case. **This is the flat layout James called ugly; it is kept as the height reference** |
-| [zero2w-respeaker-upright](assemblies/zero2w-respeaker-upright/README.md) | The same parts standing up, driver above the boards, on a rounded base — the inverted-T arrangement | **Reference assembly, CAD-only**: 75 × 40 × 78 mm. The driver is unsupported and the microphones' direction is assumed |
+| [zero2w-respeaker-upright](assemblies/zero2w-respeaker-upright/README.md) | The same parts standing up, driver above the boards, on a rounded base — the inverted-T arrangement | **Reference assembly, CAD-only**: 75 × 40 × 78 mm. The driver is unsupported and the microphones' direction is assumed. **The driver is a stand-in, not a chosen part** |
+| [zero2w-dweii-compact](assemblies/zero2w-dweii-compact/README.md) | The chosen DWEII 671 module facing forward, Pi and HAT flat behind it, on a concept plate | **Layout study, CAD-only**: 73 × 53 × 32 mm. No walls, no lid, no fastening; the microphone port positions are unknown, so the lid cannot be cut yet |
 
 ## Parts
 
