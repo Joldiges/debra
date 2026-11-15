@@ -1,8 +1,16 @@
-# Pi Zero 2 W + ReSpeaker HAT reference stack
+# Pi Zero 2 W + ReSpeaker HAT reference stack (flat layout)
 
 **Reference assembly, not a case. It shows how the three parts sit relative to
 each other and how tall the stack is. The board-to-board gap is assumed, the
 connector positions are estimates, and no printed part exists yet.**
+
+> **This is the flat layout, kept as the height reference.** James called it
+> ugly on 2026-11-15 — boards at one end and the driver bolted on the side make a
+> 105 mm plank — and it is not the arrangement to build. The replacement is
+> [the upright assembly](../zero2w-respeaker-upright/README.md); the reasoning is
+> [enclosure arrangements](../../../docs/design/enclosure-arrangements.md). The
+> numbers here still matter, because they are what a standing version has to
+> contain.
 
 Editable SolidCraft source:
 [`zero2w-respeaker-stack.sc`](zero2w-respeaker-stack.sc).

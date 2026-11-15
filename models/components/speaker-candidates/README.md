@@ -4,6 +4,13 @@
 None is measured, none is modelled in detail, and two of them have no way to be
 fastened at all.**
 
+> **These are catalogue drivers, and they are all modelled as cylinders. That is
+> wrong for enclosure work.** James pointed out on 2026-11-15 that almost every
+> small speaker is a rectangular housing, and the housing — not the cone — is what
+> a case has to fit around. Use this folder to compare cone size and depth; use
+> [dweii-speakers](../dweii-speakers/README.md) to cut a pocket, because those are
+> the modules actually selected in the [main README](../../../README.md#speakers).
+
 Editable SolidCraft source: [`speaker-candidates.sc`](speaker-candidates.sc).
 
 Every body is the driver's **maximum envelope**: front face at Z = 0, body
