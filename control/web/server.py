@@ -670,7 +670,12 @@ def main():
     metadata_path = state / "hardware.json"
     metadata = {}
     if metadata_path.exists():
-        metadata = json.loads(metadata_path.read_text())
+        # A malformed file must not traceback: the unit is Restart=on-failure, so
+        # an unhandled error becomes a silent restart loop with no usable reason.
+        try:
+            metadata = json.loads(metadata_path.read_text())
+        except (OSError, ValueError) as exc:
+            parser.error(f"hardware.json is not readable JSON ({exc}); fix or remove it")
         if (not isinstance(metadata, dict) or set(metadata) - {"hat", "speaker"} or
                 any(not isinstance(v, str) or len(v) > 160 for v in metadata.values())):
             parser.error("hardware.json allows only hat/speaker labels up to 160 characters")
