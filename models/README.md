@@ -41,16 +41,19 @@ something you could slice.
 | Folder | What it is | Status |
 | --- | --- | --- |
 | [zero2w-hat-tray](parts/zero2w-hat-tray/README.md) | Base plate, locating lip and four screw standoffs for the Zero 2 W + HAT stack | **Not printed, not fit-tested**; no lid, no speaker chamber |
-| [dweii-671-case](parts/dweii-671-case/README.md) | Tub and lid for the whole device: DWEII 671 module at the front, Pi Zero 2 W + ReSpeaker HAT behind, Ø26 grille, two microphone ports over the sourced HAT port positions | **Not printed, not fit-tested**: 71.02 × 54.37 × 33.2 mm. The Pi's own ports and the HAT's jack are enclosed by design |
+| [dweii-671-case](parts/dweii-671-case/README.md) | Tub and lid for the whole device: DWEII 671 module at the front, Pi Zero 2 W + ReSpeaker HAT behind, Ø26 grille, two microphone ports over the sourced HAT port positions, 5 mm corner rounds | **Not printed, not fit-tested**: 71.02 × 54.37 × 33.2 mm. The Pi's own ports and the HAT's jack are enclosed by design |
 | [dweii-671-carrier](parts/dweii-671-carrier/README.md) | Baffle and rear pocket for the DWEII 701715519671 module: 45.6 × 29.6 × 15 mm pocket, Ø26 mm grille, 4 × M2.5 | **Not printed, not fit-tested**; pocket sized to the larger of two conflicting seller dimensions |
 
 ## Not modelled yet
 
-- A lid or a case around the tray, and a speaker chamber with a grille. The tray
-  is the base; the acoustic half does not exist.
+- Anything that holds the parts in place. The [case](parts/dweii-671-case/README.md)
+  traps the speaker module forward but lets it slide 4 mm back, gives the Pi no
+  standoffs and nothing that locates it sideways, and models no speaker-lead
+  route to the HAT's JST socket.
+- Feet, cable strain relief, grille mesh or fabric.
 - The ReSpeaker Lite, Satellite1 HAT and the other comparison devices.
-- Speaker cut-outs and recesses; only outer envelopes exist.
-- Cable routing, gaskets and grille retention.
+- Speaker cut-outs and recesses for every candidate; only outer envelopes exist,
+  and only the DWEII 671 has a case that is built around it.
 
 ## Regenerating renders
 
