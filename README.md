@@ -31,6 +31,7 @@ below are historical research, not current compatibility or purchasing advice.
 | Document | Purpose |
 | --- | --- |
 | [Documentation and project memory](docs/README.md) | Navigation, learning notes, evidence, and context-switch handoffs for people and AI |
+| [Task-chain dashboard](docs/task-chains.md) | 19 streams, “pick any” or named starters, atomic claims, workspaces, and review |
 | [Project brief](docs/project-brief.md) | Intentions, requirements, tradeoffs, and unresolved decisions |
 | [Agent work plan](docs/roadmap.md) | Parallel work packets, dependencies, deliverables, and acceptance |
 | [Evidence and sources](docs/evidence.md) | How claims, prices, compatibility, and test results are recorded |

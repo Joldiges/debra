@@ -10,14 +10,19 @@ tradeoffs, blockers, and requests for physical actions or new authorization.
 - **Written guidance exists:** root [AGENTS.md](../AGENTS.md), the
   [documentation/memory map](README.md), [roadmap](roadmap.md), this workflow,
   and a [task template](templates/worker-task.md).
+- **Local dispatch tooling exists:** [task chains](task-chains.md) provide
+  19 named streams, nine bounded research starter cards, and a standard-library
+  Python claim/worktree helper. It coordinates one clone's linked worktrees,
+  not model permissions; production dispatch is closed until F05 approval.
 - **Not configured or verified:** restricted project-specific OpenCode worker
-  profiles, automatic model routing, automated scope/review gates, CI, or
+  profiles, automatic model routing, enforced independent-review/merge gates, CI, or
   protected branches. F05 pilots the roles before lower-cost editing workers
   are used. This document does not enable or enforce those controls.
-- **Current blocker:** the planning files are uncommitted and the index contains
-  pre-existing removals. F01 needs a deliberate, authorized baseline. A worktree
-  from current `HEAD` would not contain the new plan. Do not silently stage all,
-  discard the index, or copy private files to work around this.
+- **Baseline observed:** commit `39b93fb` ("AI fresh start") contains the planning
+  documents; the checkout/index were clean when task-chain work resumed.
+  Earlier reports of uncommitted planning and staged removals are historical,
+  not current state. Commit/review new dispatch inputs before opening a worker
+  baseline; do not silently stage all, discard user work, or copy private files.
 
 There was already high-level agent guidance; this adds the operational path.
 Instructions reduce mistakes but are not a security boundary. A capable model
@@ -50,7 +55,14 @@ kernel/HAT changes, dependency selection, or live infrastructure operations to
 an unproven lower-cost editing worker. A safe isolated experiment can be
 assigned separately with its own scope; it does not authorize host/device work.
 
-## Dispatch: the coordinator does the preparation
+## Dispatch: coordinator prepares cards; workers may select an eligible one
+
+James may request “any task chain” or a named chain. The
+[task-chain entrypoint](task-chains.md) permits **selection among prepared,
+approved starter cards**, not worker-authored scope. Before opening dispatch,
+the coordinator completes the preparation and F05 gate below. A trusted startup
+step can perform the atomic claim/workspace creation on a restricted worker's
+behalf; denied shell access is not a reason to broaden the worker's permissions.
 
 1. Select an authorized packet whose prerequisites are met. Read the current
    brief, evidence rules, documentation map, and relevant files/dated handoffs;
@@ -60,14 +72,18 @@ assigned separately with its own scope; it does not authorize host/device work.
    paths, input revisions, allowed changes, forbidden actions, existing
    verification commands, examples, and pass/fail criteria. Specify a
    time/attempt budget and who reviews. Missing required fields mean no launch.
-3. Record the task ID, status, base commit, branch, worktree, worker session/
-   model, allowed paths, review owner, and any device lease in a coordinator-owned
-   sanitized assignment ledger (proposed `docs/work/assignments.md`). Workers
-   request ownership changes rather than editing the ledger themselves.
+3. Record task ID, status, base commit, branch, worktree, worker session/model,
+   allowed paths, and review owner through `tools/taskchain.py`. Its atomic
+   registry in the shared Git common directory is authoritative for claims
+   across linked worktrees, not a manually edited tracked assignment table.
+   Workers use their claim operations and request ownership/scope changes.
+   Device leases remain separately coordinator-owned; this dispatcher grants none.
 4. For an editing task, prepare a **dedicated branch and worktree from the
    recorded clean baseline**, with the current committed instructions. A branch
    alone is not a separate checkout: simultaneous editing workers never share
    one working directory. Read-only reviewers can share a frozen checkout.
+   The helper creates and verifies the workspace from a committed approved base;
+   the worker must explicitly move its session/working directory there.
 5. Configure and verify the role's actual permissions before using lower-cost
    editing workers. Give only sanitized inputs and no infrastructure access.
    Confirm location/branch/base and a clean worktree before editing. Test required

@@ -3,6 +3,10 @@
 The coordinator fills this before dispatch. An unfilled template or a roadmap
 title is not permission to start. Follow the [AI workflow](../ai-workflow.md).
 Keep this task and its eventual handoff free of credentials and raw private logs.
+For prepared self-selection, the [dispatcher](../task-chains.md) combines the
+coordinator's starter card and approved policy with claim/base/workspace identity
+into `.local/assignment.md`. That generated assignment is the filled brief;
+workers do not fill missing authority or open dispatch themselves.
 
 ## Assignment
 

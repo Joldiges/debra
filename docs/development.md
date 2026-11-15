@@ -21,6 +21,14 @@ Suggested subdirectories, created only as needed:
 | `.local/snapshots/` | Personal recovery manifests, exported backups, and credential-bearing snapshots |
 | `.local/artifacts/` | Local images, build outputs, downloaded binaries, and provenance/hash records |
 | `.local/upstream/` | Exploratory upstream checkouts and local patch experiments, not the sole record of selected build dependencies |
+| `.local/worktrees/` | Dispatcher-created task checkouts; each has a new branch and its own ignored assignment |
+
+The [task-chain dispatcher](task-chains.md) stores cooperative claims in the
+shared **Git common directory** (`debra-work/`), not a per-worktree `.local/`
+file. This is local Git coordination metadata, never a credential store or a
+tracked/pushed assignment table. It is not an independent backup. Include
+neither `.git/` nor `.local/` in distributable images/bundles. Other clones do
+not share these claims.
 
 Keep small sanitized templates, source pins, build recipes, test reports, and
 redistribution notices in tracked paths. A useful build recipe belongs in Git;

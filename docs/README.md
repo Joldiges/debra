@@ -10,6 +10,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | --- | --- |
 | [Project brief](project-brief.md) | What James wants; requirements are not proof of implementation |
 | [Roadmap](roadmap.md) | Current packets, prerequisites, and acceptance; not permission to operate devices |
+| [Task chains](task-chains.md) | “Any chain” / named-chain worker entrypoint, atomic claims, workspaces, and handoffs |
 | [AI workflow](ai-workflow.md) | Coordinator/worker roles, task scope, review, and integration |
 | [Evidence conventions](evidence.md) | Sources, uncertainty, compatibility claims, and test records |
 | [Development workspace](development.md) | Private storage, reuse, provenance, and contribution boundaries |
@@ -30,6 +31,7 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Planned; see R06 |
 | `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | Planned; see T01 |
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
+| `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
 | `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Use only when needed; existing historical files are labeled in place |
 | `.local/` | Private operational records, raw logs, credentials, recovery payloads, and large local artifacts | Ignored; not shared project memory or an independent backup |
 

@@ -36,9 +36,11 @@ by satellite tooling. Identify which settings belong on which side.
 
 ## How agents use this plan
 
-1. The coordinator selects **authorized** packets whose dependencies are met,
-   supplies the current brief/evidence rules, and assigns exclusive output
-   paths and device leases. Task readiness is not live-operation permission.
+1. The coordinator prepares **authorized** packet cards whose dependencies are
+   met, supplies current brief/evidence rules, and assigns exclusive output
+   paths and device leases. Workers can self-select an eligible prepared
+   starter through the [task chains](task-chains.md), after the F05 dispatch
+   gate. Task readiness is not live-operation permission.
 2. Each worker states its task IDs, inputs, outputs, verification, and scope
    before work. Research can progress without hardware; implementation against
    tentative contracts must be explicitly labeled experimental.
@@ -49,11 +51,11 @@ by satellite tooling. Identify which settings belong on which side.
    configuration/contracts, pins, `.gitmodules`/submodule pointers if introduced,
    and merged recommendations. Do not have six workers independently “clean up”
    the same root files.
-5. Prefer separate branches/worktrees once a tracked baseline is established.
+5. Use separate branches/worktrees for editing tasks from a tracked baseline.
    Worktrees start from commits, not the coordinator's untracked files.
-   On 2026-11-14 the index already contained many staged removals alongside
-   untracked replacements; do not sweep that state into an incidental commit
-   or assume `HEAD` represents the new plan.
+   Commit `39b93fb` now contains the planning foundation; the checkout/index
+   were observed clean before task-chain work. Earlier staged-removal warnings
+   are historical. Recheck actual state; never sweep user changes into a commit.
 6. No two workers mutate one board, shared audio device, or test-server
    configuration concurrently. Research may share sanitized read-only reports.
 7. Stop at the packet's acceptance criteria. Report follow-ups as new work,
@@ -74,7 +76,12 @@ by satellite tooling. Identify which settings belong on which side.
     context. Preserve useful discoveries, assumptions, failures, and handoffs
     within assigned paths using the [learning-note template](templates/learning-note.md).
     Notes are unreviewed evidence, not standing rules or permission. Keep
-    canonical reports in their subject area and promote conclusions by review.
+   canonical reports in their subject area and promote conclusions by review.
+
+The [19-chain dashboard](task-chains.md) groups every packet below and provides
+nine concrete starter cards, shared ownership claims, workspace creation, and
+handoff commands. This roadmap owns packet state and acceptance; the dispatcher
+owns live local claims. Neither advances work merely because a worker submits.
 
 Status meanings: `done` = linked deliverable and verification;
 `ready` = can start without another packet, not necessarily authorized;
@@ -104,7 +111,8 @@ The first wave returns evidence and recommendations; it does not run privileged
 builders, flash cards, or configure reachable Pis.
 Until F01/F05 establish a worker baseline and verify restricted roles, a capable
 coordinator can do direct work or arrange bounded read-only reviews; do not
-launch lower-cost editing workers into the current checkout.
+launch lower-cost editing workers. The claim helper is not a substitute for that
+pilot, and no workers edit the shared integration checkout.
 
 ## Gates and sequencing
 
@@ -296,7 +304,8 @@ Separate observed results from proposed fixes. Do not mark a packet done on
 
 ## Immediate next action
 
-The next execution session should select and authorize first-wave assignments,
-establish F01's shared baseline, and run bounded research in parallel. Hardware
+The next execution session should review/commit the task-chain inputs, finish
+F01/F05's baseline and permission pilot, then open eligible research dispatch
+through the [task-chain entrypoint](task-chains.md). Hardware
 implementation starts only after target/access/recovery arrangements, not by
 discovering and modifying every Pi on the household Wi-Fi.
