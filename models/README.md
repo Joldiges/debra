@@ -3,7 +3,10 @@
 These folders contain printable-part designs, component envelopes, assemblies,
 and reference material, with READMEs and views beside them. Editable designs
 have SolidCraft `.sc` sources, but the filename need not match the folder: the
-Pi 5 envelope uses `pi5-reference.sc`. The
+Pi 5 envelope uses `pi5-reference.sc`. The one exception is the
+[v17 body-and-lid assembly](assemblies/rpispeaker-v17-body-lid/README.md),
+which has no `.sc` of its own: it is composed from two part sources at build
+time, because a saved copy would duplicate their geometry and drift from it. The
 [v17 component reference](components/rpispeaker-v17/README.md) has no `.sc`
 source: it documents a read-only STEP extraction, and the original STEP and
 Fusion files are not included in the repository. The separate
@@ -48,6 +51,7 @@ reference material, consult its README for provenance and limitations.
 | [zero2w-respeaker-upright](assemblies/zero2w-respeaker-upright/README.md) | The same parts standing up, driver above the boards, on a rounded base — the inverted-T arrangement | **Reference assembly, CAD-only**: 75 × 40 × 78 mm. The driver is unsupported. **The driver is a stand-in, not a chosen part** |
 | [debra-compact](assemblies/debra-compact/README.md) | **An earlier CAD concept, not the selected design**: the DWEII 671 case (linked) with the ReSpeaker HAT (linked) plus the Pi Zero 2 W and speaker module inside | **Assembly, CAD-only**: 71.02 × 54.37 × 33.2 mm, 20 bodies. No screws, no wiring, no board retention |
 | [zero2w-dweii-compact](assemblies/zero2w-dweii-compact/README.md) | The chosen DWEII 671 module facing forward, Pi and HAT flat behind it, on a concept plate | **Layout study, CAD-only**: 73 × 53 × 32 mm. No walls, no lid, no fastening; the lid is not modelled, so the microphone ports are still uncut |
+| [rpispeaker-v17-body-lid](assemblies/rpispeaker-v17-body-lid/README.md) | The reconstructed v17 body with its provisional lid, composed from the two part sources at build time | **CAD-only assembly**: 66.15 × 26.10 × 75.30 mm, **zero interference** between the two parts; a control at 0.5 mm per-side oversize is detected, so the pass is a real pass. No Pi, HAT, speaker, screw or cable modelled; not printed or fitted |
 
 ## Parts
 
@@ -62,6 +66,7 @@ something you could slice.
 | [dweii-462-case](parts/dweii-462-case/README.md) | Carrier for the 100 × 45 × 21 mm 5 W module: 102 × 47 × 23 mm cavity, 1.8 mm walls, four vents, flat recessed back, 4 × Ø2.2 × 7 mm pilots | **Not printed, not fit-tested**; no keyholes, no lid, and it carries the module without securing it |
 | [dweii-462-retainer](parts/dweii-462-retainer/README.md) | Frame that closes the 462 carrier's front: 101 × 46 mm opening, four holes on the carrier's pilots, tabs over assumed housing edges | **Provisional**: the frame alone does not retain the module; tabs, pads and spacers are not modelled or tested |
 | [rpispeaker-v17-body](parts/rpispeaker-v17-body/README.md) | Editable, measurement-based reconstruction of the original v17 body | **Incomplete reconstruction**: simplified Pi bay and unmodelled threads; not identical to the STEP, not printed or fit-tested |
+| [rpispeaker-v17-cover](parts/rpispeaker-v17-cover/README.md) | Bridge cover carrying an assumed 32 mm square four-screw speaker pattern over the second bay, anchored on the body's two pilots | **Provisional and cannot be assembled with the lid**: the two intersect by **785.08 mm³**, so they are alternative front plates. `SQ_PITCH` and the speaker's height are assumptions; no speaker identified; two of the four holes sit 2 mm above the Pi-side divider |
 | [rpispeaker-v17-lid](parts/rpispeaker-v17-lid/README.md) | Front lid concept for the original v17 body: Ø28 driver in an external sleeve protruding 10 mm, 100% open aperture | **Provisional**: the body's threaded through holes open through Ø4.50 front countersinks; front fastening needs no body modification but lid clearance, screw fit and engagement are untested; no retainer, cable route unresolved |
 
 ## Not modelled yet

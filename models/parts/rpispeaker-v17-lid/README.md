@@ -1,10 +1,14 @@
 # RPiSpeaker v17 second-bay lid — provisional bare-driver concept
 
 **CAD-only; not a complete, verified enclosure.** The supplied v17 holes are
-threaded through holes with front countersinks, the exact lid fit against the
-body is unverified, and the selected speaker is a hypothetical bare driver. The
-design therefore needs further engineering before printing, mounting, or modifying
-the original body. It is not a reconstruction of an established original lid.
+threaded through holes with front countersinks, the selected speaker is a
+hypothetical bare driver, and the fit checked so far is **against the
+reconstruction only**: it does not interfere with the
+[reconstructed body](../../assemblies/rpispeaker-v17-body-lid/README.md), which
+is a geometric result about two CAD models, not a printed fit to the original.
+The design therefore needs further engineering before printing, mounting, or
+modifying the original body. It is not a reconstruction of an established
+original lid.
 
 The [bay inventory](../../../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
 supersedes the earlier 31.10 × 66 × 7 rectangular-pocket assumption used by
@@ -34,8 +38,14 @@ connector slot is an assumed size and location, not a verified cable route.*
   The two rear screw pads extend to the Y 8.50 raised surfaces. The
   sleeve and an assumed 10 mm-deep bare driver sit entirely in front of the
   body, protruding **10 mm** to Y 25.50. The sleeve projects from X 16.70 to
-  48.30; its 0.45 mm overlap above the Pi-bay side and any attached components
-  need collision checking. No Pi-bay front opening is assumed.
+  48.30 and so covers the Pi-side divider's front edge by 0.45 mm in X. That
+  was flagged here as needing a collision check and has now been measured: it
+  is an **adjacency at Y 15.50, not an overlap** — the body ends at Y 15.50 and
+  the sleeve starts there — and the lid and body intersect by **0 mm³** at the
+  default parameters. See the
+  [assembly check](../../assemblies/rpispeaker-v17-body-lid/README.md#fit-measured-and-the-check-is-sensitive).
+  Any attached Pi-bay component is still unchecked, because no Pi, HAT or
+  header is modelled. No Pi-bay front opening is assumed.
 - The second-bay endpoints X 17.15–48.25 give **31.10 mm**, which the
   [correction note](../../../docs/notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md)
   confirms is the X span; the earlier 31.85 counted the outer wall. The 30.50 mm inset uses the narrower

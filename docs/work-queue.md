@@ -25,14 +25,17 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `setup-r1` | — | `.local/reviews/setup-r1-20261115/` | independent, `gpt-6.1-sol`; reviews `cd4790f`, so it predates `40ef8dc` and `cf88922` |
+| Acceptance review `setup-r2` | — | `.local/reviews/setup-r2-20261115/` | independent, `gpt-6.1-sol`; reviews current HEAD, including the r1 fixes |
 
 ## Done this round
 
 | Packet | Item ids | Proof |
 |---|---|---|
-| Wi-Fi onboarding, identity and first baseline | N02 | `cd4790f`, fixed by `40ef8dc` — 50 tests; **not run on a device** |
+| Wi-Fi onboarding, identity and first baseline | N02 | `cd4790f`, fixed by `40ef8dc` and `ef370d5` — 67 tests; **not run on a device** |
 | Setup service at boot | N02 | `cf88922` — system unit, installer, 24 tests; never loaded by systemd |
+| The r1 review's remaining blockers | N02 | `ef370d5` — reserved admission, active-profile check, classified errors, baseline retry and atomicity, form kept while polling |
+| Nearby-network picker in the setup page | N02 | uncommitted — the radio is scanned once before the access point is raised, so a beginner chooses a name instead of typing it; 9 setup browser scenarios |
+| Browser proof of the device list | — | `test_development_bypass_and_device_links` already drives the configured and discovered badges, the same-device case, a literal label, a discovery start failure, an empty scan and a refused advertisement |
 | Browser proof of the setup page | N02 | `508a7f9` — 7 Chromium scenarios; the page was unreachable and the tests caught it |
 | Installed-artifact tests and atomic rollback | B13 | `508a7f9`, `9d11d08` — 16 tests; two real gaps recorded rather than asserted away |
 | Dashboard Setup card | WEB03 | `8b05215` — 21 tests, read-only, every choice disabled with its reason |
@@ -50,6 +53,7 @@ not commit, push, or approve their own work.
 | Demo case: Pi Zero + DWEII 671, bays, lid with mic and LED openings | — | `3d7c07f` |
 | Tabbed TUI with stable scroll positions | — | `d4ba492` |
 | Queue refiller from a repository backlog | — | `059a3ba` |
+| The lid checked against the reconstructed body | D02 | `models/assemblies/rpispeaker-v17-body-lid/` — 0 mm³ interference at the lid's defaults, with a 0.5 mm per-side oversize control that is caught; a composed assembly, no duplicate `.sc`; still nothing printed |
 | Tabbed TUI that redraws only changed lines, and drops columns instead of truncating them | — | this round |
 | Two unattended studies: the ARMv6 audio stack, first-boot identity | — | `35d43c3` |
 
@@ -59,10 +63,11 @@ not commit, push, or approve their own work.
 |---|---|---|
 | Acceptance review `code-r7` | — | must follow B14/C1–C4, from a model that did not write it |
 | Device run of the onboarding flow | N02 | needs a spare card and one of the next Pis; nothing in `control/setup/` has touched a radio |
-| Browser verification of the device list | — | the discovered badge and the discovery status line have no browser proof yet |
 | Retained releases are never re-verified | B13 | an upgraded-away release is never re-checked, so a corrupted old release is restored by rollback without complaint. Either verify every retained release at install, or record that rollback may restore bad content |
 | Staging files can be `0644` | B13 | an interrupted copy is retained with files created before `chmod`; the containing directory is `0700`, so the README's "private staging files" is true only at directory level |
 | `install()` does not validate the device list | B13 | only `main()` does, so a programmatic caller can install a list the server then refuses at startup |
+| No captive portal | N02 | the setup page exists but no phone will offer to open it. A person has to read the password from the boot-partition note and type `10.42.0.1` — workable, not seamless |
+| No baseline restore demo | N02 | a baseline is captured and can be inspected, but nothing restores from one, so "recovery" is untested in the direction that matters |
 
 ## In review
 
