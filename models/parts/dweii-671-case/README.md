@@ -15,25 +15,32 @@ the first complete case, built to hold the parts James actually selected — the
 | --- | --- |
 | Overall | **71.02 × 54.37 × 33.2 mm** |
 | Interior | 66.22 × 49.57 × 28.4 mm |
-| Tub | **26 122 mm³** (`measure`) |
-| Lid | **9 111 mm³** (`measure`) |
+| Tub | **25 127 mm³** (`measure`) |
+| Lid | **8 986 mm³** (`measure`) |
 | Walls, floor, lid | 2.4 mm |
 | Screws | 4 × M2.5, Ø2.2 pilots, Ø2.7 lid clearance |
+| Corners | 5 mm rounds; the wall thins to 1.3 mm on the corner diagonal |
+| Edges | 2 mm round on the base, 1.2 mm on the lid's top, 0.6 mm chamfer under the lid |
+| Grille | Ø26 through, stepped to Ø28 × 1 mm at the face |
 
 ## What it looks like
 
-![Isometric view of a plain rectangular box, taller than wide, with a round grille opening on the front face, a small rectangular slot in the left side, and a lid with four screw holes, two tiny holes and one elongated slot](assets/iso.png)
+![Isometric view of a box with rounded vertical corners and a rounded base, a round stepped speaker opening on the front face, a small rectangular slot in the left side, and a lid with four screw holes, two tiny holes and one elongated slot](assets/iso.png)
 
-*Isometric. The Ø26 mm grille is the speaker opening, centred on the module. The
-slot in the left wall is the power inlet. On the lid: four screw holes, two
-Ø1.5 mm microphone ports near the back, and an 11 × 3.5 mm slot over the three
+*Isometric. The Ø26 mm grille is the speaker opening, centred on the module, with
+a 1 mm step at the face so the opening reads as a machined edge rather than a
+hole. The slot in the left wall is the power inlet. On the lid: four screw holes,
+two Ø1.5 mm microphone ports near the back, and an 11 × 3.5 mm slot over the three
 status LEDs.*
 
-![Front view: a wide rectangle with a centred circular opening](assets/front.png)
+![Front view: a wide rectangle with rounded corners and a centred circular opening with a stepped rim](assets/front.png)
 
 *Front. 71 mm wide, 33 mm tall, one centred Ø26 mm opening. The module is 44 mm
 wide, so there is about 11 mm of blank baffle each side — the same space the
-screw bosses use.*
+screw bosses use. The front face is 31 mm tall and the opening is 26 mm, which
+leaves 2.5 mm above and below it: there is no room for a ring, a bezel or a
+recessed panel around the speaker, so the detail has to be the step at the
+opening itself.*
 
 ![Side view showing the depth, the lid, and the power slot in the wall](assets/side.png)
 
@@ -56,13 +63,43 @@ grille opening behind it; the Pi and the HAT lie behind the module; the two fron
 bosses sit in the free margin beside the speaker and the two rear ones are
 thickened into the back wall. This is what the case is for.*
 
-![The finished device with the lid on: a plain box with a round grille on the front and a slot in the left side](../../assemblies/debra-compact/assets/iso.png)
+![The finished device with the lid on: a rounded box with a stepped round grille on the front and a slot in the left side](../../assemblies/debra-compact/assets/iso.png)
 
 *Closed. The same object with the lid on — see the
 [product assembly](../../assemblies/debra-compact/README.md) for the other views.*
 
 `loaded.png` is shot from the assembly, because this design holds the case only
 and has no components to put in it.
+
+## Why it looks like this
+
+James's own Fusion 360 model
+(`RPiSpeaker_v17.step`, OneDrive, 2026-05-18) is the reference for the finish
+expected here: a slim back plate, 66.15 × 75.30 × 16.10 mm, whose outline is a
+rectangle blended into a round speaker pod with r = 11 mm tangent arcs, every
+edge filleted at 1.0–1.3 mm, a raised circular boss around the speaker with a
+recessed ring, and a Pi Zero pocket with four Ø8 posts on a 58 × 23 mm pattern.
+Its speaker opening is Ø18 over a Ø10 inner ring.
+
+What carried over is the treatment of edges: 5 mm rounds on the four vertical
+corners, a 2 mm round on the base, 1.2 mm on the lid's top edge, a 0.6 mm chamfer
+under the lid so the joint reads as a shadow line, and the step at the grille.
+The one thing that could not carry over is the organic outline. A Ø18 speaker in
+a 16 mm plate leaves room for a shaped silhouette; a 44 × 28 × 15 mm module in a
+28.4 mm cavity does not — the case is 33 mm tall and the Ø26 grille is 26 mm of
+that, so the front face has 2.5 mm above and below the opening and there is
+nowhere to put a pod, a bezel or an inset panel. The shape is therefore a
+rounded box, and the design effort goes into the edges.
+
+Two consequences worth knowing before printing:
+
+- The 5 mm corner rounds leave a **1.3 mm wall** on the diagonal at each corner,
+  where the outer round cuts in and the inner cavity corner stays sharp. That is
+  the thinnest part of the part and it is a fillet, not a flat wall, so it prints
+  as three perimeters at most.
+- The 2 mm round on the base and the 1.2 mm round on the lid mean the case
+  **cannot stand on a sharp edge**, which is the point; it also means the base
+  contact area is smaller, so it is more likely to rock on a warped bed.
 
 ## The layout it holds
 
@@ -153,12 +190,12 @@ screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850
 screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
              camera: { target: [0,24,14], yaw: 1.5708, pitch: 0.12, distance: 200 },
              path: ".../assets/side.png" })
-// interior: move the lid (feature 13) away, shoot, move it back
-timeline.edit({ feature: 13, set: { corner: ["300 mm", "INT_D/2", "INT_H + LID_T/2"] } })
+// interior: hide the lid body, shoot, show it again
+browser.visibility({ items: ["Lid"], visible: false })
 screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
              camera: { target: [0,24,8], yaw: 0.62, pitch: 0.72, distance: 215 },
              path: ".../assets/open.png" })
-timeline.edit({ feature: 13, set: { corner: [0, "INT_D/2", "INT_H + LID_T/2"] } })
+browser.visibility({ items: ["Lid"], visible: true })
 ```
 
 `loaded.png` cannot be shot here: it comes from

@@ -14,17 +14,18 @@ to "some assembly of those case parts for full products".
 | --- | --- |
 | Overall | **71.02 × 54.37 × 33.2 mm** |
 | Bodies | 20 |
-| Total solid volume | 65 472 mm³ (`measure`) |
+| Total solid volume | 64 351 mm³ (`measure`) |
 
 ## What it looks like
 
-![Isometric view of the finished device: a plain box with a round speaker grille on the front, a slot in the left side, and a lid carrying two small microphone holes and an LED slot](assets/iso.png)
+![Isometric view of the finished device: a box with rounded vertical corners and a rounded base, a stepped round speaker grille on the front, a slot in the left side, and a lid carrying two small microphone holes and an LED slot](assets/iso.png)
 
-*The product. Nothing here is decoration: the round opening is the speaker, the
-left slot is the power inlet, and the two small holes in the lid are the
-microphone ports.*
+*The product. The round opening is the speaker, the left slot is the power inlet,
+and the two small holes in the lid are the microphone ports. The rounds on the
+corners and the shadow line under the lid are the only things that are purely
+appearance; see [the case's note on its shape](../../parts/dweii-671-case/README.md#why-it-looks-like-this).*
 
-![Front view: a wide rectangle with a single centred circular opening](assets/front.png)
+![Front view: a wide rectangle with rounded corners and a single centred circular opening with a stepped rim](assets/front.png)
 
 *Front. The module is 44 mm wide in a 71 mm case, so a third of the face is blank
 baffle. That is deliberate — the screw bosses live in that margin.*
@@ -104,6 +105,9 @@ from the model, not assumed:
 screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
              camera: { target: [0,25,15], yaw: 0.72, pitch: 0.33, distance: 235 },
              path: ".../assets/iso.png" })
+screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
+             camera: { target: [0,24,14], yaw: 0, pitch: 0.05, distance: 175 },
+             path: ".../assets/front.png" })
 // case open: hide the lid body, shoot, show it again
 browser.visibility({ items: ["Lid"], visible: false })
 screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
