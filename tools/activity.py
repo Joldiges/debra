@@ -728,15 +728,30 @@ TUI_ESSENTIAL_COLUMNS = [0, 2, 6]
 TUI_USEFUL_WIDTHS = [6, 4, 14, 11, 7, 3, 10]
 
 
-def _tui_widths(columns: int, shown: list[int] | None = None) -> list[int] | None:
-    """Widths for the shown columns, or None if even their minima will not fit.
+def _tui_widths(columns: int, shown: list[int] | None = None,
+                needs: dict[int, int] | None = None,
+                roomy: bool = True) -> list[int] | None:
+    """Widths for the shown columns, or None if they will not fit.
 
-    Extra space is shared by weight rather than handed out in a fixed order:
-    growing Why first starved Model, and growing Title first truncated Why to
-    "finished; parent bu…", which is worse than not showing it.
+    Each column starts at the room a real value needs, not at a minimum that
+    then truncates it to "terra·flex…"; `needs` carries the measured widths of
+    the values on screen. Whatever is left is shared by weight, so a long Title
+    does not take the room Model needs to stay unambiguous.
+
+    ``roomy=False`` starts at the bare minimums instead. That is the question
+    "can this terminal show anything at all?", where a cramped value is better
+    than a blank screen; "which optional columns fit?" uses the roomier floor.
     """
     shown = list(range(len(TUI_MIN_WIDTHS))) if shown is None else list(shown)
-    widths = [TUI_MIN_WIDTHS[index] for index in shown]
+    needs = needs or {}
+    widths = []
+    for index in shown:
+        if roomy:
+            need = max(TUI_MIN_WIDTHS[index], TUI_USEFUL_WIDTHS[index],
+                       min(needs.get(index, 0), TUI_MAX_WIDTHS[index]))
+        else:
+            need = TUI_MIN_WIDTHS[index]
+        widths.append(need)
     remaining = columns - sum(widths) - len(TUI_SEPARATOR) * (len(shown) - 1)
     if remaining < 0:
         return None
@@ -760,31 +775,52 @@ def _tui_widths(columns: int, shown: list[int] | None = None) -> list[int] | Non
     return widths
 
 
-def _tui_can_show(columns: int, shown: list[int]) -> bool:
-    """Every shown column must fit a real value, not just its minimum."""
-    widths = _tui_widths(columns, shown)
-    return widths is not None and all(
-        width >= TUI_USEFUL_WIDTHS[index] for width, index in zip(widths, shown))
+def _tui_can_show(columns: int, shown: list[int], needs: dict[int, int] | None = None) -> bool:
+    """True when every shown column can fit the values it has to display."""
+    return _tui_widths(columns, shown, needs) is not None
 
 
-def _tui_visible_columns(columns: int) -> list[int]:
+def _tui_visible_columns(columns: int, needs: dict[int, int] | None = None) -> list[int]:
     """Drop the least useful columns while the important ones still fit.
 
     A narrow terminal used to truncate Why and Model into "done+b…" and
     "terra·fle…", which is noise. Kind, then Model, then Cost and Age go first.
     """
     shown = list(TUI_ESSENTIAL_COLUMNS)
-    if not _tui_can_show(columns, shown):
+    if not _tui_can_show(columns, shown, needs):
         return shown
     for index in (5, 4, 3, 1):
         candidate = sorted(shown + [index])
-        if _tui_can_show(columns, candidate):
+        if _tui_can_show(columns, candidate, needs):
             shown = candidate
     return shown
 
 
+def _tui_needs(tab: dict) -> dict[int, int]:
+    """The widest real value per column, so the table sizes to its content.
+
+    Title is left out: a clipped title is still recognisable and the full title
+    is in the report, while "terra·flex…" cannot be told from another model.
+    """
+    needs: dict[int, int] = {}
+    for entry in tab["entries"]:
+        if entry[0] in ("row", "header"):
+            for index, cell in enumerate(entry[1]):
+                if index == 2:
+                    continue
+                needs[index] = max(needs.get(index, 0), _tui_cells(str(cell)))
+    return needs
+
+
+# Each tab holds entries: ("text", text, style), ("header", cells), ("row", cells, band).
 def _tui_too_small(lines: int, columns: int) -> bool:
-    return lines < 4 or _tui_widths(columns, TUI_ESSENTIAL_COLUMNS) is None
+    """True when not even the essential columns fit at their minimum widths.
+
+    A cramped table is still usable; refusing to draw one leaves nothing. Two
+    rules, a title, the tab bar and the footer leave one content row.
+    """
+    return lines < 6 or _tui_widths(columns, TUI_ESSENTIAL_COLUMNS,
+                                    roomy=False) is None
 
 
 def _cell_width(char: str) -> int:
@@ -820,7 +856,6 @@ def _rate_band(rate: float | None) -> int:
     return 1 if rate < 0.05 else 2 if rate < 0.12 else 3 if rate < 0.30 else 4
 
 
-# Each tab holds entries: ("text", text, style), ("header", cells), ("row", cells, band).
 TUI_TABS = (("What I need from you", "Needs"), ("Agent sessions", "Sessions"),
             ("Research runner", "Research"), ("Development web server", "Status"))
 
@@ -886,7 +921,7 @@ def _tui_table_entries(block: list[str]) -> list[tuple]:
     for number, row in enumerate(rows):
         text = " | ".join(cell.ljust(widths[index]) if index < columns - 1 else cell
                           for index, cell in enumerate(row)).rstrip()
-        entries.append(("text", text, "bold" if number == 0 else "normal"))
+        entries.append(("table", text, "bold" if number == 0 else "normal"))
     return entries
 
 
@@ -947,22 +982,53 @@ def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
     return tabs
 
 
-def _tui_wrap(text: str, width: int, indent: int = 0) -> list[str]:
-    """Wrap to the terminal instead of truncating: the question matters most."""
-    width = max(12, width - indent)
-    if not text.strip():
+def _tui_cells(text: str) -> int:
+    return sum(_cell_width(char) for char in text)
+
+
+def _tui_chunks(word: str, limit: int) -> list[str]:
+    """Split one token that is wider than a line, instead of losing its tail.
+
+    A long path or URL has no spaces to break on; clipping it hides the part
+    that distinguishes it from the one next to it.
+    """
+    out, piece, used = [], "", 0
+    for char in word:
+        size = _cell_width(char)
+        if piece and used + size > limit:
+            out.append(piece)
+            piece, used = "", 0
+        piece += char
+        used += size
+    if piece:
+        out.append(piece)
+    return out or [""]
+
+
+def _tui_wrap(text: str, width: int) -> list[str]:
+    """Wrap to display cells, never losing words.
+
+    The caller reserves its indentation before calling, so every line returned
+    fits the terminal once the indent is added; wrapping to the full width and
+    then indenting used to push the tail of every line through the truncator.
+    """
+    limit = max(4, width)
+    words = text.split()
+    if not words:
         return [""]
-    out, line = [], ""
-    for word in text.split():
-        if not line:
-            line = word
-        elif len(line) + 1 + len(word) <= width:
-            line += " " + word
-        else:
-            out.append(line)
-            line = word
-    out.append(line)
-    return out
+    lines, current = [], ""
+    for word in words:
+        for piece in _tui_chunks(word, limit):
+            space = 0 if not current else 1
+            if _tui_cells(current) + space + _tui_cells(piece) <= limit:
+                current = piece if not current else current + " " + piece
+                continue
+            if current:
+                lines.append(current)
+            current = piece
+    if current:
+        lines.append(current)
+    return lines or [""]
 
 
 def _tui_lines(tab: dict, width: int) -> list[tuple]:
@@ -975,13 +1041,19 @@ def _tui_lines(tab: dict, width: int) -> list[tuple]:
             rows.append(("cells", entry[1], None))
         elif entry[0] == "blank":
             rows.append(("text", "", "dim"))
+        elif entry[0] == "table":
+            # Aligned columns must survive to the screen: wrapping them would
+            # collapse the padding that makes them columns at all.
+            rows.append(("table", entry[1], entry[2]))
         else:
             raw = entry[1]
             indent = len(raw) - len(raw.lstrip(" "))
             body = raw.strip()
             bullet = body.startswith("• ")
-            for index, piece in enumerate(_tui_wrap(body, width, indent)):
-                pad = indent + 2 if bullet and index else indent
+            first = indent
+            rest = indent + (2 if bullet else 0)
+            for index, piece in enumerate(_tui_wrap(body, width - max(first, rest))):
+                pad = first if index == 0 else rest
                 rows.append(("text", " " * pad + piece, entry[2]))
     return rows
 
@@ -1177,8 +1249,10 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
         visible = max(1, height - 5)
         offset = _tui_clamp(offsets.get(active, 0), len(rows), visible)
         offsets[active] = offset
-        shown = _tui_visible_columns(width)
-        widths = _tui_widths(width, shown) or TUI_MIN_WIDTHS[:len(shown)]
+        needs = _tui_needs(tabs[active])
+        shown = _tui_visible_columns(width, needs)
+        widths = (_tui_widths(width, shown, needs)
+                  or [TUI_MIN_WIDTHS[index] for index in shown])
         for y, row in enumerate(rows[offset:offset + visible], 3):
             if row[0] == "cells":
                 cells, band = row[1], row[2]

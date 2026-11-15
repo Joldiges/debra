@@ -585,16 +585,21 @@ class ActivityTests(unittest.TestCase):
         self.assertNotIn("Traceback", error.getvalue())
 
     def test_tui_column_sizing_at_several_widths(self):
-        minimum = sum(activity.TUI_MIN_WIDTHS) + 6 * len(activity.TUI_SEPARATOR)
-        self.assertIsNone(activity._tui_widths(minimum - 1))
-        self.assertEqual(activity._tui_widths(minimum), activity.TUI_MIN_WIDTHS)
-        for width in (minimum, 60, 80, 120, 200):
+        # Each column starts at the room a real value needs, so the floor is the
+        # larger of the minimum and the useful width, not the bare minimum.
+        floors = [max(low, useful) for low, useful in
+                  zip(activity.TUI_MIN_WIDTHS, activity.TUI_USEFUL_WIDTHS)]
+        floor_total = sum(floors) + 6 * len(activity.TUI_SEPARATOR)
+        self.assertIsNone(activity._tui_widths(floor_total - 1))
+        self.assertEqual(activity._tui_widths(floor_total), floors)
+        # A narrower terminal cannot hold all seven at their useful widths; that
+        # is what _tui_visible_columns is for, not a truncation of every column.
+        for width in (floor_total, 80, 120, 200):
             with self.subTest(width=width):
                 sizes = activity._tui_widths(width)
                 self.assertEqual(len(sizes), 7)
                 self.assertLessEqual(sum(sizes) + 6 * len(activity.TUI_SEPARATOR), width)
-                for size, low, high in zip(sizes, activity.TUI_MIN_WIDTHS,
-                                           activity.TUI_MAX_WIDTHS):
+                for size, low, high in zip(sizes, floors, activity.TUI_MAX_WIDTHS):
                     self.assertGreaterEqual(size, low)
                     self.assertLessEqual(size, high)
 
@@ -609,12 +614,16 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(activity._tui_fit("e\u0301xx", 2), "e\u0301…")
 
     def test_tui_tiny_terminal_decision(self):
-        essential = [activity.TUI_MIN_WIDTHS[index] for index in activity.TUI_ESSENTIAL_COLUMNS]
+        # The "too small" boundary is the bare minimums: below it there is no
+        # honest table, above it a cramped table still beats a blank screen.
+        essential = [activity.TUI_MIN_WIDTHS[index]
+                     for index in activity.TUI_ESSENTIAL_COLUMNS]
         minimum = sum(essential) + (len(essential) - 1) * len(activity.TUI_SEPARATOR)
         self.assertTrue(activity._tui_too_small(0, 0))
-        self.assertTrue(activity._tui_too_small(3, minimum))
-        self.assertTrue(activity._tui_too_small(4, minimum - 1))
-        self.assertFalse(activity._tui_too_small(4, minimum))
+        self.assertTrue(activity._tui_too_small(5, minimum))
+        self.assertTrue(activity._tui_too_small(6, minimum - 1))
+        # Two rules, a title, a tab bar and a footer leave one content row.
+        self.assertFalse(activity._tui_too_small(6, minimum))
         self.assertFalse(activity._tui_too_small(24, 80))
 
     def test_recent_session_tie_keeps_markdown_idle_before_unknown(self):
@@ -672,12 +681,28 @@ class ActivityTests(unittest.TestCase):
         narrow = activity._tui_visible_columns(60)
         self.assertIn(2, narrow)  # Title
         self.assertIn(6, narrow)  # Why
-        self.assertNotIn(1, narrow)  # Kind goes first
-        self.assertNotIn(3, narrow)  # then Model, rather than "terr…"
+        self.assertNotIn(3, narrow)  # Model goes before it can read "terr…"
         widths = activity._tui_widths(60, narrow)
         self.assertIsNotNone(widths)
         for width, index in zip(widths, narrow):
             self.assertGreaterEqual(width, activity.TUI_USEFUL_WIDTHS[index])
+
+    def test_tui_model_column_fits_the_real_value_that_matters(self):
+        # "terra·flex-high" is 15 cells; the variant is what distinguishes it.
+        session = {"id": "a", "title": "Some session", "agent": "", "model": "",
+                   "provider": "", "model_id": "openrouter/openai/gpt-6.1-terra",
+                   "variant": "flex-high", "cost": 0.4,
+                   "created": 1, "tokens": 0, "updated": 2, "child": True,
+                   "parent": "b", "working": False, "busy_at": None, "idle_at": None}
+        cells = activity._tui_session_cells(session, {"a": session}, 10.0)
+        self.assertEqual(cells[3], "terra·flex-high")
+        tab = {"entries": [("header", list(activity.TUI_HEADERS)),
+                           ("row", cells, 0)]}
+        needs = activity._tui_needs(tab)
+        shown = activity._tui_visible_columns(80, needs)
+        self.assertIn(3, shown)
+        widths = activity._tui_widths(80, shown, needs)
+        self.assertGreaterEqual(widths[shown.index(3)], len("terra·flex-high"))
 
     def test_tui_essential_columns_survive_a_narrow_terminal(self):
         shown = activity._tui_visible_columns(28)
