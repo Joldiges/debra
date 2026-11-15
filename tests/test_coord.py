@@ -335,6 +335,9 @@ class CoordTests(unittest.TestCase):
     def test_secret_denies_follow_the_broad_read_allow(self):
         rules = coord._permissions("research", [])
         allow = rules.index(("read", "*", "allow"))
+        self.assertNotIn(("grep", "*", "allow"), rules,
+                         "grep authorises a pattern, not a path, so it cannot respect read denies")
+        self.assertNotIn(("glob", "*", "allow"), rules)
         secrets = [("read", "~/.ssh/*", "deny"), ("read", "~/.gnupg/*", "deny"),
                    ("read", "~/.aws/*", "deny"), ("read", "*/auth.json", "deny")]
         for rule in secrets:

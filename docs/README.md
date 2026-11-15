@@ -15,6 +15,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Parts in hand](design/parts-manifest.md) | The parts James reports owning, separated from assumptions, as the input to enclosure design |
 | [Task chains](task-chains.md) | “Any chain” / named-chain worker entrypoint, atomic claims, workspaces, and handoffs |
 | [AI workflow](ai-workflow.md) | Coordinator/worker roles, the operating model as practised, task scope, review, and integration |
+| [Delegation](guides/delegation.md) | Restricted worker profiles, the per-task record of an assignment, and what a permission probe actually observed |
 | [AI model and provider strategy](ai-model-strategy.md) | Named role selections, allowance priorities, paid Flex choices, costs, and unresolved quota/connection gaps |
 | [Evidence conventions](evidence.md) | Sources, uncertainty, compatibility claims, and test records |
 | [Development workspace](development.md) | Private storage, reuse, provenance, and contribution boundaries |
@@ -62,6 +63,7 @@ found claims stronger than their sources; read the review before using it.
 | [Storage durability](notes/2026-11-15-storage-durability.md) | B01 | A no-intervention rollback means an A/B slot or a verified restore |
 | [License and provenance proposal](notes/2026-11-15-license-and-provenance-proposal.md) | F04 | MIT proposed for Debra's own work; nothing applied |
 | [Agent permission scoping](notes/2026-11-15-agent-permission-scoping.md) | F06 | Proposal only; no configuration changed |
+| [F05 live permission probes](notes/2026-11-15-f05-live-permission-probes.md) | F05 | Executed: real refusals for out-of-scope edit, new-file write, private and external reads; `grep` disclosed a read-denied file, so search is now denied. Not acceptance |
 | [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The 31.10 mm X span remains useful; the linked bay inventory withdraws the rectangular pocket, continuous-wall and blind-pilot interpretations |
 | [Optional network services](notes/2026-11-15-optional-network-services.md) | optional extras | Desk study only; NTP client and device health proposals, household-service exclusions; no devices contacted |
 | [Optional radio and presence](notes/2026-11-15-optional-radio-and-presence.md) | optional extras | Desk study only; separate ESP32 BLE proxy and separate home-radio infrastructure candidates; no devices contacted |

@@ -19,12 +19,13 @@ Two read-only profiles are committed:
 | `.opencode/agents/debra-research.md` | source research, cited report back | edit, shell, subagent, Code Mode, MCP, `.local/` reads |
 | `.opencode/agents/debra-review.md` | independent review of a frozen candidate | edit, shell, subagent, Code Mode, MCP; may read `.local/coord/` and `.local/reviews/` |
 
-Both deny everything first, then allow only reading, `glob`, `grep`,
-`webfetch` and `websearch`, and deny reads outside the repository, `.git/`,
-`.local/` and `.env` files. The reviewer is the one exception: it may read the
-candidate paths under `.local/coord/` and `.local/reviews/`. An editing
-assignment gets a **generated** profile instead, because only the assignment
-knows the allowed paths:
+Both deny everything first, then allow only `read`, `webfetch` and `websearch`,
+and deny reads outside the repository, `.git/`, `.local/` and `.env` files. The
+reviewer is the one exception: it may read the candidate paths under
+`.local/coord/` and `.local/reviews/`. They have no `grep` or `glob` — see
+[the probe result](#what-a-probe-observed) for why search is not the same as
+read. An editing assignment gets a **generated** profile instead, because only
+the assignment knows the allowed paths:
 
 ```bash
 python tools/coord.py profile --task CMP02 --role edit \
@@ -48,10 +49,10 @@ What this is and is not:
   profiles — and a generated editing profile — from
   `GET /api/agent?location[directory]=<repo>`, with the rules composed as
   intended: `edit`, `shell`, `subagent`, `execute` and external reads resolve to
-  `deny`, while `read`, `grep` and `webfetch` resolve to `allow`, and the secret
-  paths stay denied. That is configuration evidence, not execution evidence: no
-  tool call has been attempted under these rules, so a real denial has not been
-  observed here. F05 stays partial and production editing dispatch stays closed.
+  `deny`, while `read` and `webfetch` resolve to `allow`, and the secret paths
+  stay denied. That is configuration evidence; the first live probe is
+  [below](#what-a-probe-observed). F05 stays partial and production editing
+  dispatch stays closed.
 - **Lexical path resolution.** Matching is lexical, and the F05 source review
   found an upstream patch test that follows a symlink inside the repository to an
   external file without external-directory approval. A symlink planted in the
@@ -67,6 +68,46 @@ What this is and is not:
   `read: *` allow would otherwise re-open the global secret denies (`~/.ssh`,
   `~/.gnupg`, `~/.aws`, `auth.json`, `.env`). The profiles restate those denies
   after the allow for that reason; keep that order if you edit them.
+
+## What a probe observed
+
+2026-11-15, three short sessions, $0.0071 total, canary files only. The full
+record is [the F05 probe note](../notes/2026-11-15-f05-live-permission-probes.md);
+the short version:
+
+| Attempt | Result |
+|---|---|
+| `read AGENTS.md` | succeeded — positive control |
+| `read /etc/hostname` | refused, `Permission denied: external_directory` |
+| `read .local/scratch/…/sentinel.txt` | refused, `Permission denied: read` |
+| `grep SENTINEL-7f3a` in that same `.local/` directory | **succeeded — returned the denied file's content** |
+| `glob .local/scratch/**` | no files, no error; inconclusive, because dot-directories are hidden by default |
+| `edit AGENTS.md` from a one-path editing profile | refused, `Permission denied: edit` |
+| `edit` the one allowed path | succeeded |
+| `write` a new file | refused, `Permission denied: edit` (write is gated by `edit`) |
+| `opencode_worktree_remove`, listed in a denied profile | refused, `Permission denied: edit` — listed is not usable |
+| edit, write, shell, subagent in a deny-everything profile | tool not present: nothing to attempt |
+
+Three conclusions, all uncomfortable:
+
+1. **A path deny is a per-tool deny.** `grep` authorises its pattern, not each
+   file's `read` rule, so a path whose read is denied is still readable through
+   search. The restricted profiles therefore carry no `grep` or `glob`; `read` is
+   the only route that respects the path rules. If a worker genuinely needs to
+   search, the honest fix is keeping private state out of the search root, not
+   re-allowing search.
+2. **Absent is not refused.** A deny-everything profile removes the tool
+   entirely, so an editing or shell attempt cannot happen and no refusal string
+   exists to record. That is stronger for safety and weaker as evidence: it says
+   nothing about rule ordering. Proving the ordering needs a profile that allows
+   the tool and denies one target — which is what a generated editing profile is,
+   and it did refuse an out-of-scope edit.
+3. **A listed tool is not a usable one.** A denied profile still advertised
+   `opencode_worktree_remove`, and the call was refused. Judge a worker by its
+   refusals, not by its tool list.
+
+One model, one location, three short sessions: this moves F05 forward and does
+not close it.
 
 ## The record of one delegated task
 

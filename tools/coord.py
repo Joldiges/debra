@@ -632,8 +632,10 @@ def _permissions(role: str, paths: list[str]) -> list[tuple[str, str, str]]:
         rules += [("read", ".local/coord/*", "allow"),
                   ("read", ".local/reviews/*", "allow")]
     rules += [
-        ("glob", "*", "allow"),
-        ("grep", "*", "allow"),
+        # No grep or glob: their permission resource is the pattern, not the
+        # path, so they cannot respect the read denies above. A probe on
+        # 2026-11-15 returned the contents of a `.local` file whose read was
+        # denied. `read` is the search-free route that stays enforceable.
         ("webfetch", "*", "allow"),
         ("websearch", "*", "allow"),
     ]
