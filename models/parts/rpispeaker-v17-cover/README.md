@@ -1,17 +1,31 @@
-# RPiSpeaker v17 speaker cover — unreviewed bridge concept
+# RPiSpeaker v17 speaker cover — SUPERSEDED, retired concept
+
+**Retired 2026-11-15. Do not build this part.** The v17 second bay has one front
+plate and it is the [lid](../rpispeaker-v17-lid/README.md); this cover is not it.
+See [the one-front-panel note](../../../docs/notes/2026-11-15-v17-one-front-panel.md)
+for the decision. The files stay in the repository because the measurements
+below are evidence, not because the part is a candidate.
 
 **This is a design, not a print. Nothing has been sliced, printed or fit-tested.**
-It is a tentative cover for the [editable v17 body](../rpispeaker-v17-body/README.md),
-not a reconstruction of a known original cover. A particular speaker has not
-been identified or measured. Confirm its mounting and height before printing.
+It was a tentative cover for the [editable v17 body](../rpispeaker-v17-body/README.md),
+not a reconstruction of a known original cover. A particular speaker has never
+been identified or measured. Confirm its mounting and height before printing
+anything derived from it.
 
-**It cannot be assembled with the current [lid](../rpispeaker-v17-lid/README.md).**
+**It cannot be assembled with the [lid](../rpispeaker-v17-lid/README.md).**
 The two intersect by **785.083645226661 mm³** in one Boolean-intersected pair:
 the Ø8 feet pass through the lid's rear screw pads, and the raised plate passes
-through the lid's sleeve. The two parts are alternative front plates over one
-bay, not a cover that fits behind the lid. See
+through the lid's sleeve. That is why the two could never both be installed, and
+why one had to go. See
 [the conflict note](../../../docs/notes/2026-11-15-v17-cover-lid-conflict.md)
-for the measurement and the two ways out.
+for the measurement.
+
+The reason this one is the part that went: its only contribution the lid lacks is
+the four-screw speaker pattern, and that pattern does not fit the lid. The lid's
+plate is 30.50 mm wide (X 17.45–47.95), while a 32 mm square pitch puts the X
+holes at ±16 mm from the driver centre, outside the plate on both sides. The
+pattern could not be merged, so carrying a second front plate to hold an
+assumed pattern was not worth it.
 
 ![Front isometric view of the provisional speaker cover](assets/iso.png)
 

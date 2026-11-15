@@ -1,5 +1,12 @@
 # RPiSpeaker v17 second-bay lid — provisional bare-driver concept
 
+**This is the single front panel for the v17 second bay.** The separate
+[cover](../rpispeaker-v17-cover/README.md) that used to sit over the same bay is
+retired: the two parts intersected, and one bay has one front plate. See
+[the one-front-panel note](../../../docs/notes/2026-11-15-v17-one-front-panel.md).
+That decision did not change this geometry, and it did not validate it — the
+speaker mounting below is still an assumption.
+
 **CAD-only; not a complete, verified enclosure.** The supplied v17 holes are
 threaded through holes with front countersinks, the selected speaker is a
 hypothetical bare driver, and the fit checked so far is **against the
