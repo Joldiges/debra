@@ -339,6 +339,47 @@ class ActivityTests(unittest.TestCase):
         prose = "working is a turn in progress, not a promise"
         self.assertEqual(activity._paint(prose), prose)
 
+    def test_paint_bands_cost_and_age(self):
+        row = "| working | t | m | $0.0500 | 30s |"
+        painted = activity._paint("| State | Kind | Title | Model | Cost | Age |\n| --- | --- | --- | --- | --- | --- |\n" + row)
+        self.assertIn(activity.GREEN + " $0.0500 ", painted)
+        self.assertIn(activity.GREEN + " 30s ", painted)
+        row = "| idle | t | m | $0.9000 | 3.0h |"
+        painted = activity._paint("| State | Kind | Title | Model | Cost | Age |\n| --- | --- | --- | --- | --- | --- |\n" + row)
+        self.assertIn(activity.RED + " $0.9000 ", painted)
+        self.assertIn(activity.RED + " 3.0h ", painted)
+
+    def test_paint_colours_model_by_absolute_rate(self):
+        rates = {"cheap#high": 0.02, "mid#high": 0.10, "dear#high": 0.90}
+        text = ("| State | Model |\n| --- | --- |\n"
+                "| working | cheap#high |\n| working | mid#high |\n| working | dear#high |")
+        painted = activity._paint(text, rates)
+        self.assertIn(activity.GREEN + " cheap#high ", painted)
+        self.assertIn(activity.YELLOW + " mid#high ", painted)
+        self.assertIn(activity.RED + " dear#high ", painted)
+
+    def test_session_rates_ignore_zero_cost_and_missing_tokens(self):
+        sessions = [
+            self.session("a", cost=1.0, model_id="cheap"),
+            self.session("b", cost=0.0, model_id="free"),
+        ]
+        sessions[0]["tokens"] = 2_000_000
+        sessions[1]["tokens"] = 1_000_000
+        rates = activity.session_rates(sessions)
+        self.assertEqual(rates, {"cheap": 0.5})
+
+    def test_render_reports_model_rates(self):
+        session = self.session("a", cost=2.0, model_id="cheap#high")
+        session["tokens"] = 4_000_000
+        meta = {}
+        with mock.patch.object(activity, "sessions_snapshot",
+                               return_value={"error": None, "sessions": [session]}), \
+             mock.patch.object(activity, "web_snapshot",
+                               return_value={"port": 8787, "listening": False}):
+            text = activity.render(8787, 24, meta)
+        self.assertEqual(meta["rates"], {"cheap#high": 0.5})
+        self.assertIn("Model rate, blended cost per million tokens", text)
+
     def test_redirected_output_has_no_escape_codes(self):
         output = io.StringIO()
         with mock.patch.object(activity, "render", return_value="# snapshot\n| working | t |"), \

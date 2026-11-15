@@ -21,6 +21,7 @@ import calendar
 import json
 import math
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -36,6 +37,13 @@ if str(SOURCE) not in sys.path:
 import tools.scheduled_runner as runner  # noqa: E402  (path set above)
 
 STATUS_DIR = SOURCE / ".local" / "status"
+
+GREEN = "\033[1;32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+DIM = "\033[2m"
+COST_CELL = re.compile(r"^\$(\d+(?:\.\d+)?)$")
+AGE_CELL = re.compile(r"^(\d+(?:\.\d+)?)([smhd])$")
 OPENCODE_TIMEOUT_S = 15
 # Explicit endpoint only: never ask the CLI to discover or start a service.
 OPENCODE_MAX_BYTES = 2 * 1024 * 1024
@@ -233,6 +241,18 @@ def _session_rows(payload) -> list[dict]:
                         not 0 <= value <= 10**20 or not math.isfinite(value)):
                     raise ValueError("invalid session number")
         busy, idle = times.get("busy"), times.get("idle")
+        tokens = item.get("tokens") if isinstance(item.get("tokens"), dict) else {}
+        cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+
+        def token_count(source: dict, key: str) -> float:
+            value = source.get(key)
+            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+                return 0.0
+            return float(value)
+
+        total_tokens = sum(token_count(tokens, key)
+                           for key in ("input", "output", "reasoning"))
+        total_tokens += sum(token_count(cache, key) for key in ("read", "write"))
         # `busy` and `idle` are the timestamps of the last turn start and end.
         # A turn that has started and not ended is working; a session that has
         # never had a turn has neither and stays unknown.
@@ -257,6 +277,7 @@ def _session_rows(payload) -> list[dict]:
             "working": working,
             "cost": item.get("cost") or 0.0,
             "created": times.get("created") or 0,
+            "tokens": total_tokens,
             "updated": times.get("updated") or times.get("created") or 0,
         })
     rows.sort(key=lambda row: row["updated"], reverse=True)
@@ -302,18 +323,44 @@ def web_snapshot(port: int) -> dict:
     return {"port": port, "listening": listening}
 
 
-def _paint(markdown: str) -> str:
+def _paint(markdown: str, rates: dict[str, float] | None = None) -> str:
     """Colour a snapshot for a terminal. The file on disk stays plain Markdown.
 
     Colour carries state, not decoration: a working session is green, an idle one
     is dim (so the eye skips it), an unknown one is amber, a failure is red.
+    Cost and age use the same direction: cheap and fresh are green, expensive
+    and stale are red. The model cell is coloured by the model's blended rate
+    across the sessions shown, so a cheaper model reads greener than a dear one.
     Table cells are painted after padding, so the columns still line up.
     """
     palette = {
-        "working": "\033[1;32m",
-        "idle": "\033[2m",
-        "unknown": "\033[33m",
+        "working": GREEN,
+        "idle": DIM,
+        "unknown": YELLOW,
     }
+    ordered = sorted(rates, key=lambda key: rates[key]) if rates else []
+
+    def model_colour(label: str) -> str:
+        # Absolute bands, not rank: one outlier model must not push a cheap one
+        # into the amber band just because it is the fourth cheapest.
+        if not ordered or label not in ordered:
+            return ""
+        rate = rates[label]
+        return GREEN if rate < 0.05 else YELLOW if rate < 0.20 else RED
+
+    def cell_colour(word: str) -> str:
+        match = COST_CELL.match(word)
+        if match:
+            value = float(match.group(1))
+            return GREEN if value < 0.10 else YELLOW if value < 0.50 else RED
+        match = AGE_CELL.match(word)
+        if match:
+            seconds = float(match.group(1)) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[match.group(2)]
+            return GREEN if seconds < 120 else YELLOW if seconds < 1200 else RED
+        if word in palette:
+            return palette[word]
+        return model_colour(word)
+
     lines = markdown.splitlines()
     out = []
     for index, line in enumerate(lines):
@@ -323,23 +370,44 @@ def _paint(markdown: str) -> str:
             header = following.startswith("|") and "---" in following
             for cell_index, cell in enumerate(cells):
                 word = cell.strip()
-                if word in palette:
-                    cells[cell_index] = f"{palette[word]}{cell}\033[0m"
-                elif header and word:
+                if header and word:
                     cells[cell_index] = f"\033[1m{cell}\033[0m"
+                    continue
+                colour = cell_colour(word)
+                if colour:
+                    cells[cell_index] = f"{colour}{cell}\033[0m"
             out.append("|".join(cells))
         elif line.startswith("#"):
             out.append(f"\033[1m{line}\033[0m")
         elif line.startswith("- **Running now:**"):
-            out.append(f"\033[1;32m{line}\033[0m")
+            out.append(f"{GREEN}{line}\033[0m")
         elif "unavailable" in line:
-            out.append(f"\033[31m{line}\033[0m")
+            out.append(f"{RED}{line}\033[0m")
         else:
             out.append(line)
     return "\n".join(out)
 
 
-def render(port: int, limit: int = 24) -> str:
+def session_rates(sessions: list[dict]) -> dict[str, float]:
+    """Blended cost per million tokens for each model label.
+
+    This is the honest way to compare models without a price list: it uses the
+    cost and token counts the session API already reports. It is a blend across
+    input, output, reasoning and cache, so it is not a list price.
+    """
+    cost: dict[str, float] = {}
+    tokens: dict[str, float] = {}
+    for session in sessions:
+        label = _model_label(session)
+        if not session.get("tokens") or session["cost"] <= 0:
+            continue
+        cost[label] = cost.get(label, 0.0) + session["cost"]
+        tokens[label] = tokens.get(label, 0.0) + session["tokens"]
+    return {label: cost[label] / (tokens[label] / 1e6)
+            for label in tokens if tokens[label] > 0}
+
+
+def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
         run = runner_snapshot()
@@ -417,6 +485,14 @@ def render(port: int, limit: int = 24) -> str:
         out.append("  same as abandoned. `unknown` is a session that has not run a turn yet.")
         out.append("- Rows are ordered by creation (working) and last activity (recent), so the")
         out.append("  table stays put instead of reshuffling on every refresh.")
+        rates = session_rates(sessions)
+        if meta is not None:
+            meta["rates"] = rates
+        if rates:
+            cheapest = sorted(rates, key=lambda label: rates[label])
+            out.append("- Model rate, blended cost per million tokens, cheapest first: "
+                       + " · ".join(f"`{label}` ${rates[label]:.2f}" for label in cheapest))
+            out.append("  A blend, not a list price: it mixes input, output, reasoning and cache.")
     out.append("")
 
     out.append("## Development web server")
@@ -458,14 +534,15 @@ def main(argv: list[str] | None = None) -> int:
     paint = (sys.stdout.isatty() and not args.no_color
              and not os.environ.get("NO_COLOR"))
     while True:
-        text = render(args.port, limit)
+        meta: dict = {}
+        text = render(args.port, limit, meta)
         try:
             target = write(text)
         except OSError as exc:
-            print(_paint(text) if paint else text)
+            print(_paint(text, meta.get("rates")) if paint else text)
             print(f"status file unavailable ({exc.__class__.__name__})", file=sys.stderr)
             return 1
-        display = _paint(text) if paint else text
+        display = _paint(text, meta.get("rates")) if paint else text
         if args.watch:
             print("\033[2J\033[H" + display, flush=True)
             print(f"(written to {target}; refreshing every {args.watch:g}s; Ctrl+C to stop"
