@@ -34,6 +34,31 @@ and the LED row. The speaker tray remains open; no retention is represented.*
 *The 38 × 22 mm rear opening leaves an assumed 3 mm bearing strip around the
 module footprint. This does not prove that unknown vents on the strip are clear.*
 
+![Rear view of the case with a keyhole slot centred in the upper half of the back wall](assets/rear.png)
+
+*The mount is a flat base plus one keyhole: an Ø8 head opening with a 4.5 mm
+slot above it, so the case hangs on a single screw and drops into place. Screw
+size, wall strength and whether one screw holds it steady are not tested.*
+
+## Mounting
+
+The intended mount is a **flat base plus a rear keyhole slot**: the case stands on
+its floor, and one screw in a wall takes it by the keyhole in the back. That is
+the arrangement James asked for, not a derived one, and it replaces the earlier
+"stand/wall mount not represented" note.
+
+| Feature | Value | Why that value |
+| --- | --- | --- |
+| Keyhole head opening | Ø8 through the 3 mm rear wall, centre X 32.5, Z 16 | A screw head has to pass through; Ø8 is a guess for a 3.5–4.5 mm screw with a round or pan head |
+| Hanging slot | 4.5 wide, 8 tall, **above** the opening | The head enters at the bottom and the case drops, so the shank ends up in the slot. Putting the slot below the opening would make the case fall off |
+| Position on the wall | Z 16–24 of a 29 mm wall | Above the mid-height so the mass hangs below the screw |
+
+The keyhole is a **through cut**, so the screw head sits proud of the back and the
+case rests flat against the wall on the surrounding rim. Three things are not
+established: whether one screw is enough to stop the case rocking, whether a
+3 mm wall holds a screw head under the load, and whether the speaker tray's
+overhang makes it tip forward. Add a second keyhole or a foot before trusting it.
+
 ## Coordinates and named bays
 
 Units mm. The Pi's nominal PCB lower-left is (0, 0); X runs along its 65 mm
@@ -101,6 +126,7 @@ check the model's unobstructed paths; see the assembly README for their limits.
 | Parameter | Default | Source/status |
 | --- | ---: | --- |
 | `PI_L`, `PI_W` | 65, 30 | Sourced Pi outline; HAT outline slightly different as above. |
+| `PI_HOLE_X1`, `PI_HOLE_Y1` | 3.5, 3.5 | Derived from `PI_L`/`PI_W` and the Pi Zero family 58 × 23 hole pattern, so the four standoffs follow the board if the outline changes. Zero v1.3, Zero W and Zero 2 W share this pattern; the design does not model a specific variant's components. |
 | `SIDE_GAP`, `WALL`, `FLOOR`, `CASE_H`, `LID_T` | 8, 3, 2.5, 29, 2 | Design choices; no real plug, thermal or print-fit measurements. |
 | `STAND_H`, `STAND_D`, `PILOT_D` | 3, 6, 2.5 | Design choices, screw fit not established. |
 | `SP_X`, `SP_Y`, `SP_Z` | 44, 28, 15 | DWEII 671 larger seller-claimed envelope; 31 mm length is a conflicting claim, no physical measurements. |
@@ -110,6 +136,7 @@ check the model's unobstructed paths; see the assembly README for their limits.
 | `SLOT_CLEAR` | 0.4 | Design choice, per arm-slot side. |
 | `MIC1_X`, `MIC2_X`, `MIC_Y`, `MIC_D` | 3.05, 61.98, 21.34, 3 | XY from the HAT envelope; hole diameter a design choice. |
 | `LED_X`, `LED_Y`, `LED_SLOT_X`, `LED_SLOT_Y` | 32.51, 18.16, 10, 4 | Middle LED XY sourced; window dimensions design choices. |
+| `KEYHOLE_X`, `KEYHOLE_Z`, `KEYHOLE_HEAD_D`, `KEYHOLE_SHANK_D`, `KEYHOLE_SLOT_H` | 32.5, 16, 8, 4.5, 8 | Design choices for the rear wall mount; no screw has been selected and no load has been tested. |
 
 These parameters make selected changes possible, **not** all combinations
 valid. In particular changes to speaker dimensions, arm lengths/positions or
@@ -123,12 +150,15 @@ changes to this part are **not automatically propagated** to that file.
 
 | Body | Volume mm³ | Bounding box min → max mm |
 | --- | ---: | --- |
-| Case | 36,078.695758826245 | (−11, −51.9, 0) → (76, 41, 29) |
+| Case | 35,870.8983459569 | (−11, −51.9, 0) → (76, 41, 29) |
 | Lid | 8,939.725666112252 | (−11, −11, 29) → (76, 41, 31) |
-| Two-body sum | 45,018.4214249385 | combined (−11, −51.9, 0) → (76, 41, 31) |
+| Two-body sum | 44,810.624012069 | combined (−11, −51.9, 0) → (76, 41, 31) |
 
 The measured lid agrees with `87 × 52 × 2 − 2π × 1.5² × 2 − 10 × 4 × 2`
-= 8,939.725666 mm³. Full per-body output is in [inspection.json](inspection.json).
+= 8,939.725666 mm³. The keyhole removes 207.797 mm³ from the case, which is
+`π × 4² × 3` (head opening) `+ 4.5 × 8 × 3` (slot) `− 51.02` (their overlap),
+so the cut is where the parameters say it is. Full per-body output is in
+[inspection.json](inspection.json).
 Script and saved-source evaluations are [eval-script.json](eval-script.json)
 and [eval-sc.json](eval-sc.json). These are measurements of simplified CAD, not
 mass, printability or physical fit claims.
@@ -146,6 +176,7 @@ here should stop the work.
 | HAT-to-lid clearance | 2.8 mm above the tallest assumed Grove part | Measure the real stack with the lid resting on the rim |
 | DWEII 671 envelope | 44 × 28 × 15 mm, a seller claim | Calipers on the module, plus any vent, tab or terminal positions |
 | Pi/HAT stack | 11 mm between boards, 1.6 mm each | Measure the assembled stack and the header/socket height |
+| Keyhole screw | Ø8 head, 4.5 mm shank clearance, one screw | Pick the real wall screw, then check the head passes and the case does not rock |
 
 ## Missing before use
 
@@ -155,9 +186,10 @@ here should stop the work.
   and plug/bend space. No external power, USB, SD-card, jack or cable access
   openings are provided. The covered button has no access. The speaker lead has
   no dedicated route; arm slots are not a verified cable path.
-- No screws, arm attachment, lid attachment, speaker grille, stand/wall mount,
-  sealing, cooling, strain relief or wiring are represented. The bearing land
-  may block an unknown rear vent. No strength, heat or acoustics
+- No screws, arm attachment, lid attachment, speaker grille, sealing, cooling,
+  strain relief or wiring are represented. The rear keyhole is a mount, not a
+  tested one: no screw has been selected and no load has been applied. The
+  bearing land may block an unknown rear vent. No strength, heat or acoustics
   were evaluated. Do not print based on this demonstration.
 
 ## Rebuild and inspect
@@ -171,4 +203,5 @@ solidcraft-cli eval --in models/parts/zero-square-demo/zero-square-demo.sc --jso
 solidcraft-cli snapshot --in models/parts/zero-square-demo/zero-square-demo.sc --out models/parts/zero-square-demo/assets/iso.png --camera '{"target":[32,-9,12],"yaw":0.8,"pitch":0.55,"distance":185}' --width 1200 --height 900 --no-grid --no-axes --body 'Case:color=#8796a8' --body 'Lid:opacity=0.35,color=#d0d8df'
 solidcraft-cli snapshot --in models/parts/zero-square-demo/zero-square-demo.sc --out models/parts/zero-square-demo/assets/top.png --view top --width 1200 --height 1000 --no-grid --no-axes --body 'Case:color=#8796a8' --body 'Lid:opacity=0.35,color=#d0d8df'
 solidcraft-cli snapshot --in models/parts/zero-square-demo/zero-square-demo.sc --out models/parts/zero-square-demo/assets/bottom.png --view bottom --width 1200 --height 1000 --no-grid --no-axes --body 'Case:color=#8796a8' --body 'Lid:opacity=0.35,color=#d0d8df'
+solidcraft-cli snapshot --in models/parts/zero-square-demo/zero-square-demo.sc --out models/parts/zero-square-demo/assets/rear.png --view back --width 1200 --height 1000 --no-grid --no-axes --body 'Case:color=#8796a8' --body 'Lid:opacity=0.35,color=#d0d8df'
 ```
