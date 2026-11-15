@@ -24,6 +24,9 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Lab Pi 5 voice + Sendspin result](testing/results/2026-11-15-lab-pi5-lva-sendspin.md) | Pinned linux-voice-assistant satellite and Sendspin player on the lab Pi; a spoken wake word → reply ran end to end once the shared sink volume was found at 9 %; supply sags under load |
 | [Lab Pi 5 device scripts](../tools/device/lab-pi5/README.md) | Audio, mixer, satellite, player and power-mitigation scripts that build that device |
 | [3D models](../models/README.md) | Parametric SolidCraft part and assembly sources, each with renders in an `assets/` folder |
+| [Enclosure arrangements](design/enclosure-arrangements.md) | Why the flat stack read as a plank, the three arrangements, and the four-step path from component envelope to case part |
+| [HAT microphone research](research/2026-11-15-respeaker-microphone.md) | The HAT's microphones are top-port MSM321A3729H9BP, which decides which way the boards must face |
+| [Device backup](guides/device-backup.md) | What is at risk on the lab Pi, what has been archived, and what is still unproven |
 | [Unattended runner](guides/scheduled-runner.md) | Queued, budgeted research tasks on a systemd user timer; instructions, not enforcement |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
