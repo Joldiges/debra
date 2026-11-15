@@ -20,6 +20,10 @@ matching files in `~/lab/`:
 | `20-lva.sh` | Clones linux-voice-assistant at a pinned tag, builds its venv, installs the user unit | yes |
 | `30-sendspin.sh` | Installs the Sendspin CLI, writes its settings, installs the user unit | yes |
 | `40-music-assistant.sh` | Installs Docker and runs the Music Assistant server container on host networking | yes |
+| `50-power-watch.sh` | Records the Pi power/throttle flags on a timer | yes |
+| `51-power-cap.sh` | Caps the CPU/GPU clock to lower the peak draw on a marginal supply | yes |
+| `60-watchdog.sh` | Persistent journal, `hung_task_panic`, explicit hardware watchdog | yes, 2026-11-15 |
+| `61-health.sh` | Installs `debra-health` and its 2-minute timer: tests the audio path, not just the service list | yes, 2026-11-15 |
 
 ## Why the audio is configured this way
 
@@ -35,6 +39,34 @@ matching files in `~/lab/`:
   software gain is what made the first test tone inaudible.
 - **Two outputs, both live.** The HAT's 3.5 mm jack (HPLOUT/HPROUT) and its JST
   speaker connector (Line Out → TPA2005D1) are both enabled, so either works.
+  Measured 2026-11-15 with PipeWire stopped and a 1 kHz tone played to each tap in
+  turn: the speaker appears on **Line** (−21 dBFS at the microphone), and HP and
+  HPCOM are silent with nothing plugged into the jack. So the speaker path is
+  `Line DAC` → `Line`, and **a zero `Line DAC` is silence with every service
+  green** — the state the device was found in. `HP DAC` at 0 dB is for headphones
+  and is not what makes the speaker work.
+- **The stored mixer can drift from the script.** `alsactl store` saves whatever
+  is current, so a state saved before `11-mixer.sh` ran survives reboots. Re-run
+  the script after any manual `amixer` work, and check `Line DAC` first when the
+  device goes quiet.
+
+## Watchdogs
+
+Three layers, because they catch different failures. They exist because on
+2026-11-15 the Pi answered ping, accepted TCP on port 22, and never sent an SSH
+banner for five minutes: the kernel was healthy, PID 1 was healthy, and one
+process was stuck in uninterruptible sleep. The hardware watchdog never fired
+because systemd kept petting it.
+
+| Layer | Catches | Where |
+| --- | --- | --- |
+| Hardware watchdog, 60 s | dead or wedged kernel or PID 1 | `/etc/systemd/system.conf.d/50-debra-watchdog.conf` |
+| `hung_task_panic`, 120 s | one process stuck in D state → panic → reboot after 10 s | `/etc/sysctl.d/60-debra-watchdog.conf` |
+| `debra-health` timer, 2 min | "running but silent": dead user service, missing or muted sink, zero line gain | `~/.local/bin/debra-health` |
+| `Restart=always` | a service that exits, cleanly or not | the two user units |
+
+None of these fix a sagging 5 V rail. They turn an unexplained hang into a
+reboot and a silent device into a log line.
 
 ## Known limits
 

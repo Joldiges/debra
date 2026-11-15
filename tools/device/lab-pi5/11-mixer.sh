@@ -26,6 +26,13 @@ set_ctl 'HP DAC Playback Volume' 0dB
 set_ctl 'HP Playback Switch' on
 set_ctl 'Line DAC Playback Volume' 0dB
 set_ctl 'Line Playback Switch' on
+#
+# Measured 2026-11-15: the HAT's speaker is on the LINE output. Playing a 1 kHz
+# tone to each tap in turn with PipeWire stopped gave nothing on HP or HPCOM and
+# -21 dBFS at the microphone on LINE. The headphone tap is left at 0 dB for the
+# case where something is plugged into the 3.5 mm jack; it is not what makes the
+# speaker work, and a zero `Line DAC` is silence with every service green.
+# If the device goes quiet, check `Line DAC` first, then the sink volume.
 
 sudo alsactl store
 echo "stored mixer state for $C"

@@ -28,7 +28,8 @@ Environment=REFACTORY_SECONDS=3
 ExecStart=%h/linux-voice-assistant/docker-entrypoint.sh
 StandardOutput=append:%h/lab/lva.log
 StandardError=append:%h/lab/lva.log
-Restart=on-failure
+# always, not on-failure: this is an appliance, and a clean exit is still a fault.
+Restart=always
 RestartSec=5
 
 [Install]
