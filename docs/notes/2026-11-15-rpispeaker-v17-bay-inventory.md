@@ -19,6 +19,15 @@ supersedes:
 
 # RPiSpeaker v17 speaker-side geometry inventory
 
+> **Correction, 2026-11-15:** the asserted negative for a four-screw square
+> mount anywhere in the STEP is not established by the rear-hole search below.
+> A broader [headless search](2026-11-15-v17-square-pattern-search.md) tests
+> additional cylindrical and planar features, finds near-square wall patches,
+> and explains its remaining limits. Do not treat the earlier negative, the
+> speculation about an unexported part, or the photograph request as the
+> conclusion of that search. The other observations below retain their stated
+> evidence and limitations.
+
 ## Result and important corrections
 
 The STEP has **no four-hole square pattern** on any face. It has two

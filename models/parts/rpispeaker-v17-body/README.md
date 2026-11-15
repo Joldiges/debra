@@ -58,9 +58,15 @@ end opening, not one continuous Z −32.50 cavity wall.
   ledges; other small ribs, steps, non-planar or exporter-tolerance details not
   explicitly verified here. The simplified Pi opening adds artificial straight
   walls and leaves material where the real cavity differs.
-- A **four-screw square speaker mount**. It is absent because the supplied STEP
-  has no such pattern, not because this is a decision about an unexported lid
-  or another revision. No speaker, lid, screws or wiring are modelled.
+- No **four-screw square speaker mount** is included here. The linked
+  [bay-inventory audit](../../../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
+  did not identify one: it catalogued cylindrical and conical axes, planar
+  inner loops and spline boundaries, but tested four-centre combinations only
+  on the rear face. The [independent broader search](../../../docs/notes/2026-11-15-v17-square-pattern-search.md)
+  found no square among its circular-axis and edge-centre quartets, using
+  0.25 mm radius and 0.50 mm side-from-mean tolerances; its search for slots
+  and irregular features remains incomplete, so the mount is unresolved.
+  No speaker, lid, screws or wiring are modelled.
 
 ## Measured comparison
 

@@ -9,12 +9,18 @@ extraction, not independently rechecked for this write-up. See the
 [learning note](../../../docs/notes/2026-11-15-rpispeaker-v17-extraction.md)
 for provenance and limitations.
 
-**The v17 body has no four-screw square speaker mount.** The only fastener
-patterns in the solid are four M2.5 pilots at 23 × 58 mm (the Pi Zero footprint)
-and two M2.5 pilots 36.5 mm apart in the second bay. A remembered square
-four-screw mount is therefore either a separate part that was never exported or
-a different revision; it must not be assumed present in this STEP body. The
-second bay has a 31.10 × 28.125 mm lower footprint, two through pilots and a
+**The four-screw square mount remains unresolved.** The earlier
+[bay-inventory audit](../../../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
+catalogued cylindrical and conical axes, planar inner loops and spline
+boundaries, but tested four-centre combinations only on the rear face; its
+blanket negative and speculation about a separate part or revision exceeded
+that test. A [broader headless search](../../../docs/notes/2026-11-15-v17-square-pattern-search.md)
+found no square among cylindrical-axis and circular-edge-centre quartets with
+0.25 mm radius and 0.50 mm side-from-mean tolerances. It did not exhaustively
+classify slots or irregular features. Four pilot axes are
+23 × 58 mm apart and two others are 36.5 mm apart; `M2.5` is an intended-use
+label, not a verified thread designation. The second bay has a 31.10 ×
+28.125 mm lower footprint, two through pilots and a
 central stepped Ø10/Ø18/Ø20 opening. The [bay inventory](../../../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
 supersedes the conflicting second-bay claims in the historical table below; see
 also the [editable reconstruction](../../parts/rpispeaker-v17-body/README.md).
