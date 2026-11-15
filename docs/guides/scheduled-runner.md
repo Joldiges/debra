@@ -62,8 +62,13 @@ paths):
 ```sh
 systemctl --user list-timers debra-runner.timer
 systemctl --user status debra-runner.service
-tail -f .local/runner/activity.log
+tail -f .local/runner/activity.log                  # finished tasks
+tail -f "$(ls -td .local/runner/runs/*/ | head -1)"*.events.jsonl   # the live one
 ```
+
+The event stream is written line by line while a task runs, so the second
+command shows what a worker is doing right now rather than only its result.
+`activity.log` gets its line when the task finishes.
 
 Stop it without touching the queue:
 

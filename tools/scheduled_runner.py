@@ -191,7 +191,14 @@ def opencode_available() -> bool:
 
 
 def run_task(task: dict, cfg: dict, run_dir: Path) -> dict:
-    """Run one task. Returns a record describing the outcome."""
+    """Run one task, streaming its event stream to disk as it arrives.
+
+    The stream is written line by line so ``tail -f`` shows the task working,
+    not just its result. A watchdog kills the process at the timeout, which is
+    the only reason a run stops early.
+    """
+    import threading
+
     model = task.get("model") or cfg["default_model"]
     agent = task.get("agent") or cfg["default_agent"]
     timeout_s = int(task.get("timeout_minutes", cfg["default_timeout_minutes"]) * 60)
@@ -203,40 +210,66 @@ def run_task(task: dict, cfg: dict, run_dir: Path) -> dict:
         "agent": agent, "started_utc": _now(), "timeout_s": timeout_s,
         "run_dir": str(run_dir),
     }
-    try:
-        proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True,
-                              timeout=timeout_s)
-        rc, out, err = proc.returncode, proc.stdout, proc.stderr
-    except subprocess.TimeoutExpired as exc:
-        rc = 124
-        out = (exc.stdout or b"").decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        err = f"timed out after {timeout_s}s"
-    record["rc"] = rc
-    record["duration_s"] = round(time.time() - started, 1)
-    (run_dir / f"{task['id']}.events.jsonl").write_text(out)
-    if err:
-        (run_dir / f"{task['id']}.stderr.txt").write_text(err)
-
+    events_path = run_dir / f"{task['id']}.events.jsonl"
+    stderr_path = run_dir / f"{task['id']}.stderr.txt"
     session = None
     cost = 0.0
     texts: list[str] = []
-    for line in out.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    timed_out = False
+    rc = 1
+    err = ""
+    with events_path.open("w") as events, stderr_path.open("w") as errfh:
+        proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE,
+                                stderr=errfh, text=True, bufsize=1)
+
+        def _kill() -> None:
+            nonlocal timed_out
+            timed_out = True
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+        watchdog = threading.Timer(timeout_s, _kill)
+        watchdog.start()
         try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        session = event.get("sessionID") or session
-        part = event.get("part") or {}
-        if event.get("type") == "step_finish":
-            cost += float(part.get("cost") or 0.0)
-        elif event.get("type") == "text" and part.get("text"):
-            texts.append(part["text"])
+            for line in proc.stdout:
+                events.write(line)
+                events.flush()
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    event = json.loads(stripped)
+                except ValueError:
+                    continue
+                session = event.get("sessionID") or session
+                part = event.get("part") or {}
+                if event.get("type") == "step_finish":
+                    cost += float(part.get("cost") or 0.0)
+                elif event.get("type") == "text" and part.get("text"):
+                    texts.append(part["text"])
+            rc = proc.wait()
+        finally:
+            watchdog.cancel()
+            if proc.poll() is None:
+                proc.kill()
+    if timed_out:
+        rc = 124
+        err = f"timed out after {timeout_s}s"
+        with stderr_path.open("a") as fh:
+            fh.write(err + "\n")
+    record["rc"] = rc
+    record["duration_s"] = round(time.time() - started, 1)
+
     report = "\n\n".join(texts).strip()
     if report:
         (run_dir / f"{task['id']}.report.md").write_text(report + "\n")
+    else:
+        try:
+            err = err or stderr_path.read_text()[-2000:]
+        except OSError:
+            pass
     record.update({"session": session, "cost_usd": round(cost, 6),
                    "report_chars": len(report),
                    "ok": rc == 0 and bool(report)})
