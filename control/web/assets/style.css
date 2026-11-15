@@ -69,3 +69,7 @@ h3 { color: #d5e4e0; font-size: 15px; font-weight: 650; letter-spacing: .01em; m
 .choice button:disabled { opacity: .6; }
 .badge.planned { color: #eac88a; border: 1px solid #6b5a34; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 @media (max-width: 650px) { .grid { grid-template-columns: 1fr; gap: 0; } header, main { padding-left: 16px; padding-right: 16px; } .card { padding: 20px; } .heading { align-items: start; flex-direction: column; } #connection { max-width: 145px; text-align: right; } }
+/* Five section links do not fit one phone line at the desktop gap, and
+   wrapping left "Components" alone on a second row. Tighter spacing keeps
+   the whole nav on one line, which is what it is for. */
+@media (max-width: 520px) { nav { gap: 13px; font-size: 13px; } nav a { white-space: nowrap; } }
