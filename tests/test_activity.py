@@ -429,6 +429,26 @@ class ActivityTests(unittest.TestCase):
         self.assertIn("Which speakers", "\n".join(lines))
         self.assertIn("1 further row(s) could not be read", "\n".join(lines))
 
+    def test_needs_separates_true_blockers_from_confirmations(self):
+        with tempfile.TemporaryDirectory(prefix="needs-", dir="/tmp/opencode") as temp:
+            path = Path(temp) / "work-queue.md"
+            path.write_text(
+                "# Work queue\n\n## Needs James\n\n"
+                "### True blockers\n\n"
+                "| Need | Blocks | What the answer changes |\n| --- | --- | --- |\n"
+                "| A real blocker | Everything | The plan |\n\n"
+                "### Please confirm\n\n"
+                "| Need | Blocks | What the answer changes |\n| --- | --- | --- |\n"
+                "| A guess | A stated assumption | The exact fit |\n")
+            needs = activity._needs(path)
+        self.assertEqual([(item["need"], item["kind"]) for item in needs["items"]],
+                         [("A real blocker", "blocker"), ("A guess", "confirm")])
+        text = "\n".join(activity._needs_lines(needs))
+        self.assertIn("### True blockers", text)
+        self.assertIn("### Please confirm", text)
+        self.assertIn("Working assumption: A stated assumption", text)
+        self.assertNotIn("Blocks: A stated assumption", text)
+
     def test_needs_says_so_when_there_is_nothing_or_no_section(self):
         with tempfile.TemporaryDirectory(prefix="needs-", dir="/tmp/opencode") as temp:
             empty = Path(temp) / "empty.md"

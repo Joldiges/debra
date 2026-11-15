@@ -263,11 +263,13 @@ def _why(session: dict, by_id: dict, now: float) -> str:
 
 
 def _needs(path: Path | None = None) -> dict:
-    """What is waiting on James, read from the work queue's Needs table.
+    """What is waiting on James, read from the work queue's Needs tables.
 
     The list lives in the repository so a person edits it, not an agent's
-    memory, and this tool only reads it. A row that cannot be understood is
-    counted and skipped rather than printed as a half-sentence.
+    memory, and this tool only reads it. Two kinds are kept apart: a true
+    blocker stops work, while a "please confirm" is a stated assumption the
+    work already continues on. A row that cannot be understood is counted and
+    skipped rather than printed as a half-sentence.
     """
     path = Path(path) if path is not None else SOURCE / "docs" / "work-queue.md"
     try:
@@ -281,9 +283,16 @@ def _needs(path: Path | None = None) -> dict:
     except ValueError:
         return {"items": [], "skipped": 0, "error": "no Needs James section in the work queue"}
     items, skipped = [], 0
+    # Rows written directly under the heading are blockers; the subheadings
+    # exist so a guess can move to "please confirm" without being forgotten.
+    kind = "blocker"
     for line in lines[start + 1:]:
         if line.startswith("## "):
             break
+        if line.startswith("### "):
+            heading = line[4:].strip().lower()
+            kind = "confirm" if heading.startswith("please confirm") else "blocker"
+            continue
         if not line.startswith("|"):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
@@ -293,7 +302,8 @@ def _needs(path: Path | None = None) -> dict:
             if cells and cells[0] not in ("Need", ""):
                 skipped += 1
             continue
-        items.append({"need": cells[0], "blocks": cells[1], "changes": cells[2]})
+        items.append({"need": cells[0], "blocks": cells[1], "changes": cells[2],
+                      "kind": kind})
     return {"items": items, "skipped": skipped, "error": None}
 
 
@@ -302,13 +312,25 @@ def _needs_lines(needs: dict) -> list[str]:
         return [f"- {needs['error']}"]
     if not needs["items"]:
         return ["- Nothing is waiting on James; the blocked work below has no answer he holds."]
+    blockers = [item for item in needs["items"] if item.get("kind") != "confirm"]
+    confirms = [item for item in needs["items"] if item.get("kind") == "confirm"]
     out = []
-    for item in needs["items"]:
-        out.append(f"- **{item['need']}**")
-        if item["blocks"]:
-            out.append(f"  Blocks: {item['blocks']}")
-        if item["changes"]:
-            out.append(f"  The answer changes: {item['changes']}")
+    if blockers:
+        out.append("### True blockers")
+        for item in blockers:
+            out.append(f"- **{item['need']}**")
+            if item["blocks"]:
+                out.append(f"  Blocks: {item['blocks']}")
+            if item["changes"]:
+                out.append(f"  The answer changes: {item['changes']}")
+    if confirms:
+        out.append("### Please confirm (work continues either way)")
+        for item in confirms:
+            out.append(f"- **{item['need']}**")
+            if item["blocks"]:
+                out.append(f"  Working assumption: {item['blocks']}")
+            if item["changes"]:
+                out.append(f"  A better answer would change: {item['changes']}")
     if needs["skipped"]:
         out.append(f"- {needs['skipped']} further row(s) could not be read as a question and were skipped.")
     return out
@@ -605,8 +627,15 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
     out = [f"# What is running — {now}", ""]
 
     # First, because it is the only section James can act on.
-    out.append(f"## What I need from you ({len(needs['items'])})"
-               if not needs["error"] else "## What I need from you")
+    if needs["error"]:
+        out.append("## What I need from you")
+    else:
+        blockers = sum(1 for item in needs["items"] if item.get("kind") != "confirm")
+        confirms = len(needs["items"]) - blockers
+        label = (f"{blockers} true blocker{'s' if blockers != 1 else ''}, "
+                 f"{confirms} to confirm")
+        out.append(f"## What I need from you ({label})" if needs["items"]
+                   else "## What I need from you (nothing)")
     out.extend(_needs_lines(needs))
     out.append("")
 
@@ -864,9 +893,13 @@ def _tui_plain(text: str) -> str:
     """One Markdown line as terminal text: no asterisks, no backticks, no pipes."""
     text = text.replace("**", "").replace("`", "")
     text = text.replace("The answer changes: ", "→ ")
+    text = text.replace("A better answer would change: ", "→ ")
+    text = text.replace("Working assumption: ", "assumes ")
     stripped = text.lstrip()
     if stripped.startswith("- "):
         text = text[: len(text) - len(stripped)] + "• " + stripped[2:]
+    elif stripped.startswith("#"):
+        text = stripped.lstrip("#").strip()
     return text.rstrip()
 
 

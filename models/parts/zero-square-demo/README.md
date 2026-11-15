@@ -75,11 +75,14 @@ the housing before designing the real contact surfaces or sealing treatment.
 
 ## Microphone and LED openings
 
-The [HAT reference](../../components/respeaker-2mic-hat/README.md) records XY
-from Seeed's V1 Eagle layout, used provisionally for V2 based on Seeed's
-"basically the same" layout statement. Real V2 port positions still need
-confirmation; component heights are assumed. Coordinates below are also the
-world XY used in this concept, in the aligned nominal board frame.
+These openings are an **estimate, not a confirmed layout**. They come from
+Seeed's V1 Eagle board file, their statement that the V1/V2 PCB layout "remains
+basically the same", and V2 product pictures; they are used deliberately rather
+than waiting for a ruler check. Treat the lid as expected to be revised once the
+real V2 board is measured. The [HAT reference](../../components/respeaker-2mic-hat/README.md)
+records the source coordinates and the V1-versus-V2 caveat. Component heights are
+assumed. Coordinates below are also the world XY used in this concept, in the
+aligned nominal board frame.
 
 | Opening | Source positions in board XY | Actual lid opening at Z 29–31 | Reason |
 | --- | --- | --- | --- |

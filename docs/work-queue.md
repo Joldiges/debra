@@ -58,8 +58,8 @@ not commit, push, or approve their own work.
 | Item | Reviewer | Outcome |
 |---|---|---|
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
-| Discovery contract `f2b5c72` | `gpt-6.1-terra#flex-high`, independent (sol is unavailable) | in flight; verdict goes to `.local/reviews/discovery-r1-20261115/` |
-| Activity TUI `3e4f787` | `gpt-6.1-terra#flex-high`, independent (sol is unavailable) | in flight; re-review after the changes requested on `a6732d1`; verdict goes to `.local/reviews/tui-r2-20261115/` |
+| Discovery contract `f2b5c72` | `gpt-6.1-terra#flex-high` (r1), re-running on `gpt-6.1-sol#flex-high` | changes requested in r1; fixes applied; sol re-review in flight; verdict goes to `.local/reviews/discovery-r2-20261115/` |
+| Activity TUI `4f8166a` | `gpt-6.1-terra#flex-high` (r2), re-running on `gpt-6.1-sol#flex-high` | changes requested in r2; fixes applied; sol re-review in flight; verdict goes to `.local/reviews/tui-r3-20261115/` |
 
 ## Blocked
 
@@ -81,14 +81,25 @@ the [project brief](project-brief.md); none of them has an implementation yet.
 ## Needs James
 
 Everything here needs a fact or a decision that only James has. The tooling
-reads this table: `tools/activity.py` prints it, so it is visible instead of
-being remembered. Keep each row to one question, and say what the answer
-changes. Delete a row when it is answered.
+reads these tables: `tools/activity.py` prints them, so they are visible
+instead of being remembered. Keep each row to one question, and say what the
+answer changes. Delete a row when it is answered.
+
+A **true blocker** stops work outright. A **please confirm** does not: the work
+continues on the stated assumption, the design marks it unconfirmed, and a
+better answer refines it later. Prefer moving an item down to "please confirm"
+over waiting.
+
+### True blockers
+
+No true blockers right now.
+
+### Please confirm
 
 | Need | Blocks | What the answer changes |
 |---|---|---|
-| Confirm the ReSpeaker 2-Mics HAT v2's microphone and LED positions, or measure them on the board | The demo lid's two microphone holes and LED window are placed from the v1 layout because v2 is not documented | Openings that sit over the right hardware instead of near it |
-| `gpt-6.1-sol` is no longer offered by the configured provider, so the acceptance reviews you named cannot run as written. Keep using `gpt-6.1-terra#flex-high` and label the verdicts, or name another reviewer? | Every acceptance review: the web candidate, the discovery contract and the TUI are all waiting on a reviewer you trust | Verdicts that count as acceptance, or work that waits for your choice instead of being reviewed by a stand-in |
+| ReSpeaker 2-Mics HAT v2 microphone and LED positions | The demo lid's two microphone holes and LED window sit on an estimated v2 layout from product pictures and the v1 board, marked unconfirmed | Openings that sit exactly over the right hardware instead of close |
+| DWEII module outer dimensions and acoustic opening positions | The speaker bay uses seller-claim envelopes with added clearance, marked unconfirmed | A measured bay, and certainty that no vent is sealed |
 
 ## Unattended research
 
