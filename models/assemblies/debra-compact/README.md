@@ -15,7 +15,12 @@ to "some assembly of those case parts for full products".
 | --- | --- |
 | Overall | **71.02 × 54.37 × 33.2 mm** |
 | Bodies | 20 |
-| Total solid volume | 65 384 mm³ (`measure`) |
+| Total solid volume | 65 472 mm³ (sum of all bodies, `solidcraft-cli eval`) |
+
+The committed assembly's `Tub` and `Lid` evaluate to 26,121.845 and
+9,111.410 mm³ respectively; the separately committed case evaluates to
+26,160.268 and 8,985.581 mm³. These linked bodies therefore do not match the
+current case source by volume; a link refresh has not been verified.
 
 ## What it looks like
 

@@ -55,6 +55,8 @@ anything that has to enclose the HAT.
 | `HOLE_SPAN_X`, `HOLE_SPAN_Y` | 58 × 23 mm | dimension-sourced, the Pi's hole pattern |
 | `SD_NOTCH_W` | 14 mm | **design choice** for a 12 mm socket |
 
+Overall model bounding box: **70.6 × 35.6 × 8 mm** (X × Y × Z).
+
 Volume check: 9283 mm³ measured, and 9283 mm³ by hand (plate 7540 + lip ring 2434
 − cable gap 847 − SD notch 168 + standoffs 462 − screw holes 137).
 

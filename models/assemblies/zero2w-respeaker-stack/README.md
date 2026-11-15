@@ -6,8 +6,8 @@ Pi's connector positions are estimates, and no printed part exists yet.**
 
 > **This is the flat layout, kept as the height reference.** James called it
 > ugly on 2026-11-15 — boards at one end and the driver bolted on the side make a
-> 105 mm plank — and it is not the arrangement to build. The replacement is
-> [the upright assembly](../zero2w-respeaker-upright/README.md); the reasoning is
+> 126.5 mm overall arrangement — and it is not the arrangement to build. The
+> replacement is [the upright assembly](../zero2w-respeaker-upright/README.md); the reasoning is
 > [enclosure arrangements](../../../docs/design/enclosure-arrangements.md). The
 > numbers here still matter, because they are what a standing version has to
 > contain.
@@ -31,18 +31,21 @@ LEDs on the near edge. The cylinder is the Adafruit 3968 40 mm driver.*
 ![Front view of the same stack, edge-on, showing the gap between the two boards and the overall height next to the speaker](assets/front.png)
 
 *Front, edge-on. This is the height budget. The Pi PCB is at Z = 0–1.6 mm, the
-HAT PCB sits at 12.6–14.2 mm, and the tallest HAT parts reach 21 mm. A lid has to
-clear 21 mm and must not sit on the microphones or the button.*
+HAT PCB sits at 12.6–14.2 mm, and the tallest modelled HAT parts reach 19.2 mm.
+The separate speaker reaches 21 mm. A lid must not sit on the microphones or
+the button.*
 
 ## Measured envelope
 
 | Measure | Value | Where it comes from |
 | --- | --- | --- |
+| Overall | **126.5 × 40 × 21 mm** | X × Y × Z, including the speaker and connectors |
 | Board footprint | 65 × 30 mm | Pi HAT form factor, both boards |
 | Pi PCB | Z 0 – 1.6 mm | thickness assumed |
 | HAT PCB | Z 12.6 – 14.2 mm | `PCB_T + STACK_GAP` with `STACK_GAP = 11 mm` |
-| Top of stack | **Z 21 mm** | HAT jack and button, 5 mm above the HAT board |
+| Top of board stack | **Z 19.2 mm** | HAT jack and button, 5 mm above the HAT board |
 | Speaker beside the boards | Ø40 × 21 mm | Adafruit 3968 envelope |
+| Total solid volume | **38 665 mm³** | Sum of all 18 bodies, `solidcraft-cli eval` |
 
 `STACK_GAP` is the weakest number here. A 2 × 20 male header plus female socket
 gives roughly 11 mm between the top of one PCB and the bottom of the other, but
@@ -62,8 +65,14 @@ press-fit arrangement changes it by several millimetres.
 
 ## What this proves, and what it does not
 
-Proves: the two boards stack without their parts colliding, the HAT's socket
-clears the Pi's header, and the total height is about 21 mm.
+Proves: the reference arrangement has a shape and an overall height of 21 mm
+including the speaker.
+
+It does **not** prove that the parts do not collide. The header and socket
+envelopes overlap by 6 mm in Z, which is how a mated socket is drawn, and an
+envelope overlap is a simplification rather than a collision check. The
+connector boxes also dip 1 mm into the Pi PCB's edge band for the same reason.
+No interference check has been run, on the model or on the real parts.
 
 Does not prove: that a printed tray holds them, that the speaker fits anywhere,
 that the microphone ports are unobstructed, that the jack lines up with a hole,

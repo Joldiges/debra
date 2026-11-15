@@ -23,8 +23,8 @@ Editable SolidCraft source:
 This exists because James looked at the
 [flat reference stack](../zero2w-respeaker-stack/README.md) on 2026-11-15 and
 said it was ugly: the boards at one end and the driver bolted onto the side
-make a 105 mm plank. His suggestion — stand the Pi up and put the speaker on
-top, so the elevation is an inverted T rather than a straight line — is the
+make a 126.5 mm overall arrangement. His suggestion — stand the Pi up and put
+the speaker on top, so the elevation is an inverted T rather than a straight line — is the
 arrangement modelled here. The reasoning, the alternatives and the constraint
 that decides between them are in
 [enclosure arrangements](../../../docs/design/enclosure-arrangements.md).
@@ -91,8 +91,12 @@ with a light pipe; a microphone cannot be routed.
 
 ## What this proves, and what it does not
 
-Proves: the arrangement has a shape, the parts do not collide in it, and the
-overall size is 75 × 40 × 78 mm.
+Proves: the arrangement has a shape and an overall size of 75 × 40 × 78 mm.
+
+It does **not** prove that the parts do not collide. The USB, HDMI and microSD
+envelopes sit inside the Pi PCB's own 1.6 mm Y band instead of protruding past
+its edge, so this model understates the depth those connectors need and cannot
+be used as clearance evidence. No interference check has been run.
 
 Does not prove: that the driver can be mounted (nothing in this model holds it
 up), that the microphones work in this position, that the enclosure has enough

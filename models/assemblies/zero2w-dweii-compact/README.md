@@ -40,16 +40,17 @@ this arrangement.*
 | --- | --- |
 | Overall | **73 × 53 × 32 mm** |
 | Base plate | 73 × 53 × 4 mm — a concept plate, not a printed part |
-| Board stack | 65 × 30, 18.2 mm tall (1.6 + 11 gap + 1.6, on the plate) |
+| Board stack | 65 × 30, 14.2 mm tall (1.6 + 11 gap + 1.6), reaching Z 18.2 mm on the plate |
 | Speaker module | 44 × 15 × 28 mm, standing, grille facing −Y |
-| Total volume | 40 196 mm³ (`measure`, all four bodies) |
+| Total volume | 39 665 mm³ (sum of all four bodies, `solidcraft-cli eval`) |
 
 ## Why this arrangement
 
 - **The speaker faces forward, not up.** A module laid flat would fire into the
   ceiling; standing it on its 15 mm edge is what makes it a shelf device.
 - **The boards go behind it, not beside it.** Beside is the "straight line" James
-  called ugly. Behind keeps the footprint at 73 × 53 instead of 140 × 40.
+  called ugly. Behind keeps the footprint at 73 × 53 instead of the reference
+  stack's 126.5 × 40 mm.
 - **The HAT is on top, component side up.** Its microphones are top-port, so
   facing up is the only orientation that puts them in open air — and it is also
   how the board already works lying on a Pi.
