@@ -302,6 +302,43 @@ def web_snapshot(port: int) -> dict:
     return {"port": port, "listening": listening}
 
 
+def _paint(markdown: str) -> str:
+    """Colour a snapshot for a terminal. The file on disk stays plain Markdown.
+
+    Colour carries state, not decoration: a working session is green, an idle one
+    is dim (so the eye skips it), an unknown one is amber, a failure is red.
+    Table cells are painted after padding, so the columns still line up.
+    """
+    palette = {
+        "working": "\033[1;32m",
+        "idle": "\033[2m",
+        "unknown": "\033[33m",
+    }
+    lines = markdown.splitlines()
+    out = []
+    for index, line in enumerate(lines):
+        following = lines[index + 1] if index + 1 < len(lines) else ""
+        if line.startswith("|") and "---" not in line:
+            cells = line.split("|")
+            header = following.startswith("|") and "---" in following
+            for cell_index, cell in enumerate(cells):
+                word = cell.strip()
+                if word in palette:
+                    cells[cell_index] = f"{palette[word]}{cell}\033[0m"
+                elif header and word:
+                    cells[cell_index] = f"\033[1m{cell}\033[0m"
+            out.append("|".join(cells))
+        elif line.startswith("#"):
+            out.append(f"\033[1m{line}\033[0m")
+        elif line.startswith("- **Running now:**"):
+            out.append(f"\033[1;32m{line}\033[0m")
+        elif "unavailable" in line:
+            out.append(f"\033[31m{line}\033[0m")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def render(port: int, limit: int = 24) -> str:
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -412,22 +449,30 @@ def main(argv: list[str] | None = None) -> int:
                         help="most session rows to show; working sessions always all show")
     parser.add_argument("--all", action="store_true",
                         help="show every known session, ignoring --limit")
+    parser.add_argument("--no-color", action="store_true",
+                        help="never colour terminal output (NO_COLOR is also honoured)")
     args = parser.parse_args(argv)
     limit = 10**6 if args.all else max(0, args.limit)
+    # Colour is for a terminal only: the status file stays plain Markdown, and a
+    # redirected or captured run must not gain escape sequences.
+    paint = (sys.stdout.isatty() and not args.no_color
+             and not os.environ.get("NO_COLOR"))
     while True:
         text = render(args.port, limit)
         try:
             target = write(text)
         except OSError as exc:
-            print(text)
+            print(_paint(text) if paint else text)
             print(f"status file unavailable ({exc.__class__.__name__})", file=sys.stderr)
             return 1
+        display = _paint(text) if paint else text
         if args.watch:
-            print("\033[2J\033[H" + text, flush=True)
-            print(f"(written to {target}; refresh every {args.watch:g}s; Ctrl+C to stop)")
+            print("\033[2J\033[H" + display, flush=True)
+            print(f"(written to {target}; refreshing every {args.watch:g}s; Ctrl+C to stop"
+                  + ("; --all for every session)" if not args.all else ")"))
             time.sleep(max(1.0, args.watch))
         else:
-            print(text)
+            print(display)
             print(f"(written to {target})")
             return 0
 

@@ -328,6 +328,31 @@ class ActivityTests(unittest.TestCase):
                                           self.session("b", cost=0.5)])
         self.assertIn("$1.7500", text)
 
+    def test_paint_colours_state_cells_and_headers(self):
+        painted = activity._paint("| State | Title |\n| --- | --- |\n| working | t |\n| idle | u |")
+        self.assertIn("\033[1;32m working \033[0m", painted)
+        self.assertIn("\033[2m idle \033[0m", painted)
+        self.assertIn("\033[1m State \033[0m", painted)
+        self.assertNotIn("\033", painted.splitlines()[1])
+
+    def test_paint_leaves_prose_alone(self):
+        prose = "working is a turn in progress, not a promise"
+        self.assertEqual(activity._paint(prose), prose)
+
+    def test_redirected_output_has_no_escape_codes(self):
+        output = io.StringIO()
+        with mock.patch.object(activity, "render", return_value="# snapshot\n| working | t |"), \
+             mock.patch.object(activity, "write", return_value=Path("/tmp/opencode/x.md")), \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(activity.main([]), 0)
+        self.assertNotIn("\033", output.getvalue())
+
+    def test_no_color_flag_is_accepted(self):
+        with mock.patch.object(activity, "render", return_value="# snapshot"), \
+             mock.patch.object(activity, "write", return_value=Path("/tmp/opencode/x.md")), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(activity.main(["--no-color"]), 0)
+
     def test_web_probe_oserror_is_reported(self):
         with mock.patch.object(activity, "sessions_snapshot", return_value={"error": None, "sessions": []}), \
              mock.patch.object(activity, "web_snapshot", side_effect=PermissionError("denied")):
