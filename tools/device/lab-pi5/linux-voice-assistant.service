@@ -1,0 +1,24 @@
+[Unit]
+Description=Linux Voice Assistant (Debra lab)
+After=network-online.target pipewire.service wireplumber.service
+Wants=network-online.target pipewire.service
+PartOf=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/linux-voice-assistant
+Environment=PATH=%h/linux-voice-assistant/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
+Environment=PULSE_COOKIE=%h/linux-voice-assistant/tmp_pulse_cookie
+Environment=PREFERENCES_FILE=%h/linux-voice-assistant/preferences.json
+Environment="CLIENT_NAME=Debra"
+Environment=ENABLE_DEBUG=1
+ExecStart=%h/linux-voice-assistant/docker-entrypoint.sh
+StandardOutput=append:%h/lab/lva.log
+StandardError=append:%h/lab/lva.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

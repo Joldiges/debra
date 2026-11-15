@@ -1,0 +1,19 @@
+[Unit]
+Description=Sendspin player (Debra lab)
+After=network-online.target pipewire.service wireplumber.service sound.target
+Wants=network-online.target pipewire.service
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
+# 8927 is taken by the Music Assistant Sendspin server on this host.
+ExecStart=%h/.local/bin/sendspin daemon --name "Debra Lab" --port 8928
+StandardOutput=append:%h/lab/sendspin.log
+StandardError=append:%h/lab/sendspin.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
