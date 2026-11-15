@@ -626,22 +626,35 @@ class ActivityTests(unittest.TestCase):
         self.assertIn("# snapshot", output.getvalue())
         self.assertIn("(written to /tmp/opencode/x.md)", output.getvalue())
 
-    def test_tabs_split_the_report_and_keep_needs_first(self):
+    def test_tabs_split_the_report_and_keep_a_fixed_order(self):
+        # Built from a synthetic report, not the live one: the needs list changes
+        # whenever James answers a question, and a test pinned to it rots.
+        report = "\n".join([
+            "# What is running — 2026-11-15 16:00:00", "",
+            "## What I need from you (1)",
+            "- **A question only James can answer**",
+            "  Blocks: something",
+            "", "## Research runner", "- **Idle** — no task is running at this moment.", "",
+            "## Agent sessions",
+            "- 0 working · 0 idle · 0 unknown · 0 known sessions",
+            "| State | Kind |", "| --- | --- |", "| idle | main |",
+            "- `working` is a turn in progress.", "",
+            "## Development web server", "- Not listening on port 8787", ""])
         meta = {"agents": {"error": None, "sessions": []}, "rates": {}}
-        text = activity.render(8787, 3)
-        tabs = activity._tui_tabs(text, meta, 3)
+        tabs = activity._tui_tabs(report, meta, 3)
         self.assertEqual([tab["label"] for tab in tabs],
                          ["Needs", "Sessions", "Research", "Status"])
         needs = "\n".join(entry[1] for entry in tabs[0]["entries"] if entry[0] == "text")
-        self.assertIn("Which three speakers", needs)
-        # The section heading itself is the tab label, not a line inside it.
+        self.assertIn("A question only James can answer", needs)
+        # The section heading becomes the tab label, not a line inside it.
         self.assertNotIn("## What I need from you", needs)
-        # Every word shown in the terminal comes from the report it was built from.
-        shown = "\n".join(entry[1] for tab in tabs for entry in tab["entries"]
-                          if entry[0] == "text")
-        # Whether the dev hub is up changes between runs; the Status tab must
-        # carry the section either way.
-        self.assertTrue("Listening on" in shown or "Not listening on port 8787" in shown)
+
+    def test_tab_order_does_not_follow_the_report_order(self):
+        report = ("# T\n\n## Development web server\n- web\n\n## Research runner\n- run\n\n"
+                  "## What I need from you\n- need\n")
+        meta = {"agents": {"error": None, "sessions": []}, "rates": {}}
+        labels = [tab["label"] for tab in activity._tui_tabs(report, meta, 3)]
+        self.assertEqual(labels, ["Needs", "Research", "Status"])
 
     def test_sessions_tab_rebuilds_the_table_instead_of_reusing_pipes(self):
         session = {"id": "a", "title": "A session", "agent": "", "model": "",
