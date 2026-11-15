@@ -28,6 +28,51 @@ There was already high-level agent guidance; this adds the operational path.
 Instructions reduce mistakes but are not a security boundary. A capable model
 also needs tests, bounded authority, and review.
 
+## Approved coordinator mandate
+
+James approved this project-specific operating scope in the conversation on
+2026-11-14, then explicitly allowed commits/pushes, reserved controlled `main`
+work for the capable delegating AI, encouraged parallel agents and requests for
+physical actions, and welcomed reporting.
+
+- **Repository work:** the capable coordinator may advance the roadmap through
+  research, documentation, tests, and implementation; prepare bounded worker
+  assignments; select suitable models; arrange separate capable review; and
+  integrate verified results without asking James to supervise each worker.
+  Requirements, ownership, acceptance criteria, and existing safety gates still
+  apply. This mandate does not mark F01/F05 complete or open production dispatch.
+- **Git:** the coordinator may commit and push project work to the existing
+  Debra remote. Only the capable coordinator integrates into or pushes `main`,
+  after scope/source checks, separate capable review, and the required tests.
+  Preserve user changes, use explicit staged paths, inspect the staged diff,
+  and use ordinary non-force pushes; do not rewrite shared history. Workers
+  have no standing authority to self-approve, merge, or push; any permitted
+  branch-only Git operation needs an explicit assignment and verified policy.
+- **Spending:** James reports $50 of OpenRouter credit with no automatic
+  renewal and is not especially concerned about runaway spending. This is a
+  reported account balance, not a verified per-session limit or a direction to
+  spend it all. Keep batches/attempts bounded, track available reported model
+  costs, and report costs and coverage limits at milestones. Use enforceable
+  budgets if available; never describe an advisory target as a hard cap. Ask
+  before replenishing credit, enabling renewal, or making a new paid commitment.
+- **Parallel progress:** run independent tasks in separate sessions and, for
+  editing, separate owned worktrees. A blocked/stopped worker does not by
+  itself block unrelated workers. Pause affected work for shared prerequisites,
+  conflicts, or safety failures; the coordinator owns reassignment and review.
+  Increase concurrency based on useful results and review capacity, not a
+  target agent count.
+- **Questions and reporting:** ask James for consequential decisions, missing
+  information, or physical actions, especially actions that safely enable
+  greater autonomy. Do not repeatedly ask him to review routine worker output.
+  Give concise milestone reports covering results, verification, limitations,
+  spend, blockers, and the next action; do not promise unattended continuation
+  beyond what the running session and any separately authorized runner support.
+- **Still separate:** named live hardware/infrastructure operations, host
+  installations, sensitive access, destructive changes, licensing/publication
+  decisions, releases, repository visibility, and material requirement tradeoffs
+  need appropriate authorization and recovery. Git push permission does not
+  authorize those operations or remove secret/provenance checks.
+
 ## Roles and spending
 
 | Role | Suitable work | Authority |
@@ -162,8 +207,9 @@ Use `changes-requested`, `blocked`, or `accepted` before integration, and record
    staged result; never use an indiscriminate `git add .` to sweep in user work.
    Resolve conflicts under capable review and rerun checks; record integration
    commit, reviewer/model, candidate identity, checks, and residual limitations.
-   Local acceptance is not authorization to push, release, operate hardware, or
-   change repository visibility.
+   Local acceptance alone grants no publication or live-operation authority.
+   The approved mandate permits coordinator pushes to the existing Debra remote;
+   releases, hardware operations, and visibility changes remain separate.
 7. **Preserve recovery and evidence.** Keep the baseline, task result, and review
    record. Do not automatically delete branches/worktrees or discard failed
    attempts. Report follow-ups; don't expand the completed task.

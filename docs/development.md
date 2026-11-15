@@ -169,7 +169,10 @@ credentials. Keep Debra's integration tests separate from the upstream test
 record.
 
 Local investigation and patch preparation fit bounded repository work.
-Creating a remote fork, pushing, opening issues/PRs, publishing artifacts, or
-assuming an ongoing maintenance commitment requires an explicit agreed scope;
-permission to consider reuse is not blanket publication permission. Upstream
-acceptance is never guaranteed.
+Coordinator commits/pushes to the existing Debra remote are authorized by the
+[approved operating mandate](ai-workflow.md#approved-coordinator-mandate), with
+controlled `main` integration and review. Creating a new remote fork, pushing
+to an upstream/other remote, opening issues/PRs, publishing artifacts, or
+assuming an ongoing maintenance commitment still requires an explicit agreed
+scope; permission to consider reuse is not blanket publication permission.
+Upstream acceptance is never guaranteed.
