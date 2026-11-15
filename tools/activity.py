@@ -1172,6 +1172,23 @@ def _tui_clamp(offset: int, total: int, visible: int) -> int:
     return max(0, min(int(offset), max(0, total - max(0, visible))))
 
 
+def _tui_move_selection(ids: list[str], current, action: str,
+                        amount: int = 0):
+    """Where the checklist cursor lands. Pure, so its edges can be tested.
+
+    A cursor that walks off either end of the list would leave the highlight on
+    a row that is not there, and the next tick would apply to nothing.
+    """
+    if not ids:
+        return None
+    if action == "top":
+        return ids[0]
+    if action == "bottom":
+        return ids[-1]
+    index = ids.index(current) if current in ids else 0
+    return ids[max(0, min(index + amount, len(ids) - 1))]
+
+
 def _tui_key_action(key, tab_count: int) -> tuple[str, int] | None:
     """Map a key press to an action. Returned, not performed, so it is testable."""
     down = (ord("j"),) + ((curses.KEY_DOWN,) if curses else ())
@@ -1449,14 +1466,7 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
             # the notice the highlight is on, which a scrolled page cannot say.
             if not notice_ids:
                 continue
-            if kind == "top":
-                index = 0
-            elif kind == "bottom":
-                index = len(notice_ids) - 1
-            else:
-                index = ((notice_ids.index(selected) if selected in notice_ids else 0)
-                         + amount)
-            selected = notice_ids[max(0, min(index, len(notice_ids) - 1))]
+            selected = _tui_move_selection(notice_ids, selected, kind, amount)
             row_index = next(position for position, row in enumerate(rows)
                              if len(row) > 3 and row[3] == selected)
             if row_index < offset:

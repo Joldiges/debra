@@ -214,3 +214,19 @@ class ReportTests(Temp):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelectionTests(unittest.TestCase):
+    def test_the_cursor_walks_and_stops_at_both_ends(self):
+        move = activity._tui_move_selection
+        ids = ["a", "b", "c"]
+        self.assertEqual(move(ids, "a", "scroll", 1), "b")
+        self.assertEqual(move(ids, "c", "scroll", 1), "c")
+        self.assertEqual(move(ids, "a", "scroll", -1), "a")
+        self.assertEqual(move(ids, "c", "scroll", -1), "b")
+        self.assertEqual(move(ids, "b", "top"), "a")
+        self.assertEqual(move(ids, "b", "bottom"), "c")
+
+    def test_a_cursor_whose_notice_has_gone_falls_back_to_the_first(self):
+        self.assertEqual(activity._tui_move_selection(["a", "b"], "gone", "scroll", 1), "b")
+        self.assertIsNone(activity._tui_move_selection([], "a", "scroll", 1))
