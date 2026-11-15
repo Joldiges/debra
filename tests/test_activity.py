@@ -373,6 +373,61 @@ class ActivityTests(unittest.TestCase):
         self.assertIn(activity.ORANGE + " openai/gpt-6.1-sol#flex-high ", painted)
         self.assertNotEqual(activity._paint(text, rates).count(activity.YELLOW), 2)
 
+    def test_why_says_what_the_snapshot_can_prove(self):
+        now = 1_700_000_000.0
+        def row(**kw):
+            base = {"id": "x", "working": False, "busy_at": None, "idle_at": None,
+                    "parent": "", "child": False, "title": "t", "agent": "",
+                    "model": "", "provider": "", "model_id": "", "variant": "",
+                    "cost": 0.0, "created": 0, "tokens": 0, "updated": 0}
+            base.update(kw)
+            return base
+        ms = lambda seconds_ago: (now - seconds_ago) * 1000
+        self.assertEqual(activity._why(row(working=None), {}, now), "never started")
+        self.assertEqual(activity._why(row(working=True, busy_at=ms(12)), {}, now), "running 12s")
+        self.assertEqual(activity._why(row(working=True, busy_at=ms(900)), {}, now), "long turn 15m")
+        self.assertEqual(activity._why(row(idle_at=ms(20)), {}, now), "just finished")
+        self.assertEqual(activity._why(row(idle_at=ms(7200)), {}, now), "waiting for you")
+
+        parent_busy = row(id="p", working=True, busy_at=ms(30))
+        parent_idle = row(id="p", working=False, idle_at=ms(30))
+        child = row(id="c", child=True, parent="p", idle_at=ms(10))
+        self.assertEqual(activity._why(child, {"p": parent_busy}, now), "finished; parent busy")
+        self.assertEqual(activity._why(child, {"p": parent_idle}, now), "finished")
+        self.assertEqual(activity._why(child, {}, now), "parent deleted")
+
+    def test_a_parent_hidden_by_the_limit_is_still_a_parent(self):
+        # Live defect, 2026-11-15: every sub-session read "parent gone" because
+        # the lookup map was built from the rows on display, and --limit hides
+        # the main session. A parent off-screen is not a parent that vanished.
+        now = 1_700_000_000.0
+        def row(**kw):
+            base = {"id": "x", "working": False, "busy_at": None, "idle_at": None,
+                    "parent": "", "child": False, "title": "t", "agent": "",
+                    "model": "", "provider": "", "model_id": "", "variant": "",
+                    "cost": 0.0, "created": 0, "tokens": 0, "updated": 0}
+            base.update(kw)
+            return base
+        main = row(id="main", working=False, idle_at=(now - 600) * 1000)
+        child = row(id="child", child=True, parent="main", idle_at=(now - 300) * 1000)
+        table = "\n".join(activity._session_table([child], by_id={"main": main}, now=now))
+        self.assertIn("finished", table)
+        self.assertNotIn("parent deleted", table)
+
+    def test_why_is_in_the_table_and_never_invents_a_question(self):
+        now = 1_700_000_000.0
+        session = {"id": "a", "title": "Waiting", "agent": "", "model": "", "provider": "",
+                   "model_id": "", "variant": "", "cost": 0.01, "created": 0, "tokens": 0,
+                   "updated": 0, "child": False, "parent": "", "working": False,
+                   "busy_at": (now - 400) * 1000, "idle_at": (now - 3600) * 1000}
+        table = "\n".join(activity._session_table([session], now=now))
+        self.assertIn("Why", table)
+        self.assertIn("waiting for you", table)
+        # The session list carries no message data, so the tool must not claim to
+        # know about a pending question or a tool call.
+        for word in ("question", "approval", "blocked on", "waiting on user"):
+            self.assertNotIn(word, table)
+
     def test_session_rates_ignore_zero_cost_and_missing_tokens(self):
         sessions = [
             self.session("a", cost=1.0, model_id="cheap"),

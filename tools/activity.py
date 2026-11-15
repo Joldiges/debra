@@ -140,15 +140,8 @@ def _seconds_since(utc_stamp: str) -> int | None:
     return max(0, int(time.time() - started))
 
 
-def _age(stamp) -> str:
-    """Render a session timestamp as a compact age for a table cell."""
-    try:
-        value = float(stamp)
-    except (TypeError, ValueError):
-        return "unknown"
-    if not value:
-        return "unknown"
-    seconds = time.time() - (value / 1000 if value > 10**11 else value)
+def _span(seconds: float) -> str:
+    """Render a duration in seconds as a compact table cell."""
     seconds = max(0.0, seconds)
     if seconds < 90:
         return f"{int(seconds)}s"
@@ -157,6 +150,29 @@ def _age(stamp) -> str:
     if seconds < 172800:
         return f"{seconds / 3600:.1f}h"
     return f"{seconds / 86400:.1f}d"
+
+
+def _seconds_since(stamp, now: float | None = None) -> float | None:
+    """Seconds between a session timestamp and ``now``, or None if unusable.
+
+    The service reports either seconds or milliseconds depending on version, so
+    both are accepted. ``now`` is a parameter rather than a read of the clock so
+    a caller that has already fixed a time cannot mix two clocks in one cell.
+    """
+    try:
+        value = float(stamp)
+    except (TypeError, ValueError):
+        return None
+    if not value:
+        return None
+    now = time.time() if now is None else now
+    return max(0.0, now - (value / 1000 if value > 10**11 else value))
+
+
+def _age(stamp, now: float | None = None) -> str:
+    """Render a session timestamp as a compact age for a table cell."""
+    seconds = _seconds_since(stamp, now)
+    return "unknown" if seconds is None else _span(seconds)
 
 
 def _ago(stamp) -> str:
@@ -202,7 +218,45 @@ def _model_label(session: dict) -> str:
     return label
 
 
-def _session_table(sessions: list[dict]) -> list[str]:
+def _why(session: dict, by_id: dict, now: float) -> str:
+    """Why this session is (or is not) running, from what the service reports.
+
+    This is inference from timestamps and parentage, not a claim about what the
+    agent is doing: the session list carries no message or tool data. So the
+    words stay at what is provable - a turn ended, a parent is still busy, a
+    turn has been open a long time - and never guess at a pending question.
+    """
+    if session.get("working") is None:
+        return "never started"
+    if session.get("working"):
+        busy = session.get("busy_at")
+        elapsed = _seconds_since(busy, now)
+        if elapsed is None:
+            return "running"
+        # A turn still open after five minutes is worth naming: it is either a
+        # long build or a session that has stopped without saying so.
+        return (f"running {_span(elapsed)}" if elapsed < 300
+                else f"long turn {_span(elapsed)}")
+    parent_id = session.get("parent") or ""
+    if session.get("child"):
+        parent = by_id.get(parent_id)
+        if parent is None:
+            # Only reachable when the parent is not in the session list at all:
+            # a hidden parent is passed in, so this means deleted, not finished.
+            return "parent deleted"
+        if parent.get("working"):
+            return "finished; parent busy"
+        return "finished"
+    ended = _seconds_since(session.get("idle_at"), now)
+    if ended is not None and ended < 90:
+        return "just finished"
+    return "waiting for you"
+
+
+def _session_table(sessions: list[dict], by_id: dict | None = None,
+                   now: float | None = None) -> list[str]:
+    now = time.time() if now is None else now
+    by_id = {row["id"]: row for row in sessions} if by_id is None else by_id
     rows = []
     for session in sessions:
         state = ("working" if session["working"] is True
@@ -213,10 +267,11 @@ def _session_table(sessions: list[dict]) -> list[str]:
             session["title"],
             _model_label(session),
             f"${session['cost']:.4f}",
-            _age(session["updated"]),
+            _age(session["updated"], now),
+            _why(session, by_id, now),
         ])
-    return _table(["State", "Kind", "Title", "Model", "Cost", "Age"], rows,
-                  caps={2: 38, 3: 42})
+    return _table(["State", "Kind", "Title", "Model", "Cost", "Age", "Why"], rows,
+                  caps={2: 34, 3: 30, 6: 20})
 
 
 def _session_rows(payload) -> list[dict]:
@@ -275,6 +330,9 @@ def _session_rows(payload) -> list[dict]:
             "model_id": model.get("id") or "",
             "variant": model.get("variant") or "",
             "child": bool(item.get("parentID")),
+            "parent": item.get("parentID") or "",
+            "busy_at": busy,
+            "idle_at": idle,
             "working": working,
             "cost": item.get("cost") or 0.0,
             "created": times.get("created") or 0,
@@ -469,6 +527,10 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
         # actually finishes a turn.
         working.sort(key=lambda s: s["created"], reverse=True)
         recent = sorted(idle + unknown, key=lambda s: s["updated"], reverse=True)
+        # A parent is resolved against every known session, not the rows on
+        # display: a parent hidden by --limit is still a parent that exists.
+        now = time.time()
+        by_id = {s["id"]: s for s in sessions}
         total = sum(s["cost"] for s in sessions)
         shown = working + recent[: max(0, limit - len(working))]
         out.append(f"- {len(working)} working · {len(idle)} idle · {len(unknown)} unknown"
@@ -478,7 +540,7 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
         out.append("")
         if working:
             out.append(f"### Working now ({len(working)})")
-            out.extend(_session_table(working))
+            out.extend(_session_table(working, by_id=by_id, now=now))
         else:
             out.append("### Working now (0)")
             out.append("Nothing is working right now; the rows below are sessions between turns.")
@@ -487,7 +549,8 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
             out.append("")
             out.append(f"### Recently active ({min(len(recent), max(0, limit - len(working)))} of {len(recent)}"
                        + (f", {hidden} hidden — `--all` to show every session" if hidden else "") + ")")
-            out.extend(_session_table(recent[: max(0, limit - len(working))]))
+            out.extend(_session_table(recent[: max(0, limit - len(working))],
+                                      by_id=by_id, now=now))
         out.append("")
         out.append("- `working` is a turn in progress. `idle` is between turns, which is not the")
         out.append("  same as abandoned. `unknown` is a session that has not run a turn yet.")
