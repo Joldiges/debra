@@ -17,6 +17,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Development workspace](development.md) | Private storage, reuse, provenance, and contribution boundaries |
 | [SolidCraft enclosure requirements](design/enclosures.md) | Candidate dimensions, reusable parts, case variants, wiring/card/power access, lids and speaker grilles/cloth |
 | [Corrected preliminary research](research/2026-11-14-preliminary-findings.md) | Useful mechanical, ARMv6, onboarding, recovery and reuse findings; not completed packets |
+| [ARMv6 wheel availability](research/2026-11-15-armv6-wheels.md) | 35-package instruction-set and packaging matrix for original Pi Zero W: the `armv6l` tag is not a promise, and both wake-word engines ship an x86-64 TensorFlow Lite library |
 | [F01/F05 readiness](testing/results/2026-11-14-ai-readiness.md) | Baseline closure, partial permission evidence, unresolved extra file and closed dispatch |
 | [F05 source-test feasibility](testing/results/2026-11-15-f05-source-feasibility.md) | Version-pinned upstream test helpers, interception pitfalls and missing isolated runtime; no new executed permission coverage |
 | [Pi 5 + ReSpeaker v2 audio result](testing/results/2026-11-15-pi5-respeaker-v2-audio.md) | First device-tested audio: overlay built and persisted, mixer traps, measured speaker→microphone path; one specimen |

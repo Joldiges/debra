@@ -229,6 +229,17 @@ constraint to investigate, not a claim that success is impossible.
 | Z04 / blocked | Z03, V02, M01, T01 | Profile voice alone, music alone, and combined operation on Zero W: CPU/RAM, wake responsiveness, audio dropouts, temperature, and sustained stability. Investigate one bottleneck at a time; retain measured conditions and raw sanitized evidence. |
 | Z05 / blocked | Z04, V03, A03 | Resolve or characterize bottlenecks through appropriate runtime/model/build/offload changes; compare feature consequences explicitly. Repeat full capability tests. If blocked, produce a reproducible issue and next experiment, not an unsupported success claim or silent removal from scope. |
 
+**Naming collision to watch:** the unattended runner has a research task called
+`Z02-ARMV6-WHEELS`, which is *not* roadmap Z02. It produced the first
+dependency/instruction-set matrix — roadmap **Z01** material — and it is kept at
+[ARMv6 wheel availability](../research/2026-11-15-armv6-wheels.md). Z01 is not
+complete: that result covers Python packaging and ELF attributes, not the OS
+image contents, the non-Python audio stack, or anything running. Its two
+consequential findings are that the `linux_armv6l` wheel tag does not promise
+ARMv6 code, and that both wake-word engines ship an x86-64 TensorFlow Lite
+library inside a wheel labelled for ARM — so wake word on original Zero W is an
+open engineering problem, not an install step.
+
 ## Snapshots, backups, and restore
 
 Research backend candidates before choosing a filesystem or recreating a
