@@ -22,6 +22,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [F05 source-test feasibility](testing/results/2026-11-15-f05-source-feasibility.md) | Version-pinned upstream test helpers, interception pitfalls and missing isolated runtime; no new executed permission coverage |
 | [Pi 5 + ReSpeaker v2 audio result](testing/results/2026-11-15-pi5-respeaker-v2-audio.md) | First device-tested audio: overlay built and persisted, mixer traps, measured speaker→microphone path; one specimen |
 | [Lab Pi 5 voice + Sendspin result](testing/results/2026-11-15-lab-pi5-lva-sendspin.md) | Pinned linux-voice-assistant satellite and Sendspin player on the lab Pi; a spoken wake word → reply ran end to end once the shared sink volume was found at 9 %; supply sags under load |
+| [Lab Pi 5 audio levels](testing/results/2026-11-15-lab-pi5-audio-levels.md) | Sink volume against measured microphone level, for tests that must be quiet: 16 % is 20 dB below a normal reply, and `pw-play -a` silently plays nothing |
 | [Lab Pi 5 device scripts](../tools/device/lab-pi5/README.md) | Audio, mixer, satellite, player and power-mitigation scripts that build that device |
 | [3D models](../models/README.md) | Parametric SolidCraft part and assembly sources, each with renders in an `assets/` folder |
 | [Enclosure arrangements](design/enclosure-arrangements.md) | Why the flat stack read as a plank, the three arrangements, and the four-step path from component envelope to case part |
