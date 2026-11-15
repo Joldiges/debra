@@ -34,6 +34,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Web controls quickstart](guides/web-control-quickstart.md) | What the hub and device pages do today, what `--auth none` exposes, and what is not built |
 | [Browser controls](../control/web/README.md) | Reusable native-volume prototype: installation, trusted-LAN access, tests and isolated rollback; not a complete appliance |
 | [Web configuration scope](design/web-control.md) | Browser-first requirements and detailed coverage tied to roadmap WEB packets |
+| [First boot](design/first-boot.md) | The drop-in journey from a flashed card to a working device page: phases, the wrong-password path, the first baseline, and what is implemented, partial or planned |
 | [Audio/enclosure corrections](notes/2026-11-15-audio-and-enclosure-corrections.md) | Incorrect volume arithmetic/safety inference, unverified headphone tap, nonexistent CLI and unsupported speaker-replacement conclusion |
 | [Pico and TTS review](research/2026-11-15-pico-and-tts.md) | Linux versus MCU support boundaries, OpenAI TTS Speed, Piper server-side length-scale and missing household provider evidence |
 | [Unattended runner](guides/scheduled-runner.md) | Queued, budgeted research tasks on a systemd user timer; instructions, not enforcement |
