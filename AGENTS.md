@@ -31,6 +31,7 @@
 
 ## What actually exists today
 - This checkout has planning/reference docs and historical backup scripts, not a working Debra appliance, image, or TUI. `scripts/debra-setup.sh` exists in Git history but is absent from the working tree.
+- `tools/scheduled_runner.py` runs bounded, queued research tasks from a systemd user timer with a daily reported-cost budget (see [unattended runner](docs/guides/scheduled-runner.md)); its state is git-ignored under `.local/runner/`. `tools/audio_selftest.py` is a device script, not a host test. CAD work lives under `models/`; the first component envelope is `models/components/pi5-5-model-b/`.
 - No appliance application build/lint/typecheck/CI configuration is present. Task-dispatch checks from the root: `python tools/taskchain.py check` and `python -B -m unittest discover -s tests -v` (offline Git fixtures retained under `/tmp/opencode/`, no model/permission/hardware proof). `python tools/taskchain.py list` shows shared local claims without creating a registry.
 - Safe historical shell check, from the root: `bash -n backups/backup.sh backups/restore.sh`; focus one file with `bash -n backups/backup.sh`. These are syntax checks only.
 - Keep shell scripts LF-terminated (`.gitattributes`). Add actual verification commands here when implementation introduces them; never present proposed commands as existing tooling.
