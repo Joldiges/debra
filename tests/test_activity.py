@@ -318,15 +318,26 @@ class ActivityTests(unittest.TestCase):
                                return_value={"port": 8787, "listening": False}):
             return activity.render(8787, limit)
 
+    def working_order(self, text, first, second):
+        """Where two titles sit inside the Working table, not anywhere on the page.
+
+        The page also renders the work queue and the notices. A bare
+        `text.index("older")` matched the word inside "placeholder" in a queued
+        row, so a test whose ordering was correct failed on unrelated prose.
+        """
+        start = text.index("### Working now")
+        table = text[start:text.index("\n\n", start)]
+        return table.index(first), table.index(second)
+
     def test_working_rows_keep_creation_order_when_activity_changes(self):
         # Ordering by `updated` reshuffles on every refresh; creation does not move.
         first = self.session("older", working=True, created=100, updated=900)
         second = self.session("newer", working=True, created=200, updated=100)
         text = self.render_with_sessions([first, second])
-        self.assertLess(text.index("newer"), text.index("older"))
+        self.assertLess(*self.working_order(text, "newer", "older"))
         first["updated"], second["updated"] = 100, 900
         text = self.render_with_sessions([first, second])
-        self.assertLess(text.index("newer"), text.index("older"))
+        self.assertLess(*self.working_order(text, "newer", "older"))
 
     def test_limit_hides_only_recent_sessions(self):
         sessions = [self.session(f"work{i}", working=True, created=i) for i in range(3)]
