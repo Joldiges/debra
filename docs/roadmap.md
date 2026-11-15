@@ -137,11 +137,11 @@ from software compatibility.
 | ID / state | Depends on | Deliverable and acceptance |
 | --- | --- | --- |
 | F00 / done | — | This planning foundation: project brief, agent instructions, evidence register, legacy review, and roadmap. Local links and existing shell syntax checked; no hardware claims. |
-| F01 / ready | F00 | Assess current working tree/index and propose a deliberate integration baseline without discarding/staging unrelated changes. Establish file ownership, handoff locations, and how workers receive uncommitted context. |
+| F01 / done | F00 | [Baseline/ownership assessment](testing/results/2026-11-14-ai-readiness.md#f01-deliberate-committed-baseline-and-ownership): clean committed preflight at `88e1fcb…`, remote verified, exclusive worktrees/paths, handoff locations and frozen uncommitted-context handling established. No unrelated changes discarded/staged; this does not approve F05 or live operations. |
 | F02 / blocked | R04, N01, B01, Z01 | Minimal architecture decision in `docs/design/architecture.md`: native versus containers by platform, configuration authority, privilege boundary, component lifecycle, audio owner, and image relationship. Choose the smallest suitable stack; do not assume Docker works on ARMv6. Specify lightweight CLI/TUI approach rather than building a generic plugin framework. |
 | F03 / blocked | F01, F02, T01 | Establish actual source/test layout, shared component/config interfaces, and developer verification commands. Implement R04's selected dependency mechanism, including tracked submodules where justified, consistent source pins, fresh-clone/worker/CI initialization, and source packaging. Decide test/lint dependencies and command order; safe default checks must never require root, hardware, Wi-Fi, or network mutation. Keep networked dependency setup separate from offline checks. Update AGENTS with commands that really run. |
 | F04 / ready | F00 | License/provenance proposal: permissive Debra license (MIT candidate), copyright attribution, and separate obligations for upstream code, scoped patches/forks, models, firmware, wheels, and OS/image distribution. Identify contribution requirements; do not assign unsupported copyrights or relicense third-party files. |
-| F05 / blocked | F01 | Pilot the AI workflow on one low-risk documentation task. Select worker/reviewer models and local OpenCode role permissions under the [approved coordinator mandate](ai-workflow.md#approved-coordinator-mandate); the capable coordinator owns routine role review before activation and escalates material access/spending/scope decisions to James. Verify fresh context, branch/worktree/base identity, permitted-path edits, denied out-of-scope edits/shell/MCP/nested delegation, handoff, independent review, and integration checks using harmless fixtures without credentials or devices. Record actual effective permissions and their limits; fail closed rather than broaden access. No automatic model routing, isolation, or merge enforcement is claimed before that evidence exists. |
+| F05 / ready | F01 | **Partial, not accepted; production dispatch closed.** [Readiness evidence and missing coverage](testing/results/2026-11-14-ai-readiness.md): documentation pilot reviewed/integrated; actual synthetic read/edit/write denials observed, but patch/alternate-route/intercepted-backend evidence and claim-specific policy acceptance remain missing. Finish the low-risk pilot under the [approved coordinator mandate](ai-workflow.md#approved-coordinator-mandate): verify fresh context, branch/worktree/base, permitted edits, prohibited scope/shell/MCP/nested delegation, handoff, separate review and integration checks without credentials/devices. Record effective permissions and limits; fail closed. `ready` means its F01 dependency is met, not that this gate passed or dispatch may open. No automatic routing, isolation or merge enforcement is claimed. |
 
 ## Research, inventory, and user documentation
 
@@ -309,8 +309,10 @@ Separate observed results from proposed fixes. Do not mark a packet done on
 
 ## Immediate next action
 
-The next execution session should review/commit the task-chain inputs, finish
-F01/F05's baseline and permission pilot, then open eligible research dispatch
-through the [task-chain entrypoint](task-chains.md). Hardware
-implementation starts only after target/access/recovery arrangements, not by
-discovering and modifying every Pi on the household Wi-Fi.
+F01's baseline assessment is recorded; finish F05's missing execution evidence
+and claim-specific policy review before any production dispatch activation.
+Use the [corrected preliminary research](research/2026-11-14-preliminary-findings.md)
+as scoped evidence, not completed packets or dependency selections. Capable
+coordinator work and bounded sanitized read-only research may continue.
+Hardware implementation starts only after target/access/recovery arrangements,
+not by discovering and modifying every Pi on the household Wi-Fi.

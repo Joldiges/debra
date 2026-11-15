@@ -28,10 +28,11 @@ Workers never mark their own packet done or choose new architecture.
 - Nine source-research starters have concrete [cards](work/cards/R01.md), named
   output paths, acceptance criteria, and no device access.
 - The dispatcher is implemented with offline fixture tests. **Production
-  dispatch is closed by default.** First commit the reviewed dispatch tooling
-  and finish [F05](roadmap.md#foundation-and-coordination): select models,
-  verify effective permissions, record a sanitized pilot, and obtain capable
-  review. No such pilot or approved lower-cost role is established by this page.
+  dispatch is closed by default.** The tooling is committed and F01 is complete;
+  [F05 remains partial](testing/results/2026-11-14-ai-readiness.md), not accepted.
+  Finish missing execution coverage, validate a claim-specific role policy and
+  obtain capable review before activation. An observed documentation pilot is
+  not an approved production lower-cost editing role.
 - Future implementation, physical tests, architecture, and curated shared
   conclusions require new coordinator cards and the roadmap prerequisites.
   All 63 packets are mapped below; only the nine starters are self-selectable.
@@ -56,7 +57,7 @@ direction, not a replacement dependency graph.
 | `recovery` | B01 → B02 → B03 → B04/B05: candidates, fixtures, proven restore, incremental/rescue | [Starter](work/cards/B01.md) → `docs/research/B01-recovery.md`; no host snapshots/restores |
 | `onboarding` | N01 → N02/N03 → N05/N04: research, identity/keys, development fallback, portal | [Starter](work/cards/N01.md) → `docs/research/N01-onboarding.md`; no household-router changes |
 | `verification` | T01 → T02 → T03/T04 → T05: acceptance, vertical slice, fault/CI, fresh-user trial | [Starter](work/cards/T01.md) → `docs/testing/acceptance.md`; numeric thresholds remain proposals |
-| `foundation` | F00 → F01/F04/F05 → F02 → F03: baseline, license proposal, pilot, contracts, tooling | Coordinator-owned; begin by closing baseline assessment and permission pilot; no applied license yet |
+| `foundation` | F00 → F01/F04/F05 → F02 → F03: baseline, license proposal, pilot, contracts, tooling | Coordinator-owned; F01 baseline assessment recorded, F05 permission pilot remains partial and dispatch closed; no applied license yet |
 | `lab-fleet` | L01 → L02 → L03: inventory/scope, target binding, clean reset | Requires named hardware, authorized operations, recovery; no automatic device leasing here |
 | `control-ui` | C01 → C02 → C03 → C04/C05: config, operations, CLI, SSH TUI, diagnostics | Requires F03 and reviewed contracts; don't invent a plugin framework |
 | `audio` | A01 → A02 → A03/A04: baseline, HAT profiles, interruption, controls | Requires exact revisions, R01/R04/T01/L01; hardware permission separate |

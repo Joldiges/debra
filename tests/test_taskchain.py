@@ -317,11 +317,13 @@ module.main()
             roadmap = self.repo / "docs/roadmap.md"
             text = roadmap.read_text()
             self.assertIn("| R01 / ready | F00 |", text)
+            # Complete the starter rather than depending on a particular real
+            # packet staying unfinished as the project's roadmap advances.
             roadmap.write_text(text.replace(
-                "| R01 / ready | F00 |", "| R01 / blocked | F00, F01 |", 1,
+                "| R01 / ready | F00 |", "| R01 / done | F00 |", 1,
             ))
             self.git("add", "--", "docs/roadmap.md")
-            self.git("commit", "-m", "coordinator blocks R01 in replacement baseline")
+            self.git("commit", "-m", "coordinator completes R01 in replacement baseline")
             self.open_dispatch()
         finally:
             stdout, stderr = process.communicate("continue\n", timeout=30)

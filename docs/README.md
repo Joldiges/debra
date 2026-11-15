@@ -16,6 +16,8 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Evidence conventions](evidence.md) | Sources, uncertainty, compatibility claims, and test records |
 | [Development workspace](development.md) | Private storage, reuse, provenance, and contribution boundaries |
 | [SolidCraft enclosure requirements](design/enclosures.md) | Candidate dimensions, reusable parts, case variants, wiring/card/power access, lids and speaker grilles/cloth |
+| [Corrected preliminary research](research/2026-11-14-preliminary-findings.md) | Useful mechanical, ARMv6, onboarding, recovery and reuse findings; not completed packets |
+| [F01/F05 readiness](testing/results/2026-11-14-ai-readiness.md) | Baseline closure, partial permission evidence, unresolved extra file and closed dispatch |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
 
@@ -27,11 +29,11 @@ These are purpose-based locations, not a requirement to create empty folders.
 | --- | --- | --- |
 | `docs/` top-level | Short project maps, requirements, evidence rules, workflow, and development guidance | Exists |
 | `docs/notes/` | Dated, scoped discoveries, assumptions, failed attempts, corrections, and session handoffs | Exists; deliberately not an unstructured dump |
-| `docs/research/` | Task-specific, source-linked investigations and comparisons | Planned; see R01–R04/R07 |
+| `docs/research/` | Task-specific, source-linked investigations and comparisons | Preliminary synthesis exists; full R01–R04/R07 packets remain open |
 | `docs/design/` | Requirements and reviewed decisions, with status made explicit | Enclosure requirements exist; architecture decisions remain planned under F02 |
 | `docs/comparisons/` | Curated hardware/software comparisons with evidence and scope | Planned; see R05 |
 | `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Planned; see R06 |
-| `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | Planned; see T01 |
+| `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | AI-readiness result exists; device acceptance strategy remains T01 |
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
 | `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
 | `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Use only when needed; existing historical files are labeled in place |
