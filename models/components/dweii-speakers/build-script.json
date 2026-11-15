@@ -1,0 +1,306 @@
+{
+ "about": {
+  "design": "dweii-speakers",
+  "format": "solidcraft/57",
+  "replay": "solidcraft-cli eval script.json"
+ },
+ "commands": [
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S671_L",
+    "expression": "44 mm",
+    "unit": "mm",
+    "comment": "701715519671: the manuals.plus spec sheet gives 44 x 28 x 15; one seller page gives 31 x 28 x 15. The larger envelope is the one a pocket must fit"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S671_W",
+    "expression": "28 mm",
+    "unit": "mm",
+    "comment": "701715519671 face width"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S671_D",
+    "expression": "15 mm",
+    "unit": "mm",
+    "comment": "701715519671 module depth"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S671_GRILLE",
+    "expression": "26 mm",
+    "unit": "mm",
+    "comment": "ASSUMED grille opening; no published figure"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S671_X",
+    "expression": "0 mm",
+    "unit": "mm",
+    "comment": "701715519671 layout position along X"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S664_L",
+    "expression": "44 mm",
+    "unit": "mm",
+    "comment": "701715519664: the ASIN is a 4-pack of the same 3 W 8 ohm JST-PH2.0 module as 671, with identical feature text; 44 x 28 x 15 is the documented size of that family. No listing gives an individual module size for this ASIN"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S664_W",
+    "expression": "28 mm",
+    "unit": "mm",
+    "comment": "701715519664 face width, from the shared family"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S664_D",
+    "expression": "15 mm",
+    "unit": "mm",
+    "comment": "701715519664 module depth, from the shared family"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S664_GRILLE",
+    "expression": "26 mm",
+    "unit": "mm",
+    "comment": "ASSUMED grille opening; no published figure"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S664_X",
+    "expression": "60 mm",
+    "unit": "mm",
+    "comment": "701715519664 layout position along X"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S462_L",
+    "expression": "100 mm",
+    "unit": "mm",
+    "comment": "701715520462: '100 mm long, 45 mm wide, 21 mm thick' in the bullet points and 'approx. 99 x 45 x 21 mm' in the description; the larger figure is used"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S462_W",
+    "expression": "45 mm",
+    "unit": "mm",
+    "comment": "701715520462 face width"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S462_D",
+    "expression": "21 mm",
+    "unit": "mm",
+    "comment": "701715520462 module depth"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S462_GRILLE",
+    "expression": "40 mm",
+    "unit": "mm",
+    "comment": "701715520462: the listing names a 40 mm internal driver"
+   }
+  },
+  {
+   "command": "parameters.add",
+   "params": {
+    "name": "S462_X",
+    "expression": "150 mm",
+    "unit": "mm",
+    "comment": "701715520462 layout position along X"
+   }
+  },
+  {
+   "command": "timeline.add",
+   "params": {
+    "feature": {
+     "type": "box",
+     "id": 1,
+     "name": "Box_671",
+     "suppressed": false,
+     "operation": "new_body",
+     "centred": true,
+     "corner": [
+      "S671_L/2 + S671_X",
+      "S671_D/2",
+      "S671_W/2"
+     ],
+     "length": "S671_L",
+     "width": "S671_D",
+     "height": "S671_W",
+     "body_names": [
+      "Dweii_671_Module"
+     ]
+    }
+   }
+  },
+  {
+   "command": "timeline.add",
+   "params": {
+    "feature": {
+     "type": "cylinder",
+     "id": 2,
+     "name": "Grille_671",
+     "suppressed": false,
+     "operation": "cut",
+     "axis": [
+      0.0,
+      1.0,
+      0.0
+     ],
+     "base": [
+      "S671_L/2 + S671_X",
+      "0 mm",
+      "S671_W/2"
+     ],
+     "radius": "(S671_GRILLE) / 2",
+     "height": "1 mm",
+     "participants": [
+      "Dweii_671_Module"
+     ],
+     "body_names": [
+      "Cut_671_Grille"
+     ]
+    }
+   }
+  },
+  {
+   "command": "timeline.add",
+   "params": {
+    "feature": {
+     "type": "box",
+     "id": 3,
+     "name": "Box_664",
+     "suppressed": false,
+     "operation": "new_body",
+     "centred": true,
+     "corner": [
+      "S664_L/2 + S664_X",
+      "S664_D/2",
+      "S664_W/2"
+     ],
+     "length": "S664_L",
+     "width": "S664_D",
+     "height": "S664_W",
+     "body_names": [
+      "Dweii_664_Module"
+     ]
+    }
+   }
+  },
+  {
+   "command": "timeline.add",
+   "params": {
+    "feature": {
+     "type": "cylinder",
+     "id": 4,
+     "name": "Grille_664",
+     "suppressed": false,
+     "operation": "cut",
+     "axis": [
+      0.0,
+      1.0,
+      0.0
+     ],
+     "base": [
+      "S664_L/2 + S664_X",
+      "0 mm",
+      "S664_W/2"
+     ],
+     "radius": "(S664_GRILLE) / 2",
+     "height": "1 mm",
+     "participants": [
+      "Dweii_664_Module"
+     ],
+     "body_names": [
+      "Cut_664_Grille"
+     ]
+    }
+   }
+  },
+  {
+   "command": "timeline.add",
+   "params": {
+    "feature": {
+     "type": "box",
+     "id": 5,
+     "name": "Box_462",
+     "suppressed": false,
+     "operation": "new_body",
+     "centred": true,
+     "corner": [
+      "S462_L/2 + S462_X",
+      "S462_D/2",
+      "S462_W/2"
+     ],
+     "length": "S462_L",
+     "width": "S462_D",
+     "height": "S462_W",
+     "body_names": [
+      "Dweii_462_Module"
+     ]
+    }
+   }
+  },
+  {
+   "command": "timeline.add",
+   "params": {
+    "feature": {
+     "type": "cylinder",
+     "id": 6,
+     "name": "Grille_462",
+     "suppressed": false,
+     "operation": "cut",
+     "axis": [
+      0.0,
+      1.0,
+      0.0
+     ],
+     "base": [
+      "S462_L/2 + S462_X",
+      "0 mm",
+      "S462_W/2"
+     ],
+     "radius": "(S462_GRILLE) / 2",
+     "height": "1 mm",
+     "participants": [
+      "Dweii_462_Module"
+     ],
+     "body_names": [
+      "Cut_462_Grille"
+     ]
+    }
+   }
+  }
+ ]
+}

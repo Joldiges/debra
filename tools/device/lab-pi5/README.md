@@ -1,27 +1,32 @@
 # Lab Pi 5 device build
 
-Scripts that turn a fresh 64-bit Raspberry Pi OS install into the Debra audio
-lab device: PipeWire, a correctly-mixed ReSpeaker 2-Mics Pi HAT, Linux Voice
-Assistant as a Home Assistant satellite, a Sendspin player, and Music Assistant
-as the lab's music source.
+Scripts recording the bring-up of one Pi 5 + ReSpeaker 2-Mics Pi HAT v2 lab
+device: PipeWire, Linux Voice Assistant, Sendspin and a lab Music Assistant
+server. **Reference material, not a verified fresh-card installer.** Some scripts
+were written after manual bring-up; replaying them has not demonstrated a
+reproducible device.
 
 **These are device scripts.** They run on the Pi as the `debra` user, not on the
 host, and they change system packages, systemd user units and Docker state.
 None of them is exercised by `python -B -m unittest discover -s tests`.
 
-Run in numeric order, from the checkout copied to the device or from the
-matching files in `~/lab/`:
+The numeric names record the intended sequence, **not a command to run the
+whole directory**. Review each script against a named target and a bounded
+recovery plan. `12-loopback.sh` plays and records audio: it is excluded from
+silent investigation, deployment checks and ordinary host tests. Do not install
+another Music Assistant server merely because its reference script exists.
+The “Verified” column describes historical lab use, not fresh-card replay:
 
 | Script | What it does | Verified |
 | --- | --- | --- |
 | `10-audio.sh` | Enables PipeWire + WirePlumber for the user, pins the graph to 48 kHz | yes, 2026-11-15 |
-| `11-mixer.sh` | Codec mixer: 12 dB capture PGA, AGC off, Line1 routing, unity playback gains, `alsactl store` | yes |
+| `11-mixer.sh` | Codec mixer: 12 dB capture PGA, AGC off, Line1 routing, recorded playback register values, `alsactl store` | yes |
 | `12-loopback.sh` | Plays a 1 kHz tone while recording from the HAT; prints capture levels | yes |
 | `20-lva.sh` | Clones linux-voice-assistant at a pinned tag, builds its venv, installs the user unit | yes |
 | `30-sendspin.sh` | Installs the Sendspin CLI, writes its settings, installs the user unit | yes |
 | `40-music-assistant.sh` | Installs Docker and runs the Music Assistant server container on host networking | yes |
 | `50-power-watch.sh` | Records the Pi power/throttle flags on a timer | yes |
-| `51-power-cap.sh` | Caps the CPU/GPU clock to lower the peak draw on a marginal supply | yes |
+| `51-power-cap.sh` | Caps CPU frequency to 1.5 GHz and pins the `powersave` governor; also keeps the journal across boots (restarts `systemd-journald`) and disables `docker.service`/`docker.socket` startup. It sets no GPU clock. It is mitigation, not a supply fix | yes |
 | `60-watchdog.sh` | Persistent journal, `hung_task_panic`, explicit hardware watchdog | yes, 2026-11-15 |
 | `61-health.sh` | Installs `debra-health` and its 2-minute timer: tests the audio path, not just the service list | yes, 2026-11-15 |
 
@@ -34,21 +39,20 @@ matching files in `~/lab/`:
 - **Capture gain.** The kernel driver defaults the capture PGA to +16 dB, which
   clips the first loud word. 12 dB (`24`) with AGC off was the level used in the
   first device test.
-- **Unity codec, volume in software.** Playback DAC and output stages are set to
-  0 dB and loudness is controlled by the PipeWire sink. Mixing codec gain with
-  software gain is what made the first test tone inaudible.
-- **Two outputs, both live.** The HAT's 3.5 mm jack (HPLOUT/HPROUT) and its JST
-  speaker connector (Line Out → TPA2005D1) are both enabled, so either works.
-  Measured 2026-11-15 with PipeWire stopped and a 1 kHz tone played to each tap in
-  turn: the speaker appears on **Line** (−21 dBFS at the microphone), and HP and
-  HPCOM are silent with nothing plugged into the jack. So the speaker path is
-  `Line DAC` → `Line`, and **a zero `Line DAC` is silence with every service
-  green** — the state the device was found in. `HP DAC` at 0 dB is for headphones
-  and is not what makes the speaker work.
+- **Native volume after a working mixer baseline.** The speaker worked with
+  `Line DAC` 106 and `Line` 3; a zero `Line DAC` caused silence even with services
+  running. Ordinary volume belongs at the selected PipeWire sink, not a guessed
+  codec gain. Percent is not acoustic loudness or a safety limit.
+- **Speaker tested; headphone path unverified.** Historical tap tests support
+  `Line DAC` → `Line` → amplifier → speaker. Silence at the on-board microphone
+  with nothing plugged into the jack does not prove the jack's routing or that
+  headphones work. `HP DAC` was recorded as **raw value 0**, not established as
+  “0 dB.” Read the [audio corrections](../../../docs/notes/2026-11-15-audio-and-enclosure-corrections.md)
+  before interpreting historical tone measurements.
 - **The stored mixer can drift from the script.** `alsactl store` saves whatever
-  is current, so a state saved before `11-mixer.sh` ran survives reboots. Re-run
-  the script after any manual `amixer` work, and check `Line DAC` first when the
-  device goes quiet.
+  is current, so a state saved before a correction can survive reboots. Inspect
+  the current mixer and saved state first; do not replay a script that may
+  overwrite deliberate user changes.
 
 ## Watchdogs
 
@@ -65,8 +69,10 @@ because systemd kept petting it.
 | `debra-health` timer, 2 min | "running but silent": dead user service, missing or muted sink, zero line gain | `~/.local/bin/debra-health` |
 | `Restart=always` | a service that exits, cleanly or not | the two user units |
 
-None of these fix a sagging 5 V rail. They turn an unexplained hang into a
-reboot and a silent device into a log line.
+These are historical mitigations, not proof of reliability or default Debra
+policy. James reports the replacement supply mostly resolved the instability.
+An undervoltage warning alone must not cause a reboot/reset; further Pi-5-only
+hardening is low priority. See the [current recovery scope](../../../docs/guides/device-backup.md).
 
 ## Known limits
 

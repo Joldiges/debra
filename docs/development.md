@@ -62,10 +62,14 @@ checkout can include ignored files even when Git does not. Never copy private
 device state into a factory image.
 
 Track sanitized recovery manifests/results in the test report, but keep private
-recovery payloads in `.local/`. This does not make a same-disk copy an independent
-backup. Agree a protected independent copy and demonstrate restoration before
-risky device changes; no backup coverage or restore success is established by
-creating this directory. Do not overwrite or prune recovery points.
+recovery payloads in `.local/`. Before risky device changes, establish coverage
+and demonstrate restoration of the affected files. Under James's
+[current bounded recovery scope](project-brief.md#updates-snapshots-and-recovery),
+on-target file backup/restore is sufficient now: whole-SD imaging,
+replacement-media testing and a second destination are deferred, not gates for
+browser controls or unrelated work. A same-card copy cannot recover a dead card;
+creating a directory proves neither coverage nor restoration. Do not overwrite
+or prune recovery points.
 
 Workers receive sanitized task context by default. If a device task needs
 private access, the coordinator assigns the exact target, operations, and local

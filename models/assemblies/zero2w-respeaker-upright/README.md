@@ -6,13 +6,15 @@ component positions on both boards are estimates, and nothing here is
 print-ready or fit-tested.
 
 > **The driver in this model is a stand-in.** It is the Adafruit 3968 Ø40 × 21 mm
-> envelope, which is not one of the three speakers James selected. The parts he
-> will actually buy are DWEII enclosed modules —
-> [44 × 28 × 15 and 65 × 30 × 15](../../components/dweii-speakers/README.md).
-> A 44 mm module is much smaller than a Ø40 driver and does not need a sealed
-> chamber, so **this arrangement is probably not the right one for the chosen
-> speaker**; a compact horizontal case is. This model is kept as the study of the
-> inverted-T idea and as the height reference for a bare-driver build.
+> envelope, which is not the speaker James selected. The current target is a
+> reconstruction of the original square-speaker enclosure, not this layout. If a
+> DWEII housed module —
+> [44 × 28 × 15 or 65 × 30 × 15](../../components/dweii-speakers/README.md) —
+> were used instead, the 44 mm one is much smaller than a Ø40 driver while the
+> 65 mm one is longer than it (and its depth is an assumption), and neither is
+> confirmed to need a sealed chamber, so **this arrangement would probably not
+> suit them**. This model is kept as the study of the inverted-T idea and as the
+> height reference for a bare-driver build.
 
 Editable SolidCraft source:
 [`zero2w-respeaker-upright.sc`](zero2w-respeaker-upright.sc).

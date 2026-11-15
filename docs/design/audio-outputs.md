@@ -1,5 +1,17 @@
 # Audio outputs: choosing, and playing to all of them
 
+> **Historical design exploration, not current instructions.** The conclusions
+> below include superseded/unsupported claims. Read
+> [the correction note](../notes/2026-11-15-audio-and-enclosure-corrections.md)
+> first. The headphone tap remains unverified; no `debra-audio` CLI exists;
+> announcement fan-out is a proposal, not an adopted default. Native browser
+> volume uses [one explicitly selected sink](../../control/web/README.md).
+> Tone/microphone measurements do not prove speech level, safety or inaudibility.
+> The experiments below **did generate sound** despite “nothing audible” wording;
+> do not repeat them under the current silent-investigation constraint.
+> The earlier power-fault description is historical; James reports improvement
+> after changing the supply.
+
 James asked for this on 2026-11-15: *"the user should be able to easily select
 which outputs it runs on — or maybe even on 'all' at once such that any one
 plugged in will be had."*
@@ -42,10 +54,14 @@ Two consequences:
   gain. The mixer script sets it; the *stored* `alsactl` state had drifted, and a
   state saved before the script ran survives every reboot. Check the line gain
   before anything else, and note that `HP DAC` is not the speaker's control.
-- **The codec taps are already an "all" switch.** Enabling `Line` and `HP` at
-  sane gains costs nothing and makes a plugged-in headphone work without
-  software noticing. That is the cheapest half of what James asked for, and it
-  is why the headphone tap is left at 0 dB even though nothing is in the jack.
+- **The codec taps are plausibly an "all" switch — unverified.** Enabling `Line`
+  and `HP` at sane gains *should* make a plugged-in headphone work without
+  software noticing, which would be the cheapest half of what James asked for.
+  Nothing has been plugged into the jack on this HAT, so the routing is a
+  hypothesis, not a fact. The mixer script writes `0dB` for the headphone tap;
+  what the device stored was raw `0`, and those two have not been shown to be the
+  same setting — see
+  [the correction note](../notes/2026-11-15-audio-and-enclosure-corrections.md).
 
 ## Layer 2: one sink, or all of them
 

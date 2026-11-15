@@ -4,9 +4,11 @@ These catch the failure that made the first device comparison unusable: a cell
 citing a source key that nothing defines.
 """
 
+import hashlib
 from pathlib import Path
 import re
 import unittest
+from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,6 +75,64 @@ class RelativeLinkTests(unittest.TestCase):
                     continue
                 path = (page.parent / target.split("#", 1)[0]).resolve()
                 self.assertTrue(path.exists(), f"{page.name} links to missing {target}")
+
+
+class FrontDoorTests(unittest.TestCase):
+    """Keep the beginner routes connected without checking archived dead links."""
+
+    def test_entrypoint_links_and_heading_fragments_resolve(self):
+        pages = (
+            "README.md", "docs/README.md", "docs/guides/getting-started.md",
+            "control/web/README.md", "tools/device/lab-pi5/README.md",
+        )
+        for name in pages:
+            page = ROOT / name
+            for target in MARKDOWN_LINK.findall(page.read_text()):
+                url = urlsplit(target)
+                if url.scheme or url.netloc:
+                    continue
+                path = (page.parent / unquote(url.path)).resolve() if url.path else page
+                with self.subTest(page=name, target=target):
+                    self.assertTrue(path.exists(), f"{name} links to missing {target}")
+                    if url.fragment and path.suffix == ".md":
+                        self.assertIn(unquote(url.fragment), self.heading_ids(path))
+
+    @staticmethod
+    def heading_ids(page):
+        # Scoped to these guides' plain ATX headings; skip fenced examples.
+        ids = set()
+        fenced = False
+        for line in page.read_text().splitlines():
+            if line.startswith("```"):
+                fenced = not fenced
+            if fenced:
+                continue
+            match = re.match(r"^#{1,6}\s+(.+?)(?:\s+#+)?$", line)
+            if match:
+                slug = re.sub(r"[^\w\- ]", "", match[1].lower()).replace(" ", "-")
+                unique = slug
+                suffix = 0
+                while unique in ids:
+                    suffix += 1
+                    unique = f"{slug}-{suffix}"
+                ids.add(unique)
+        return ids
+
+    def test_readme_routes_to_getting_started_and_preserved_history(self):
+        links = MARKDOWN_LINK.findall((ROOT / "README.md").read_text())
+        self.assertIn("docs/guides/getting-started.md", links)
+        self.assertIn("docs/archive/readme-research-before-2026-11-15.md", links)
+
+    def test_historical_readme_section_is_preserved(self):
+        # Original README at ac2298c, from "# Historical research notes" onward.
+        # Only trailing whitespace is normalized; wording/URLs must not drift.
+        text = (ROOT / "docs/archive/readme-research-before-2026-11-15.md").read_text()
+        section = text.split("# Historical research notes", 1)[1]
+        normalized = "\n".join(line.rstrip() for line in section.splitlines()) + "\n"
+        self.assertEqual(
+            hashlib.sha256(normalized.encode()).hexdigest(),
+            "1cbe7520a5d95f3d2b63e9bbc07bbe8d1d571a63a0441ca17109b7603aa205eb",
+        )
 
 
 IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)")

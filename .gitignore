@@ -17,3 +17,7 @@
 # unsorted
 *.lock
 *.bak
+
+# Python bytecode
+__pycache__/
+*.pyc

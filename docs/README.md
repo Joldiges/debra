@@ -8,10 +8,11 @@ evidence. Do not maintain competing "human" and "AI" versions.
 
 | Read | Why |
 | --- | --- |
+| [Getting started](guides/getting-started.md) | Current progress, how the pieces fit, and separate newcomer/existing-device/builder paths |
 | [Project brief](project-brief.md) | What James wants; requirements are not proof of implementation |
 | [Roadmap](roadmap.md) | Current packets, prerequisites, and acceptance; not permission to operate devices |
 | [Task chains](task-chains.md) | “Any chain” / named-chain worker entrypoint, atomic claims, workspaces, and handoffs |
-| [AI workflow](ai-workflow.md) | Coordinator/worker roles, task scope, review, and integration |
+| [AI workflow](ai-workflow.md) | Coordinator/worker roles, the operating model as practised, task scope, review, and integration |
 | [AI model and provider strategy](ai-model-strategy.md) | Named role selections, allowance priorities, paid Flex choices, costs, and unresolved quota/connection gaps |
 | [Evidence conventions](evidence.md) | Sources, uncertainty, compatibility claims, and test records |
 | [Development workspace](development.md) | Private storage, reuse, provenance, and contribution boundaries |
@@ -21,17 +22,21 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [F01/F05 readiness](testing/results/2026-11-14-ai-readiness.md) | Baseline closure, partial permission evidence, unresolved extra file and closed dispatch |
 | [F05 source-test feasibility](testing/results/2026-11-15-f05-source-feasibility.md) | Version-pinned upstream test helpers, interception pitfalls and missing isolated runtime; no new executed permission coverage |
 | [Pi 5 + ReSpeaker v2 audio result](testing/results/2026-11-15-pi5-respeaker-v2-audio.md) | First device-tested audio: overlay built and persisted, mixer traps, measured speaker→microphone path; one specimen |
-| [Lab Pi 5 voice + Sendspin result](testing/results/2026-11-15-lab-pi5-lva-sendspin.md) | Pinned linux-voice-assistant satellite and Sendspin player on the lab Pi; a spoken wake word → reply ran end to end once the shared sink volume was found at 9 %; supply sags under load |
-| [Lab Pi 5 audio levels](testing/results/2026-11-15-lab-pi5-audio-levels.md) | Sink volume against measured microphone level, for tests that must be quiet: 16 % is 20 dB below a normal reply, and `pw-play -a` silently plays nothing |
-| [Lab Pi 5 device scripts](../tools/device/lab-pi5/README.md) | Audio, mixer, satellite, player and power-mitigation scripts that build that device |
+| [Lab Pi 5 voice + Sendspin result](testing/results/2026-11-15-lab-pi5-lva-sendspin.md) | Pinned satellite/player and observed end-to-end reply; earlier power faults are historical, and James reports improvement with the replacement supply |
+| [Lab Pi 5 audio levels](testing/results/2026-11-15-lab-pi5-audio-levels.md) | Historical tone measurements; read the linked correction before using its arithmetic or conclusions; not authorization for audible testing |
+| [Lab Pi 5 device scripts](../tools/device/lab-pi5/README.md) | Historical audio/mixer/satellite/player bring-up references; not verified fresh-card replay or a blind execution sequence |
 | [3D models](../models/README.md) | Parametric SolidCraft part and assembly sources, each with renders in an `assets/` folder |
 | [Enclosure arrangements](design/enclosure-arrangements.md) | Why the flat stack read as a plank, the three arrangements, and the four-step path from component envelope to case part |
 | [HAT microphone research](research/2026-11-15-respeaker-microphone.md) | The HAT's microphones are top-port MSM321A3729H9BP, which decides which way the boards must face |
 | [Device backup](guides/device-backup.md) | What is at risk on the lab Pi, what has been archived, and what is still unproven |
+| [Browser controls](../control/web/README.md) | Reusable native-volume prototype: installation, trusted-LAN access, tests and isolated rollback; not a complete appliance |
+| [Web configuration scope](design/web-control.md) | Browser-first requirements and detailed coverage tied to roadmap WEB packets |
+| [Audio/enclosure corrections](notes/2026-11-15-audio-and-enclosure-corrections.md) | Incorrect volume arithmetic/safety inference, unverified headphone tap, nonexistent CLI and unsupported speaker-replacement conclusion |
+| [Pico and TTS review](research/2026-11-15-pico-and-tts.md) | Linux versus MCU support boundaries, OpenAI TTS Speed, Piper server-side length-scale and missing household provider evidence |
 | [Unattended runner](guides/scheduled-runner.md) | Queued, budgeted research tasks on a systemd user timer; instructions, not enforcement |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
-| [James's Fusion model](notes/2026-11-15-james-fusion-model-quality-bar.md) | His own RPiSpeaker v17 design as the finish reference: a slim back plate, not a box, and why the form cannot be copied with the chosen speaker module |
+| [James's Fusion model](notes/2026-11-15-james-fusion-model-quality-bar.md) | Original observations retained; speaker/form interpretations are superseded by the linked correction and James's reconstruction requirement |
 
 ## Where information belongs
 
@@ -44,12 +49,12 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/research/` | Task-specific, source-linked investigations and comparisons | Preliminary synthesis exists; full R01–R04/R07 packets remain open |
 | `docs/design/` | Requirements and reviewed decisions, with status made explicit | Enclosure requirements exist; architecture decisions remain planned under F02 |
 | `docs/comparisons/` | Curated hardware/software comparisons with evidence and scope | Device table, music-playback detail and a numbered source register exist; R05's "choose your path" guide remains open |
-| `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Planned; see R06 |
+| `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Getting-started, lab backup and runner guides exist; complete prepared-unit walkthrough remains R06 |
 | `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | AI-readiness result exists; device acceptance strategy remains T01 |
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
 | `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
-| `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Use only when needed; existing historical files are labeled in place |
-| `models/` | SolidCraft part and assembly sources, each folder with its own `README.md` and an `assets/` folder of renders | Pi 5 envelope, the three Pi Zero boards, the ReSpeaker HAT, ten speaker candidates and one reference stack exist; tray and case planned |
+| `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Original README research preserved; use only for historical investigation |
+| `models/` | SolidCraft part and assembly sources, each folder with its own `README.md` and an `assets/` folder of renders | Component envelopes, layout studies, tray, historical compact case and speaker carrier exist; none printed or fit-tested; `RPiSpeaker_v17` reconstruction remains unfinished |
 | `.local/` | Private operational records, raw logs, credentials, recovery payloads, and large local artifacts | Ignored; not shared project memory or an independent backup |
 
 Long reports belong with their subject, not in a second `verbose/` tree.

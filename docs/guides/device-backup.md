@@ -1,11 +1,17 @@
 # Backing up the lab Pi
 
-**Why this exists, what has actually been taken, and what has not been proven.**
-Written 2026-11-15, the night the device was browned out twice.
+**Current scope and historical archive evidence, updated 2026-11-15.**
 
-James asked why a card image was being pushed. The short answer: **the device has
-no backup at all, and the thing most likely to destroy it is the fault already
-happening.**
+James clarified that **on-target file-based backup/restore is sufficient now**.
+Whole-SD imaging, replacement-media testing and a second backup destination are
+deferred, not prerequisites for browser controls or unrelated engineering.
+Demonstrate restoration of the files a change affects; do not confuse archive
+creation/extraction with a successful device restore.
+
+James reports that changing the supply mostly resolved the instability.
+Earlier brownouts remain historical evidence, not a current fault diagnosis.
+An undervoltage warning alone should not trigger a reset; extensive Pi-5-only
+hardening is not the current priority.
 
 ## What is actually at risk
 
@@ -27,13 +33,13 @@ A reflash therefore costs the entire bring-up, and it is not certain that runnin
 the scripts again reproduces it — several were written *after* the device was
 working, from what had already been done by hand.
 
-## Why the risk is live rather than theoretical
+## Historical power risk and present limits
 
-The 5 V rail sags under load. A brownout during a card write is how SD cards die:
-the failure is not "the card needs a reboot", it is "the card is now
-unreadable", and then there is nothing left to diagnose. The device also hung
-once with `EXT4-fs orphan cleanup on readonly fs` in the boot log, which is the
-signature of an unclean shutdown.
+Earlier sessions observed resets and unclean-shutdown evidence, including an
+`EXT4-fs orphan cleanup on readonly fs` log. That is a reason to protect state,
+not proof that a card is damaged or every warning will cause a reset. Power loss
+can corrupt in-flight writes. Same-card rollback also cannot recover a failed
+card; accepting that limitation does not require imaging before every small change.
 
 ## What has been taken: a file-level archive
 
@@ -58,9 +64,10 @@ ssh <device> "sudo tar --numeric-owner --one-file-system --acls --xattrs -C / -c
 | Does not cover | Docker images, apt cache, swap, user caches |
 | Contains | Wi-Fi credentials from cloud-init and SSH host keys — **private, never commit** |
 
-**This is a file-level copy, not a disk image.** Restoring it means flashing a
-fresh Raspberry Pi OS, then unpacking over the top. That is a longer and less
-certain recovery than an image, which is the reason an image is still wanted.
+**This is a file-level copy, not a disk image.** It can supply selected files for
+a bounded restoration. Whole-root recovery onto new media would additionally
+need a compatible OS/layout, boot/root identity reconciliation and validation.
+Blindly unpacking it over a running root is not an approved restore procedure.
 
 ### The boot partition, taken separately
 
@@ -81,19 +88,24 @@ an overlay file present but not enabled is exactly the sort of thing a restore
 loses silently.
 
 
-## What an image would add, and what it costs
+## Deferred media-loss recovery
 
-| | File-level tar (taken) | Block image (wanted) |
+| | File-level tar (taken) | Offline block image (deferred) |
 | --- | --- | --- |
 | Needs the card in hand | no | **yes** |
-| Restore | flash fresh OS, then untar | write image, boot |
+| Proposed recovery, **unproven** | flash fresh OS, then untar — *not yet tried* | write image, boot — *not yet tried* |
 | Bootloader, partition table | not included | included |
-| `/boot/firmware` | **missing** | included |
-| Consistency | files can be caught mid-write | consistent |
+| `/boot/firmware` | included in the separate boot archive | included |
+| Consistency | live files may be caught mid-write | stable when captured offline; application/boot correctness still needs testing |
 | Time | minutes over the network | minutes with a reader |
 
-An image needs the card out of the Pi and a card reader on the host. That is the
-only step here that needs James, which is why the tar was taken first.
+Both recovery cells are **proposals, not procedures**. No restore has been
+performed: file selection, the device identities a fresh OS generates, boot
+layout and the actual recovery step all remain unvalidated. Treat the table as
+what each option *would* need, not as instructions to follow.
+
+An offline image normally needs shutdown and card-reader access. It is an
+optional later recovery route, not a present request for James to remove the card.
 
 ## What has been verified
 
@@ -122,13 +134,21 @@ error, so the archive is not truncated.
 - **The archive was taken from a running system**, so a few files (logs, the
   journal, anything being written) may be inconsistent. The six files above are
   not written by anything at runtime, which is why they were the ones checked.
-- **It has not been copied off this machine.** A backup on the same disk as the
-  work is not a backup of the work.
+- **No second destination has been demonstrated.** The host-held archive is
+  separate from the Pi card, but host-disk loss would lose this copy; it is not
+  independently backed up. Future on-target snapshots have the further
+  limitation that card loss also loses the snapshots.
 
 ## Next actions
 
-1. Copy both archives to a second location that is not this machine.
-2. Image the card when the Pi is next powered down and a reader is available —
-   the image covers the bootloader and partition table, which the tar does not.
-3. Test a restore end to end on a spare card. A backup that has never been
-   restored is still a hypothesis.
+1. Build bounded on-target file capture/list/verify/restore tooling with explicit
+   included paths, exclusions, identity/permission checks and space preflight.
+2. Demonstrate restoration of representative selected files and check the affected
+   component; preserve originals and failure evidence. Do not run historical
+   `backups/*.sh`, which use destructive root-level rsync.
+3. For the isolated browser service, use its
+   [retained-release/previous-unit rollback](../../control/web/README.md#stop-and-roll-back-without-touching-audio).
+   That component-specific path is not proof of whole-device restoration.
+
+Second-destination copies, offline imaging and spare-card boot restoration remain
+useful future choices under B05, not blocking work in this scope.

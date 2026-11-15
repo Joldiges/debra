@@ -1,8 +1,9 @@
-# Debra compact: the whole device in one file
+# Debra compact: one earlier concept of the whole device
 
-**A product assembly, not a part.** The case and the ReSpeaker HAT are *linked*
-designs; the Pi Zero 2 W and the speaker module are modelled inline as envelopes.
-Nothing here is printed or fit-tested.
+**A CAD assembly of an earlier concept, not a part and not the selected design.**
+The case and the ReSpeaker HAT are *linked* designs; the Pi Zero 2 W and the
+speaker module are modelled inline as envelopes. Nothing here is printed or
+fit-tested.
 
 Editable SolidCraft source: [`debra-compact.sc`](debra-compact.sc).
 
@@ -18,12 +19,13 @@ to "some assembly of those case parts for full products".
 
 ## What it looks like
 
-![Isometric view of the finished device: a box with rounded vertical corners and a rounded base, a stepped round speaker grille on the front, a slot in the left side, and a lid carrying two small microphone holes and an LED slot](assets/iso.png)
+![Isometric view of the concept assembly: a box with rounded vertical corners and a rounded base, a stepped round speaker grille on the front, a slot in the left side, and a lid carrying two small microphone holes and an LED slot](assets/iso.png)
 
-*The product. The round opening is the speaker, the left slot is the power inlet,
-and the two small holes in the lid are the microphone ports. The rounds on the
-corners and the shadow line under the lid are the only things that are purely
-appearance; see [the case's note on its shape](../../parts/dweii-671-case/README.md#why-it-looks-like-this).*
+*The concept assembly, rendered. The round opening is the speaker, the left slot
+is the power inlet, and the two small holes in the lid are the microphone ports.
+The rounds on the corners and the shadow line under the lid are the only things
+that are purely appearance; see
+[the case's note on its shape](../../parts/dweii-671-case/README.md#why-it-looks-like-this).*
 
 ![Front view: a wide rectangle with rounded corners and a single centred circular opening with a stepped rim](assets/front.png)
 

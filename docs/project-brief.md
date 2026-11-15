@@ -37,17 +37,26 @@ The destination:
 3. Establish a repeatable board-derived identity and hostname; clearly explain
    the hostname, connection details, and next action to the user.
 4. Once Wi-Fi and identity work, capture a recoverable pre-feature baseline.
-5. SSH in and run a simple entrypoint that opens setup/maintenance tooling.
+5. Open the device website, for example `debra-1234ca.local`, for ordinary setup
+   and maintenance. SSH/CLI/TUI remain developer/recovery alternatives, not a
+   requirement for normal configuration.
 6. Select hardware, enabled features, audio routing, supported wake-word options,
    music interruption behavior, and update preferences.
 7. Pair with the relevant Home Assistant/music services and run guided checks.
 8. Return to the same interface later for reconfiguration, component updates,
    diagnostics, snapshots, and restores.
 
-SSH and a few commands are acceptable. The user should not need to debug
+James refined this to **browser-first operation on 2026-11-15**; the earlier
+SSH/TUI-first journey is superseded for everyday use. The user should not need to debug
 drivers, Python dependencies, audio-server sessions, or network configuration.
 A KIAUH-like experience was an analogy for approachable tooling, not a request
 to copy its implementation or architecture.
+
+Native speaker volume is the immediate browser priority. Audio, Device, Health
+and Components form the initial page; preserve the thorough
+[web-configuration scope](design/web-control.md), including hardware selection,
+LED mapping, component settings/status, diagnostics, updates and recovery.
+Installed/enabled/configured/running/actually working must be distinguished.
 
 During development, Raspberry Pi Imager is an acceptable starting point.
 James reports previous Wi-Fi provisioning failures; investigate those rather
@@ -88,6 +97,9 @@ separately authorized.
 
 - The original Pi Zero W is an important full-support target. ARMv6 issues are
   work to investigate, not grounds to silently redefine it as music-only.
+- Use 32-bit OS variants for 32-bit boards and 64-bit for 64-bit boards.
+  Prefer pixi where suitable; uv is acceptable. A stdlib-only component need
+  not acquire a dependency manager just for uniformity.
 - Pi Zero 2 W is a leading candidate, not an irrevocable baseline. Availability
   is a selection factor.
 - A Pi 5 can accelerate development/builds, but success there is not evidence of
@@ -150,8 +162,13 @@ deliverables and separate fit/thermal/acoustic maturity labels.
 
 Distinguish modeled, physically fit-tested, and thermally/acoustically tested
 variants. A plausible render or successful CAD operation does not prove fit or
-audio quality. Model creation, printing, and device tests remain future work;
+audio quality. Component/concept CAD exists; printing and physical fit tests do not.
 see the [long-term model packets](roadmap.md#long-term-3d-models-and-enclosures).
+
+James's 2026-11-15 direction is to reconstruct `RPiSpeaker_v17`, retaining the
+existing square speaker and four-screw mounting, forward-facing speaker and
+microphones, desktop/wall use and an accessible topper. Earlier claims that a
+different speaker is required are not an accepted requirement or proven finding.
 
 ## Updates, snapshots, and recovery
 
@@ -173,6 +190,17 @@ see the [long-term model packets](roadmap.md#long-term-3d-models-and-enclosures)
   card. Clearly distinguish rollback, exported backup, and rescue/reflash.
 - Personal recovery points contain credentials; protect them and never
   distribute them as factory images.
+
+**Current scope, clarified 2026-11-15:** implement quick on-target file-based
+backup/restore and demonstrate the files can be restored. Whole-SD imaging,
+replacement-media boot tests and a second destination are deferred; they must
+not block browser controls or unrelated work. Keep the same-card/dead-card
+limitations visible without reinstating those deferred gates.
+
+James reports the changed supply mostly resolved the lab instability.
+Undervoltage is health information, not itself an instruction to reset.
+Extensive Pi-5-only hardening is low priority. Preserve earlier fault evidence
+as historical; do not describe it as a current measurement.
 
 The two existing rsync scripts are historical, destructive utilities, not an
 approved implementation of this recovery design.

@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -101,6 +102,10 @@ def _read_json(path: Path, default):
         return default
 
 
+def _valid_task_id(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", value) is not None
+
+
 def _write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -170,9 +175,11 @@ def acquire_lock() -> bool:
             except (OSError, ValueError):
                 owner = None
             alive = False
-            if isinstance(owner, int):
+            if type(owner) is int and owner > 0:
                 try:
                     os.kill(owner, 0)
+                    alive = True
+                except PermissionError:
                     alive = True
                 except OSError:
                     alive = False
@@ -208,6 +215,10 @@ def run_task(task: dict, cfg: dict, run_dir: Path) -> dict:
     """
     import threading
 
+    if not _valid_task_id(task.get("id")):
+        raise ValueError("invalid task id")
+    if not run_dir.resolve().is_relative_to(RUNS_DIR.resolve()):
+        raise ValueError("run directory outside runner state")
     model = task.get("model") or cfg["default_model"]
     agent = task.get("agent") or cfg["default_agent"]
     timeout_s = int(task.get("timeout_minutes", cfg["default_timeout_minutes"]) * 60)
@@ -302,6 +313,9 @@ def cmd_init(_args) -> int:
 
 
 def cmd_add(args) -> int:
+    if not _valid_task_id(args.id):
+        print("refusing: invalid task id", file=sys.stderr)
+        return 2
     ensure_layout()
     queue = _read_json(QUEUE_PATH, {"version": 1, "tasks": []})
     if any(t["id"] == args.id for t in queue["tasks"]):
@@ -384,6 +398,9 @@ def cmd_run(args) -> int:
     if task is None:
         print("queue empty")
         return 0
+    if not _valid_task_id(task.get("id")):
+        print("refusing: invalid task id", file=sys.stderr)
+        return 2
     remaining = budget_remaining(state, cfg)
     if remaining <= 0:
         print(f"daily budget exhausted (${spent_today(state):.4f} spent); not running")
@@ -466,7 +483,11 @@ def main(argv: list[str] | None = None) -> int:
     run.set_defaults(func=cmd_run)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+        print(f"runner unavailable ({exc.__class__.__name__})", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

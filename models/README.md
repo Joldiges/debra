@@ -10,6 +10,13 @@ them. Every folder here holds:
   assets/       renders of that source, shown in the README
 ```
 
+**Current direction, 2026-11-15:** reconstruct James's `RPiSpeaker_v17` with his
+retained square speaker/four-screw mounting, forward speaker/microphones,
+desktop/wall use and accessible topper. Earlier compact-box “product” and chosen-
+speaker labels below are historical concepts, not an accepted final design.
+See [the correction](../docs/notes/2026-11-15-audio-and-enclosure-corrections.md).
+Nothing here has been printed or fit-tested.
+
 A part is only useful if someone can see it and rebuild it. The README states
 which numbers are dimension-sourced and which are assumed, and the renders show
 what the model actually is — including the parts it does not have yet.
@@ -21,7 +28,7 @@ what the model actually is — including the parts it does not have yet.
 | [pi5-5-model-b](components/pi5-5-model-b/README.md) | Raspberry Pi 5 Model B envelope: 85 × 56 mm board, asymmetric hole pattern, 2×20 header, USB-C, 2× micro-HDMI, 2× USB-A, Ethernet, microSD | Outline, holes and which edge each port is on are dimension-sourced; **connector sizes, heights and along-edge offsets are typical values, not measured** |
 | [pi-zero-family](components/pi-zero-family/README.md) | Pi Zero v1.3, Zero W and Zero 2 W in one design: 65 × 30 mm board, 58 × 23 hole pattern, header, connectors, wireless can per variant | Outline, holes and header sourced; **connector positions, can heights and thickness approximate** |
 | [respeaker-2mic-hat](components/respeaker-2mic-hat/README.md) | ReSpeaker 2-Mics Pi HAT v2.0: board, socket underneath, jack, JST speaker, 2 mics, 3 LEDs, button | Board and holes from the HAT form factor; **every component position and height is an estimate** |
-| [dweii-speakers](components/dweii-speakers/README.md) | The three DWEII modules from the main README, as rectangular housings with a grille recess: 44 × 28 × 15 and 65 × 30 × 15 | **Seller claims, not measurements**; the third module is not modelled because no dimensions exist |
+| [dweii-speakers](components/dweii-speakers/README.md) | The three DWEII modules from the archived research notes, as rectangular housings with a grille recess: 44 × 28 × 15 and 65 × 30 × 15 | **Seller claims, not measurements**; the 65 × 30 × 15 module's depth is assumed from its sibling, and the third module is not modelled because no dimensions exist |
 | [speaker-candidates](components/speaker-candidates/README.md) | Ten driver envelopes (Adafruit, Visaton, Dayton) with bolt circles where published | Vendor dimensions only, **not measured**; two drivers have no fastener holes at all. Modelled as cylinders, so **not usable for cutting a pocket** |
 
 ## Assemblies
@@ -30,7 +37,7 @@ what the model actually is — including the parts it does not have yet.
 | --- | --- | --- |
 | [zero2w-respeaker-stack](assemblies/zero2w-respeaker-stack/README.md) | Pi Zero 2 W + ReSpeaker HAT stacked on a header, with a 40 mm driver beside them | **Reference assembly, CAD-only**: proves the stack clears itself and is ~21 mm tall; no tray, no case. **This is the flat layout James called ugly; it is kept as the height reference** |
 | [zero2w-respeaker-upright](assemblies/zero2w-respeaker-upright/README.md) | The same parts standing up, driver above the boards, on a rounded base — the inverted-T arrangement | **Reference assembly, CAD-only**: 75 × 40 × 78 mm. The driver is unsupported and the microphones' direction is assumed. **The driver is a stand-in, not a chosen part** |
-| [debra-compact](assemblies/debra-compact/README.md) | **The product**: the DWEII 671 case (linked) with the ReSpeaker HAT (linked) plus the Pi Zero 2 W and speaker module inside | **Assembly, CAD-only**: 71.02 × 54.37 × 33.2 mm, 20 bodies. No screws, no wiring, no board retention |
+| [debra-compact](assemblies/debra-compact/README.md) | **An earlier CAD concept, not the selected design**: the DWEII 671 case (linked) with the ReSpeaker HAT (linked) plus the Pi Zero 2 W and speaker module inside | **Assembly, CAD-only**: 71.02 × 54.37 × 33.2 mm, 20 bodies. No screws, no wiring, no board retention |
 | [zero2w-dweii-compact](assemblies/zero2w-dweii-compact/README.md) | The chosen DWEII 671 module facing forward, Pi and HAT flat behind it, on a concept plate | **Layout study, CAD-only**: 73 × 53 × 32 mm. No walls, no lid, no fastening; the microphone port positions are unknown, so the lid cannot be cut yet |
 
 ## Parts

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Debra · Device</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/">debra<span>DEVICE CONTROL</span></a><span id="connection" role="status">Connect to your device</span></header>
+  <main>
+    <section id="pair" class="card">
+      <p class="eyebrow">WELCOME</p><h1>Your device, within reach.</h1>
+      <p>Enter this device’s access key. It stays in this browser tab. Use this prototype only on a trusted local network.</p>
+      <form id="pair-form"><label for="key">Device access key</label><div class="row"><input id="key" type="password" autocomplete="off" required><button>Connect</button></div></form>
+      <p id="bypass-note" class="detail" hidden>This device is running with its access key switched off for development. Anyone who can reach it can change its volume.</p>
+      <button id="bypass" class="secondary" type="button" hidden>Continue without a key (development)</button>
+    </section>
+    <div id="dashboard" hidden>
+      <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div><button id="disconnect" class="secondary">Disconnect this tab</button></div>
+      <nav aria-label="Sections"><a href="#audio">Audio</a><a href="#device">Device</a><a href="#health">Health</a><a href="#components">Components</a></nav>
+      <section id="audio" class="card">
+        <p class="eyebrow">LIVE CONTROL</p><h2>Speaker volume</h2>
+        <p>Native device output · shared by speech and music</p>
+        <p id="output" class="detail"></p>
+        <label for="volume">Output level <strong id="volume-value">—</strong></label>
+        <input id="volume" type="range" min="0" max="100" step="1" disabled>
+        <div class="row"><button id="apply" disabled>Apply volume</button><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
+        <p class="detail">Moving the slider previews a value; Apply changes it. No test sound plays. Apply links all output channels; mute is separate. Percent is a native control setting, not a loudness or safety measurement.</p>
+      </section>
+      <div class="grid">
+        <section id="device" class="card"><p class="eyebrow">IDENTITY</p><h2>Hardware & system</h2><dl id="device-values"></dl><p class="detail">Selected HAT/speaker labels are retained information, not automatic compatibility checks.</p></section>
+        <section id="health" class="card"><p class="eyebrow">RIGHT NOW</p><h2>Health & resources</h2><dl id="health-values"></dl><div id="cores" class="cores"></div></section>
+      </div>
+      <section class="card"><p class="eyebrow">MEMORY EFFICIENCY</p><h2>Swap & compression</h2><dl id="swap-values"></dl><p class="detail">Swap I/O is system-wide pages/second—not a zram/zswap benchmark. Counters need two samples. zswap pool statistics require a future permitted collector; no root access is requested.</p></section>
+      <section id="components" class="card"><p class="eyebrow">SOFTWARE</p><h2>Components</h2><p>Service detection is separate from configuration and end-to-end health.</p><div id="component-list"></div></section>
+      <footer>Early reusable prototype · No updates, installs, restarts, Wi-Fi changes, LED writes, or automatic volume restoration.</footer>
+    </div>
+    <section id="devices" class="card" hidden>
+      <p class="eyebrow">KNOWN DEVICES</p><h2>One-stop access</h2>
+      <p>These links come from this server’s own device list. Each opens that device’s page directly; nothing is proxied or shared between them.</p>
+      <div id="device-links" class="device-links"></div>
+    </section>
+    <p id="error" role="alert"></p>
+  </main>
+</body>
+</html>

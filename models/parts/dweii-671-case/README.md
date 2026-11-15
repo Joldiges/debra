@@ -66,10 +66,10 @@ grille opening behind it; the Pi and the HAT lie behind the module; the two fron
 bosses sit in the free margin beside the speaker and the two rear ones are
 thickened into the back wall. This is what the case is for.*
 
-![The finished device with the lid on: a rounded box with a stepped round grille on the front and a slot in the left side](../../assemblies/debra-compact/assets/iso.png)
+![The concept assembly with the lid on: a rounded box with a stepped round grille on the front and a slot in the left side](../../assemblies/debra-compact/assets/iso.png)
 
 *Closed. The same object with the lid on — see the
-[product assembly](../../assemblies/debra-compact/README.md) for the other views.*
+[concept assembly](../../assemblies/debra-compact/README.md) for the other views.*
 
 `loaded.png` is shot from the assembly, because this design holds the case only
 and has no components to put in it.
@@ -203,7 +203,7 @@ browser.visibility({ items: ["Lid"], visible: true })
 ```
 
 `loaded.png` cannot be shot here: it comes from
-[the product assembly](../../assemblies/debra-compact/README.md), where the lid is
+[the concept assembly](../../assemblies/debra-compact/README.md), where the lid is
 a body that can be hidden:
 
 ```

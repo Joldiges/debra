@@ -13,18 +13,24 @@ and it is parts in space.
 
 ## Two corrections from the speakers James actually chose
 
-The three speakers in the [main README](../../README.md#speakers) are DWEII
-**enclosed modules**, not bare drivers: each has its own plastic housing and its
-own internal chamber. They are modelled in
+The three speakers in the
+[archived research notes](../../docs/archive/readme-research-before-2026-11-15.md#speakers)
+are DWEII **housed modules**, not bare drivers: each has its own plastic housing
+and its own acoustic openings. Whether each housing is a sealed chamber is
+unconfirmed — see [the known gaps](../../models/components/dweii-speakers/README.md#known-gaps).
+They are modelled in
 [dweii-speakers](../../models/components/dweii-speakers/README.md).
 
 That changes the reasoning above in two ways:
 
-1. **A case does not need to provide a back volume.** The Ø40 bare-driver model
-   was the reason the upright arrangement wanted a big sealed body. With a
-   module, the case only has to *carry* it — and it must **not** seal it, because
-   the module may have its own vents. A compact case is therefore viable, and the
-   tall inverted T is no longer the only answer.
+1. **A case probably does not need to provide a back volume — if the module is
+   sealed.** The Ø40 bare-driver model was the reason the upright arrangement
+   wanted a big sealed body. A housed module may already be acoustically closed,
+   in which case the case only has to *carry* it and must **not** seal it, because
+   the module may have its own vents. Whether each module is actually sealed is
+   unconfirmed, so the other branch is real too: an open-frame module would need
+   the pocket itself to be sealed, which changes the part entirely. Both remain
+   possible until someone measures a module.
 2. **The right shape to design around is a rectangle.** The
    [speaker-candidates](../../models/components/speaker-candidates/README.md)
    envelopes are cylinders, which is the cone and not the housing. A pocket cut
@@ -44,7 +50,7 @@ should, and that is the intended pipeline:
 | 1. Component envelope | `models/components/*` — the space each part occupies | yes; the HAT's positions are now **sourced from Seeed's board file**, not estimated |
 | 2. Carrier / cavity part | a printable part whose pocket is the envelope plus clearance | yes: the [DWEII carrier](../../models/parts/dweii-671-carrier/README.md) |
 | 3. Case shell | walls, baffle, openings, cable exits | yes: the [DWEII 671 case](../../models/parts/dweii-671-case/README.md), a tub and lid |
-| 4. Product assembly | case parts + components in one file, showing the finished device | yes: [debra-compact](../../models/assemblies/debra-compact/README.md), with the case and the HAT linked |
+| 4. Product assembly | case parts + components in one file, showing the assembled concept | yes: [debra-compact](../../models/assemblies/debra-compact/README.md) — an **earlier concept**, not the selected design, with the case and the HAT linked |
 
 Step 2 is where the envelope earns its keep: the pocket is derived from the
 envelope, not guessed, so correcting a component dimension changes the part. The

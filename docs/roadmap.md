@@ -22,8 +22,9 @@ The eventual device has these responsibilities, not yet implemented packages:
 ```text
 Prepared standard image
   -> first-boot identity + Wi-Fi/account onboarding
-  -> device-specific baseline recovery point
-  -> shared configuration / setup-and-maintenance CLI + TUI
+   -> device-specific baseline recovery point
+   -> shared configuration / browser-first setup and maintenance
+        -> CLI + SSH-friendly TUI for development/recovery
        -> HAT and audio configuration
        -> voice adapter -> existing Home Assistant
        -> music adapters -> documented music server(s)
@@ -86,7 +87,8 @@ owns live local claims. Neither advances work merely because a worker submits.
 Status meanings: `done` = linked deliverable and verification;
 `ready` = can start without another packet, not necessarily authorized;
 `blocked` = dependencies outstanding. All implementation/physical validation
-below is unstarted.
+must be judged from linked evidence; lab tooling/prototypes do not complete
+the appliance packets.
 
 ## First parallel wave
 
@@ -122,7 +124,7 @@ pilot, and no workers edit the shared integration checkout.
 | G1: agreed contracts | F01–F04, F02's research dependencies, and T01 are complete; interfaces, source layout, test policy, and license proposal are recorded. Licensing approval need not block research. | Hardware comparisons, ARMv6 dependency experiments in isolated environments |
 | G2: recoverable lab device | L01, N02/N03/N05, B02/B03, and a baseline A01 check pass on an authorized device. | Control-core fixture tests, image design, sourced alternative guides |
 | G3: working integrated slice | Core setup, one HAT, V02, M01, A03, T02, and basic U01 pass. Repeatable install/reconfigure/reboot and a tested rollback exist. | ARMv6 fixes, other HATs, Snapcast, wider comparisons |
-| G4: parent-facing candidate | Image/onboarding, usable TUI, recovery/rescue, update choices, compatibility evidence, and T03–T05 pass. | Additional variants and experiments, clearly outside the supported matrix |
+| G4: parent-facing candidate | Image/onboarding, usable browser configuration, maintenance TUI, recovery, update choices, compatibility evidence, and T03–T05 pass. | Additional variants and experiments, clearly outside the supported matrix |
 
 Do not call G3/G4 complete for the original Zero W because a Zero 2/Pi 5 passed.
 If ARMv6 remains blocked, label any other-board candidate accurately and keep
@@ -141,7 +143,7 @@ from software compatibility.
 | F02 / blocked | R04, N01, B01, Z01 | Minimal architecture decision in `docs/design/architecture.md`: native versus containers by platform, configuration authority, privilege boundary, component lifecycle, audio owner, and image relationship. Choose the smallest suitable stack; do not assume Docker works on ARMv6. Specify lightweight CLI/TUI approach rather than building a generic plugin framework. |
 | F03 / blocked | F01, F02, T01 | Establish actual source/test layout, shared component/config interfaces, and developer verification commands. Implement R04's selected dependency mechanism, including tracked submodules where justified, consistent source pins, fresh-clone/worker/CI initialization, and source packaging. Decide test/lint dependencies and command order; safe default checks must never require root, hardware, Wi-Fi, or network mutation. Keep networked dependency setup separate from offline checks. Update AGENTS with commands that really run. |
 | F04 / ready | F00 | License/provenance proposal: permissive Debra license (MIT candidate), copyright attribution, and separate obligations for upstream code, scoped patches/forks, models, firmware, wheels, and OS/image distribution. Identify contribution requirements; do not assign unsupported copyrights or relicense third-party files. |
-| F06 / ready | F01 | **Scope the agent's permission relaxation to this project.** On 2026-11-15 James chose allow-all shell to stop per-command approvals, and that was applied globally in the chezmoi-managed OpenCode config so it affects every project and both operating systems. Intended end state: Debra's relaxation lives in Debra's own configuration, the global default returns to asking, and the change is verified by observing an actual prompt and an actual non-prompt in the same session. Note OpenCode's rule ordering: lower-priority configuration is loaded first and global is appended after, so a project file cannot loosen a global `ask`; the global ask must be removed, not overridden. Deliverable: a reviewed config change, a recorded before/after observation, and an updated decision entry. No credential or device scope change. |
+| F06 / ready | F01 | **Scope the agent's permission relaxation to this project.** On 2026-11-15 James chose allow-all shell to stop per-command approvals, and that was applied globally in the Linux OpenCode configuration, so it affects every project on this machine. The Windows configuration was **not** changed and still asks (shared decision 18); do not describe the relaxation as covering both systems until each configuration is read and reconciled. Intended end state: Debra's relaxation lives in Debra's own configuration, the global default returns to asking, and the change is verified by observing an actual prompt and an actual non-prompt in the same session. Note OpenCode's rule ordering: lower-priority configuration is loaded first and global is appended after, so a project file cannot loosen a global `ask`; the global ask must be removed, not overridden. Deliverable: a reviewed config change, a recorded before/after observation, and an updated decision entry. No credential or device scope change. |
 | F05 / ready | F01 | **Partial, not accepted; production dispatch closed.** [Readiness evidence and missing coverage](testing/results/2026-11-14-ai-readiness.md): documentation pilot reviewed/integrated; actual synthetic read/edit/write denials observed, but patch/alternate-route/intercepted-backend evidence and claim-specific policy acceptance remain missing. Finish the low-risk pilot under the [approved coordinator mandate](ai-workflow.md#approved-coordinator-mandate): verify fresh context, branch/worktree/base, permitted edits, prohibited scope/shell/MCP/nested delegation, handoff, separate review and integration checks without credentials/devices. Record effective permissions and limits; fail closed. `ready` means its F01 dependency is met, not that this gate passed or dispatch may open. No automatic routing, isolation or merge enforcement is claimed. |
 
 ## Research, inventory, and user documentation
@@ -173,7 +175,7 @@ from software compatibility.
 | N03 / blocked | N02, F03, L01 | Idempotent first-boot identity/account/SSH preparation. Generate unique host keys/machine identities on each device, exclude builder keys/secrets from images, and present clear connection instructions. Define safe user authentication without shipping a universal admin password. |
 | N04 / blocked | N01, N03, B03 | Implement selected onboarding on a leased board; test initial connection, wrong password, interrupted setup, existing-network outage, reconfiguration, and AP shutdown after success. Prevent an open unattended administration portal. Never test by changing the household router. |
 | N05 / blocked | N03, N01, L01 | Document/test the short-term Imager-to-SSH development path independently of the future portal. Record actual OS/customization behavior and failure recovery, including hostname/mDNS fallback. Do not make portal completion block every other hardware experiment. |
-| N06 / ready | F00 | **Headless provisioning reliability.** Raspberry Pi Imager customisation (username, password, Wi-Fi, SSH) reported as not applied by the operator on 2026-11-15 (Imager 2.0.12 Flatpak, Pi OS Lite 2026-10-06, Trixie), requiring console access. Separate the two failure layers: files never written to the card, versus files written but not consumed because Pi OS cloud-init reads the FAT `/boot/firmware` before it is mounted (upstream issue; Imager 2.0.7+ mitigates its side, OS-side fix unconfirmed). Distinguish Imager 1.x distro packages (wrong `init_format` for Trixie), the community Flatpak build, and vendor AppImage/deb. Deliverable: `docs/testing/results/` record of a mounted-card inspection and a **control flash written with the vendor AppImage**, plus a documented reliable headless path (generated `user-data`/`network-config`, or `rpi-preseed` if it matures) that Debra can use instead of relying on Imager customisation. James chose the Raspberry Pi Ltd AppImage over the Flathub repackage on 2026-11-15: the vendor ships AppImage and deb only, and the sandboxed community build adds a variable to a bug under investigation. No host tooling changes without agreement. **Progress 2026-11-15:** the `rpi-preseed` half is answered — it is a 0.2.1 prototype that no current image ships, so cloud-init stays for now; see [the evaluation](../research/2026-11-15-rpi-preseed.md). Still open: the mounted-card inspection and the vendor-AppImage control flash. |
+| N06 / ready | F00 | **Headless provisioning reliability.** Raspberry Pi Imager customisation (username, password, Wi-Fi, SSH) reported as not applied by the operator on 2026-11-15 (Imager 2.0.12 Flatpak, Pi OS Lite 2026-10-06, Trixie), requiring console access. Separate the two failure layers: files never written to the card, versus files written but not consumed because Pi OS cloud-init reads the FAT `/boot/firmware` before it is mounted (upstream issue; Imager 2.0.7+ mitigates its side, OS-side fix unconfirmed). Distinguish Imager 1.x distro packages (wrong `init_format` for Trixie), the community Flatpak build, and vendor AppImage/deb. Deliverable: `docs/testing/results/` record of a mounted-card inspection and a **control flash written with the vendor AppImage**, plus a documented reliable headless path (generated `user-data`/`network-config`, or `rpi-preseed` if it matures) that Debra can use instead of relying on Imager customisation. James chose the Raspberry Pi Ltd AppImage over the Flathub repackage on 2026-11-15: the vendor ships AppImage and deb only, and the sandboxed community build adds a variable to a bug under investigation. No host tooling changes without agreement. **Progress 2026-11-15:** the `rpi-preseed` half is answered — it is a 0.2.1 prototype that no current image ships, so cloud-init stays for now; see [the evaluation](research/2026-11-15-rpi-preseed.md). Still open: the mounted-card inspection and the vendor-AppImage control flash. |
 
 ## Shared control core and maintenance UI
 
@@ -188,13 +190,34 @@ not a requirement to choose a particular programming language or framework.
 | C04 / blocked | C03, B02, U01 | Lightweight SSH-friendly TUI: feature selection, reconfiguration, status, updates, per-tool update policy, snapshots/restores, and diagnostics. Explain prerequisites/reboots; test small terminals and interrupted sessions. No second implementation of business logic. |
 | C05 / blocked | C02, L02 | Sanitized diagnostics/health reporting: active components, pinned versions, services, audio devices, network reachability, and actionable errors. Exclude credentials/recorded microphone content; do not automatically upload bundles. |
 
+## Browser-first device control
+
+James's 2026-11-15 refinement supersedes SSH/TUI-first normal operation.
+Detailed coverage and failure cases live in [web control](design/web-control.md).
+These are coordinator-scoped packets, not prepared taskchain starter cards or
+permission for device operations. Broader C/F architecture work does not block
+a bounded, separately reviewed native-volume slice.
+
+| ID / state | Depends on | Deliverable and acceptance |
+| --- | --- | --- |
+| WEB01 / prototype | Named target/recovery before deployment | [Reusable native-volume service/UI/installer](../control/web/README.md): explicit selected native sink, slider preview + Apply, independent mute, no startup/poll/install audio writes or sounds; local authenticated status; offline and real-browser tests. Deployment and actual device rollback need separate evidence; not complete yet. |
+| WEB02 / ready | N02/N04 for final onboarding | Device address/identity, friendly room name, IP fallback and browser enrollment/access revocation; ordinary operation without SSH. Do not make full onboarding block use of a verified existing lab hostname. |
+| WEB03 / ready | A01/A02 evidence before writes | Board/HAT selection, retained speaker information, detected-versus-selected hardware and actionable driver/compatibility/reboot state. Unknown is not auto-detection or a replacement recommendation. |
+| WEB04 / ready | Read-only detection independent; C02 for lifecycle writes | LVA/Sendspin/Snapcast/Bluetooth-proxy state: installed, enabled, configured, running, connected and working separately; exact versions, prerequisites, errors and server ownership. |
+| WEB05 / blocked | A02/A03, V03, M01/M03/M04 for respective writes | Supported audio routing/output “all” options, capture/wake/runtime settings, pairing, duck/pause/resume and reply cancellation; preserve user changes and verify group effects/late events. |
+| WEB06 / blocked | A04 | Selectable three-LED profiles/event/color/brightness mapping plus supported physical button/mute actions; cosmetic versus actual mute explicit; safe apply/rollback. |
+| WEB07 / ready | Collectors per board; C05 | CPU/per-core, RAM/storage, Wi-Fi, power/voltage, temperature, uptime and zram/zswap/swap counters with availability/freshness/units; sanitized diagnostics/trends, not synthetic “working” badges. |
+| WEB08 / blocked | C02, B02/B03, U01/U02 for respective writes | Browser maintenance: pinned/manual and per-component opt-in updates, plan/progress/errors/cancel/retry, on-target file capture/list/verify/restore and demonstrated rollback; deferred imaging/second-copy work is not a prerequisite. |
+| WEB09 / ready | WEB01 | Responsive accessible UI and browser security review; keyboard/mobile/error/stale states, trusted-LAN threat model, no secrets in logs/assets, no-write/race/failure tests; production transport/enrollment remains distinct. |
+| WEB10 / blocked | F02/F03/C01/C02 | Reuse-first shared browser/CLI/TUI operation/config authority; atomic validated changes, operation ownership, schema migration and recoverability without duplicating business logic. |
+
 ## HATs, audio, and interruptions
 
 | ID / state | Depends on | Deliverable and acceptance |
 | --- | --- | --- |
 | A01 / blocked | R01, R04, T01, L01 | Fresh baseline capture/playback inventory for exact HAT/kernel revisions on authorized boards. Record ALSA/PipeWire/Pulse roles, usable device identifiers, gains, routing, and required reboots. Save a small, safe-volume reproducible smoke procedure. |
 | A02 / blocked | A01, C02, B03 | Hardware profiles for tested ReSpeaker V1/V2 and WM8960 combinations, prioritizing what passes first. Separate kernel/overlay dependencies, avoid stale retry/install hacks, and prove boot-without-interactive-login operation. Unsupported revision choices fail with guidance, not guessed writes. |
-| A03 / blocked | A02, V02, M01, C01 | Implement/test configurable duck/resume and pause/resume across the actual separate voice/music processes. Preserve user-paused/muted state and changed volume; cover errors, overlapping announcements/timers, and multiroom implications. Upstream LVA internal-player docs are not the test. |
+| A03 / blocked | A02, V02, M01, C01 | Implement/test configurable duck/resume and pause/resume across the actual separate voice/music processes. Preserve user-paused/muted state and changed volume; cover errors, overlapping announcements/timers, and multiroom implications. Upstream LVA internal-player docs are not the test. **Missing control API is a backlog item, not a project blocker:** no verified Sendspin pause/resume or independent attenuation interface exists yet (MPRIS is disabled), and the settling test is a named-device probe of Sendspin's own control surface. Until then the setting is documented as unverified and everything else proceeds. |
 | A04 / blocked | A02, C02, V02 | Optional per-HAT peripheral mapping for status/buttons/mute/volume where hardware supports it. Document actual versus cosmetic microphone mute and unavailable capabilities. A HAT without LEDs/buttons is still a valid profile. |
 
 ## Voice integration
@@ -232,7 +255,7 @@ constraint to investigate, not a claim that success is impossible.
 **Naming collision to watch:** the unattended runner has a research task called
 `Z02-ARMV6-WHEELS`, which is *not* roadmap Z02. It produced the first
 dependency/instruction-set matrix — roadmap **Z01** material — and it is kept at
-[ARMv6 wheel availability](../research/2026-11-15-armv6-wheels.md). Z01 is not
+[ARMv6 wheel availability](research/2026-11-15-armv6-wheels.md). Z01 is not
 complete: that result covers Python packaging and ELF attributes, not the OS
 image contents, the non-Python audio stack, or anything running. Its two
 consequential findings are that the `linux_armv6l` wheel tag does not promise
@@ -246,13 +269,20 @@ Research backend candidates before choosing a filesystem or recreating a
 backup product. Speed matters, but incomplete/coherency-unsafe “snapshots”
 must not masquerade as restoration guarantees.
 
+Current priority is **on-target file-based rollback**, per James on 2026-11-15.
+Whole-SD imaging, replacement-media testing and a second destination are deferred
+and do not gate WEB01 or independent repository work. B03's current milestone is
+demonstrated restoration of the selected files with coverage and limits recorded;
+full boot/rescue/media-loss guarantees remain future validation. See
+[current backup scope and archive evidence](guides/device-backup.md).
+
 | ID / state | Depends on | Deliverable and acceptance |
 | --- | --- | --- |
 | B01 / ready | F00 | Compare CoW and incremental non-CoW approaches against real Pi layouts: boot/root coupling, storage overhead, consistent capture, live/offline restore, unbootable-root rescue, power loss, secret protection, and minimum-card capacity. Recommend a minimal first backend plus an exit path. |
 | B02 / blocked | B01, F03 | Backend interface/manifest and fixture-based capture/list/verify/restore tests. Record what is included/excluded, device compatibility, prerequisites, storage/mount identity checks, and interrupted-operation handling. Tests must not address host `/` or rely on the old rsync scripts. |
-| B03 / blocked | B02, L01, N03 | On disposable/authorized media, create and actually restore a pre-feature device baseline after Wi-Fi/hostname setup. Prove networking/SSH, identities, boot files, kernel/modules, and config are coherent afterward. Record duration and recovery path; a snapshot creation message is insufficient. |
+| B03 / blocked | B02, L01; N03 for first-boot baseline | Create/verify and actually restore a selected on-target file baseline with preflight, compatible identities/permissions and service/config checks. Record duration, exclusions, interruption/recovery behavior and exact restoration result; creation/extraction alone is insufficient. Broader boot/kernel coherence remains required before claiming whole-device recovery, not a blocker on a small web-component rollback. |
 | B04 / blocked | B03, C02 | Efficient incremental/pre-change snapshots, named protected baseline, capacity checks, and UI-ready progress/errors. Do not silently prune or overwrite recovery points; insufficient space must give an actionable safe stop. Test failed/interrupted capture and restore. |
-| B05 / blocked | B03, N05 | Rescue and off-device backup/export procedure, including dead-card/unbootable-root fallback. Keep local personal snapshot exports in `.local/snapshots/` with protected independent backup coverage; test a representative restoration to the intended target. Explain same-card rollback versus independent backup and identity handling when moving to a different board. |
+| B05 / blocked | B03, N05 | **Deferred priority:** later rescue/off-device export and replacement-media validation, including dead-card/unbootable-root fallback. Protect private exports and test restoration before claiming media-loss recovery; explain same-card limitations. Not a current imaging/second-destination gate. |
 
 ## Version management and updates
 
@@ -288,9 +318,11 @@ speaker + accessory combinations. His expanded
 [enclosure requirements](design/enclosures.md) call for a dedicated subagent,
 candidate-wide dimensional coverage, reusable parts and a useful variety of
 assemblies with wiring, microSD/power access and removable lids/grilles or cloth.
-This lane is outside the initial software critical path; no Debra CAD models or
-physical validation exist yet. The `models/` paths below are proposed
-deliverables, not existing tooling. Read-only dimensional preparation can run
+This lane is outside the initial software critical path; [CAD models](../models/README.md)
+exist but none is printed or fit-tested. James's current direction is original
+`RPiSpeaker_v17` reconstruction with the retained square speaker/four screws,
+desktop/wall use, forward speaker/microphones and accessible topper, not the
+earlier rejected compact box. Read-only dimensional preparation can run
 alongside research without marking these prerequisite-gated packets complete.
 
 | ID / state | Depends on | Deliverable and acceptance |

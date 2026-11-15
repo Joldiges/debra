@@ -3,157 +3,84 @@
 Affordable, configurable Home Assistant voice and synchronized-music devices,
 with practical setup tooling and source-linked hardware/software comparisons.
 
-**Status: planning and fresh-start development.** There is no supported Debra
-image, setup command, or maintenance TUI in this checkout yet. The old notes
-below are historical research, not current compatibility or purchasing advice.
+**Status: development preview, 2026-11-15.** One lab Pi has run voice and music.
+A browser-volume prototype and tested local tooling exist, but there is **no
+supported Debra image, complete installer or ready-to-use appliance** yet.
 
-## Project direction
+**[Start here: getting started](docs/guides/getting-started.md)** — what works,
+how the components fit, and separate paths for newcomers, existing-device owners,
+builders and contributors.
 
-- A prepared Raspberry Pi device that an ordinary user can connect to Wi-Fi,
-  configure over SSH, and maintain without debugging Linux.
-- Voice commands, timers/alarms, announcements, music, and synchronized multiroom
-  playback, with hardware-dependent controls and indicators.
-- Reuse and integrate good upstream projects, initially prioritizing SendSpin,
-  rather than reinventing them; consider scoped forks, upstream contributions,
-  and source submodules where useful, alongside documented alternatives.
-  PiCompose is a reference/reuse candidate, not a selected foundation.
-- Investigate alternative boards such as Orange Pi, including actual HAT
-  compatibility or suitable native/USB audio options; no support is claimed yet.
-- Several price tiers, including an approximately $40 goal when suitable cables,
-  storage, power, or a printed enclosure are already available.
-- Pinned/manual updates by default, optional component auto-updates, and tested
-  snapshots/rollback.
-- Long-term: AI + SolidCraft 3D models/enclosures for selected Pi, HAT, speaker,
-  and accessory combinations, with editable sources and physical validation.
+## What is Debra?
 
-## Start here
+Debra brings proven upstream projects together into an approachable Home Assistant
+speaker: voice commands and replies, music, understandable hardware choices, and
+eventually straightforward setup and recovery.
 
-| Document | Purpose |
+The intended starting point is **working Home Assistant plus an assembled,
+prepared Pi**. Everyday configuration should use the device's website, not SSH
+or Linux troubleshooting. Wi-Fi onboarding and a stable address such as
+`debra-1234ca.local` are goals, not working setup instructions today.
+
+| Piece | Role |
 | --- | --- |
-| [Documentation and project memory](docs/README.md) | Navigation, learning notes, evidence, and context-switch handoffs for people and AI |
-| [Task-chain dashboard](docs/task-chains.md) | 19 streams, “pick any” or named starters, atomic claims, workspaces, and review |
-| [Project brief](docs/project-brief.md) | Intentions, requirements, tradeoffs, and unresolved decisions |
-| [Agent work plan](docs/roadmap.md) | Parallel work packets, dependencies, deliverables, and acceptance |
-| [Evidence and sources](docs/evidence.md) | How claims, prices, compatibility, and test results are recorded |
-| [Development workspace](docs/development.md) | Ignored project-local storage, reuse/submodules, scoped forks, and upstream contributions |
-| [AI workflow](docs/ai-workflow.md) | Capable coordinator/reviewer, bounded lower-cost workers, worktrees, evidence, and review gates |
-| [AI model and provider strategy](docs/ai-model-strategy.md) | Sol/DeepSeek/Luna/Terra roles, subscription/Copilot allowances, paid Flex choices, and cost reporting |
-| [Legacy findings](docs/legacy-findings.md) | Useful old implementation leads and known traps |
-| [Agent instructions](AGENTS.md) | Compact operating context for AI contributors |
+| Home Assistant + Linux Voice Assistant | The Pi sends speech to HA's Assist pipeline and plays its reply; HA owns most speech-provider choices |
+| Music Assistant + Sendspin | A separate music server and receiver; Sendspin is the initial priority, with Snapcast retained as an alternative |
+| PipeWire + audio HAT + speaker | Shared device audio; ordinary volume controls the explicitly selected native output |
+| Debra browser controls | Prototype volume/mute and read-only status now; broader setup, settings and maintenance are TODO |
 
-No current hardware combination is claimed as validated by this documentation
-update. Repository visibility and licensing have not been changed; public image
-distribution needs a separate third-party license review.
+## Current progress
 
----
+| Area | Evidence / limits |
+| --- | --- |
+| Voice and music | One [Pi 5 + ReSpeaker 2-Mics v2](docs/testing/results/2026-11-15-lab-pi5-lva-sendspin.md) ran wake → HA → spoken reply and Sendspin music. Not a supported hardware matrix or endurance result. |
+| Browser prototype | [Selected-output volume/mute and status](control/web/README.md), with offline and synthetic Chromium tests. **Not yet deployment-verified.** Slider movement previews; Apply changes volume. No startup/poll/test sounds. Trusted-LAN HTTP only. |
+| Hardware/reference | [Sourced device comparisons](docs/comparisons/devices.md) and [music-path explanations](docs/comparisons/music-playback.md), not blanket compatibility or buying promises. |
+| Recovery | [Private file archives verified by extraction](docs/guides/device-backup.md); actual device restoration remains unproven. On-target file recovery is the current scope, not mandatory whole-SD imaging. |
+| Printable parts | [Editable CAD and renders](models/README.md). Nothing printed or fit-tested; original `RPiSpeaker_v17` reconstruction remains unfinished. |
 
-# Historical research notes
+Full original **Pi Zero W voice/music support remains an engineering goal**.
+Pi 5 success does not prove ARMv6 compatibility. Pi Zero 2 W is a candidate, not
+a permanent hardware lock-in. Other boards remain investigations.
 
-The following content predates the fresh-start plan. Prices, support claims,
-availability, and TODOs have **not** been revalidated.
+### Next milestones / TODO
 
-## Prebuilt Solutions
+- Verify the browser slice and isolated rollback on its named, authorized target.
+- Add device identity/Wi-Fi onboarding, hardware/component settings and honest
+  installed/enabled/configured/running/connected/working states.
+- Integrate selectable music duck/pause/resume, reply interruption and three-LED
+  profiles without overwriting user volume or paused state.
+- Demonstrate on-target file capture/restore and pinned/manual component updates.
+- Continue Zero W engineering and reconstruct the original enclosure around the
+  retained square speaker, with desktop/wall use and an accessible topper.
 
-| Device                                                                                  | Notes                                                                                                                         | Cost                                                                                                | Functions          | TODO                                                             |
-|-----------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|--------------------|------------------------------------------------------------------|
-| ~~[Atom Echo](https://www.home-assistant.io/voice_control/thirteen-usd-voice-remote/)~~ | EXTREMELY quiet speaker.  Acceptable as microphone-only and development.<br/> Minimal specs causing issue in ESP Home updates | [$14](https://shop.m5stack.com/products/atom-echo-smart-speaker-dev-kit)                            | Voice              |                                                                  |
-| Atom EchoS3R                                                                            | Assumed significantly better than the base Atom Echo                                                                          | [$15](https://shop.m5stack.com/products/atom-echos3r-smart-speaker-dev-kit?variant=46751279710465)  | Voice              | Need to test.<br/>Expected fixed updates and better speaker/mic. |
-| [Home Assistant Voice PE](https://www.home-assistant.io/voice-pe)                       | Generally poor quality speaker for the price.  Native device with priority support/development - though less open/clear (?).  | $69                                                                                                 | Voice<br/>SendSpin |                                                                  |
+The [roadmap](docs/roadmap.md) owns dependencies and acceptance. An approximately
+$40 reused-parts route is a target, not a current complete-kit price.
 
-## "Custom" Hardware
-A "custom" solution may generally be preferred.  Price to performance should be considerably better at ~\$35-50 per device (less if parts are already had).  Being Linux based, it'll be more flexible.  For example, a monitor can be hooked up as a home display or camera feed or an LCD module like the [LCD1602](https://www.amazon.com/dp/B0BV6NCJBM) as a basic clock.
+## Use or contribute
 
-### Platforms
-| Device                                                             | Notes                                                                                                                                         | Cost | Functions                                         |
-|--------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|------|---------------------------------------------------|
-| [Raspberry Pi 0 V1](https://rpilocator.com/?country=US&cat=PIZERO) | Linux-Voice-Assistant is capping CPU, needs resolved or configure as streaming, but almost (...) working<br/>RasPi OS Lite's wifi is broken.  | $16  | SnapCast<br/>SendSpin                             |
-| [Raspberry Pi 02](https://rpilocator.com/?country=US&cat=PIZERO2)  | Target device.  Less frequently in stock.                                                                                                     | $20  | Voice<br/>SnapCast<br/>SendSpin                   |
-|                                                                    |                                                                                                                                               |      |                                                   |
+| Start here | For |
+| --- | --- |
+| [Getting started](docs/guides/getting-started.md) | Current options, component diagram, existing-device and builder instructions |
+| [Browser prototype guide](control/web/README.md) | Scoped installation, authentication, upgrade verification and rollback; developer access still required |
+| [Documentation map](docs/README.md) | Comparisons, research, guides, evidence and dated handoffs |
+| [Project brief](docs/project-brief.md) / [roadmap](docs/roadmap.md) | Product requirements and bounded next work |
+| [Development guide](docs/development.md) / [AI workflow](docs/ai-workflow.md) | Reuse-first work, private storage, ownership and separate review |
+| [Task chains](docs/task-chains.md) / [model strategy](docs/ai-model-strategy.md) | Prepared worker assignments and model roles; editing dispatch remains closed pending F05 |
 
-### Speakers
+Safe local checks, from the repository root:
 
+```sh
+python tools/taskchain.py check
+python -B -m unittest discover -s tests -v
+```
 
-| Device                                               | Notes                                                                           | Cost  |
-|------------------------------------------------------|---------------------------------------------------------------------------------|-------|
-| [701715519671](https://www.amazon.com/dp/B0B4D1BN4F) | Minimal footprint                                                               | $2.50 |
-| [701715519664](https://www.amazon.com/dp/B0B4D2Z35P) | Effectively the same size as the Pi-Zero.  Negligible better sound              | $2.50 |
-| [701715520462](https://www.amazon.com/dp/B0BHST51PQ) | Significantly better audio than the other `DWEII` speakers, though much larger. | $3.50 |
+For the optional sandbox-enabled Chromium check, see
+[getting started](docs/guides/getting-started.md#contributor-work-without-hardware).
+Host tests do not operate devices or prove audio, ARMv6, physical fit or restore.
+Do not execute `backups/*.sh` as tests; their root-level rsync is destructive.
 
-### Audio Driver
-
-| Device                                                                                   | Notes                                                                                                                                                                     | Cost                                                             |
-|------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------|
-| [Waveshare WM8960 Audio Hat](https://www.waveshare.com/wm8960-audio-hat.htm)             | Arrives with Stereo version of the [701715520462](https://www.amazon.com/dp/B0BHST51PQ)<br/>Has male header pins, allowing for an added screen or other added above.      | [$19](https://www.waveshare.com/wm8960-audio-hat.htm)            |
-| Keyestudio ReSpeaker                                                                     | ReSpeaker V1                                                                                                                                                              | [$8](https://www.aliexpress.us/item/2251832715986197.html)       |
-| [reSpeaker 2-Mics Pi HAT V2.0](https://www.seeedstudio.com/ReSpeaker-2-Mics-Pi-HAT.html) | ReSpeaker V2.  [Distinguish V1 from V2.](https://wiki.seeedstudio.com/how-to-distinguish-respeaker_2-mics_pi_hat-hardware-revisions/).  Advertises higher quality output. | [$14](https://www.seeedstudio.com/ReSpeaker-2-Mics-Pi-HAT.html)  |
-
-### Cases
-TODO: Cases for Pi/Driver combos to be created and uploaded - or linked
-
-
-### Software Components
-
-#### Base OS
-- [Raspian / Raspberry Pi OS](https://www.raspberrypi.com/software/)
-
-#### Music Client / Receiver
-A key expectation for a home speaker system is the ability to play music **in sync** across multiple devices.
-
-#### [SnapCast Client](https://github.com/snapcast/snapcast)
-- Setup/Configured with the script [TODO]()
-- Older, mature platform.
-- TODO: Does it allow for delay adjustments?
-- Unsupported:
-  - Home Assistant Voice PE
-  - ESP32-based devices
-  - Non-Debian Linux Distros
-
-#### [SendSpin](https://www.music-assistant.io/player-support/sendspin/)
-- Has a Python implementation so it should generally be cross-platform.
-- Unsupported:
-  - ESP32-based devices (yet?  It's supported on HA Voice PE)
-  - Android Client (yet.  Python solution made with AI Slop should be quickly spun up)
-
-### Voice Assistant
-
-#### [Linux Voice Assistant](https://github.com/OHF-Voice/linux-voice-assistant)
-Interfaces via ESPHome protocol to Home Assistant.
-
-#### [Wyoming](https://github.com/rhasspy/wyoming-satellite) (deprecated)
-
----
-
----
-
----
-
-# Old Docs
-
-#### Budget (untested)
-| Device                                                                      | Ideal Cost  |
-|-----------------------------------------------------------------------------|-------------|
-| [Raspberry Pi 0W](https://www.raspberrypi.com/products/raspberry-pi-zero-w) | $16         |
-| [ReSpeaker 2-Mic](https://www.aliexpress.us/item/2251832715986197.html)     | $8          |
-| [MicroSD](https://www.aliexpress.us/item/3256810200208932.html)             | $3          |
-| Case                                                                        | $1          |
-| [Speaker](https://www.amazon.com/gp/product/B0BTP67F81)                     | $3          |
-| USB Charger and MicroUSB cord                                               | $3          |
-| --------------------------------------------------------------------------- | ----------- |
-| **Total**                                                                   | **$34**     |
- 
-
-#### Typical
-| Device                                                                                     | Ideal Cost   |
-|--------------------------------------------------------------------------------------------|--------------|
-| [Raspberry Pi 02W](https://www.raspberrypi.com/products/raspberry-pi-zero-2-w/)            | $20          |
-| [reSpeaker 2-Mics Pi HAT V2.0](https://www.seeedstudio.com/ReSpeaker-2-Mics-Pi-HAT.html)   | $14          |
-| [MicroSD](https://www.amazon.com/TEAMGROUP-Micro-UHS-I-SDHC-SDXC/dp/B09WRJJ419/ )          | $5           |
-| Case                                                                                       | $1           |
-| [Speaker](https://www.amazon.com/dp/B0BHST51PQ)                                            | $4           |
-| USB Charger and MicroUSB cord                                                              | $3           |
-| ------------------------------------------------------------------------------------------ | ------------ |
-| **Total**                                                                                  | **$47**      |
-
-Notes:
-1. The Raspberry Pi 0W is untested, but should (hopefully) work with the shift from Wyoming to Linux-Voice-Assistant.
-2. It seems the [reSpeaker 2-Mics Pi HAT V2.0](https://www.seeedstudio.com/ReSpeaker-2-Mics-Pi-HAT.html) is supposedly higher audio quality for $14 ($12 bulk) instead.
+Historical shopping notes are [preserved with provenance](docs/archive/readme-research-before-2026-11-15.md),
+not current advice. See [evidence conventions](docs/evidence.md) before relying
+on compatibility or price claims. Repository visibility/licensing are unchanged;
+publishing images needs separate third-party license review.

@@ -28,6 +28,47 @@ There was already high-level agent guidance; this adds the operational path.
 Instructions reduce mistakes but are not a security boundary. A capable model
 also needs tests, bounded authority, and review.
 
+## Operating model as practised (2026-11-15)
+
+James asked how work is actually run, because the written gates had started to
+read as if they blocked ordinary development. This section records the real
+model so another machine can resume it.
+
+- **One session is the coordinator, dispatcher and human front end.** This
+  session talks to James, chooses work, assigns it, reviews results and
+  integrates. No second dispatcher session is needed. A separate session is
+  only useful as an *independent reviewer* with fresh context.
+- **Subagents are the workers.** Bounded assignments run as subagent sessions
+  with a named model, an explicit file allowlist, a stated evidence format and
+  an instruction not to commit. Several run at once when their files do not
+  overlap. [activity.py](../tools/activity.py) is the live view of them.
+- **The taskchain registry is a different mechanism.** It coordinates *one
+  clone's linked worktrees* and lets another clone claim prepared cards. Its
+  "dispatch closed" state gates that registry, not the project. Coordinator-
+  assigned subagent work does not use it and does not need it opened. Do not
+  describe the closed registry as "development is blocked"; say which
+  mechanism is closed and what it actually gates.
+- **A missing capability is a backlog item, not a blocker.** "No verified
+  Sendspin pause/resume API" limits one control; it does not stop the rest of
+  the device, the browser, the docs or the enclosure. Record it as an open
+  question with what would settle it, and continue.
+- **A negative geometric result is a result.** If a source model contains no
+  four-screw speaker mount, that is an answer about that file, not a reason to
+  stop. Report what the file does contain, what it does not, and what evidence
+  would resolve the difference.
+- **Review is a gate on integration, not on exploration.** Unreviewed work may
+  be built, tested and shown; it is labelled unreviewed and is not presented as
+  accepted. James may choose to run it on the lab device before review; that
+  choice is recorded, not hidden.
+- **Model policy** lives in [ai-model-strategy](ai-model-strategy.md): capable
+  review, mid-cost documentation/mechanical work, cheap research workers. Do
+  not ask James to pick a model for routine work.
+- **Resuming from another machine** needs only this repository, the memory
+  foundation, and the private `.local/` state (access keys, runner queue,
+  review candidates) which is deliberately not in Git. Read
+  [the documentation map](README.md), then the current `docs/updates/` entry,
+  then [the activity snapshot](../tools/activity.py) to see what is in flight.
+
 ## Approved coordinator mandate
 
 James approved this project-specific operating scope in the conversation on

@@ -1,5 +1,10 @@
 # Pi 5 lab device: how loud the speaker has to be for a test to hear it
 
+> **Correction, 2026-11-15:** preserve the measurements below as historical, but
+> do not use the +6 dB arithmetic, inferred speech levels or “quiet/safe” settings.
+> See [the correction note](../../notes/2026-11-15-audio-and-enclosure-corrections.md).
+> No test tones or volume increases are currently authorized by this report.
+
 **Device-tested, single specimen, one room, 2026-11-15 04:00 UTC.** The device
 sits in a house with people asleep and a baby in it, so any automated test that
 plays a sound needs a volume that is low enough to be inaudible from the next
@@ -47,14 +52,22 @@ against: anything above about -60 dBFS is comfortably measurable, and 16 % is
 
 ## What to use
 
-- **16 % is the quiet setting for automated tests.** It measures -61 dBFS, about
-  20 dB below a normal reply, and it is the lowest step that was still a clear
-  signal rather than noise in all three runs.
-- **26 % is the safe setting** if the room is not silent: -49 dBFS is 40 dB above
-  the quietest noise floor measured here, which leaves room for a fridge, a fan or
-  a conversation in the next room.
-- **Do not go below 10 %.** At 8 % the signal is within a few dB of the ambient
-  noise in one run, and at 3–4 % the measurement is indistinguishable from it.
+> **Superseded, 2026-11-15:** the three bullets below are kept as the record of
+> what was measured, but the conclusions they drew are rejected — see
+> [the correction note](../../notes/2026-11-15-audio-and-enclosure-corrections.md).
+> They are **not** usable settings. The percentages came from one specimen, the
+> "quiet"/"safe" labels were inference rather than measurement, and nothing here
+> justifies choosing a level for another device or for a listening room.
+
+- **16 % was called the quiet setting for automated tests.** It measured -61 dBFS,
+  about 20 dB below a normal reply, and was the lowest step that was still a
+  clear signal rather than noise in all three runs.
+- **26 % was called the safe setting** if the room is not silent: -49 dBFS is
+  40 dB above the quietest noise floor measured here.
+- **The 10 % floor was a measurement conclusion, now superseded.** At 8 % the
+  signal was within a few dB of ambient in one run, and at 3–4 % it was
+  indistinguishable from it. That is what one specimen showed; it is not a
+  recommended minimum for any other device or room.
 
 ## Two things that made the first attempts wrong
 

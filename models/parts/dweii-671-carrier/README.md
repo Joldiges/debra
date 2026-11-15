@@ -28,8 +28,10 @@ where sound leaves; the four corner holes take M2.5 screws.*
 
 *Back. The module drops into the rectangular pocket from behind and is trapped
 between the baffle and whatever closes the case. **The pocket is open at the
-rear on purpose**: the module has its own chamber and possibly its own vents, so
-this part locates it and must not seal it.*
+rear on purpose**: if the module is a sealed housing, this part locates it and
+must not seal it; if it turns out to be an open-frame module, the pocket would
+have to be closed instead. Whether it is sealed is unconfirmed, so the rear
+opening is the current assumption, not a settled decision.*
 
 ## Measured envelope
 
@@ -69,7 +71,10 @@ behind it, or that 0.8 mm clearance is enough for a printed part.
   pocket is cut for 44, so a 31 mm module will rattle in it — deliberately, since
   a pocket cut for 31 cannot accept 44.
 - **The rear is open, and something has to close it.** This part is a carrier,
-  not a case wall. Whatever closes the back must not seal a vent.
+  not a case wall. What the back should do depends on the module that actually
+  arrives: its acoustic openings are unknown, and chamber status alone does not
+  settle whether the rear wants a vent, a seal, or neither. Leave the openings
+  clear and decide the rear treatment after measuring a module.
 - No gasket, no grille mesh, no retention for the 110 mm lead.
 - The screw holes go into nothing yet; there is no mating part.
 - **Not printed, not fit-tested.**

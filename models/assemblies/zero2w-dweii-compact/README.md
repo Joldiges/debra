@@ -9,9 +9,10 @@ Editable SolidCraft source:
 
 This is the arrangement the
 [enclosure reasoning](../../../docs/design/enclosure-arrangements.md) arrived at
-once two corrections landed: the chosen speakers are **enclosed modules** that a
-case must carry rather than seal, and the HAT's microphones are **top-port**, so
-its component side has to face open air.
+once two corrections landed: the chosen speakers are **housed modules**, which a
+case is expected to carry rather than seal (their chamber status is unconfirmed,
+so an open-frame module would change that), and the HAT's microphones are
+**top-port**, so its component side has to face open air.
 
 ## What it looks like
 

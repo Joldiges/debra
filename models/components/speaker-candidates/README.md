@@ -9,7 +9,8 @@ fastened at all.**
 > small speaker is a rectangular housing, and the housing — not the cone — is what
 > a case has to fit around. Use this folder to compare cone size and depth; use
 > [dweii-speakers](../dweii-speakers/README.md) to cut a pocket, because those are
-> the modules actually selected in the [main README](../../../README.md#speakers).
+> the modules actually selected in the
+> [archived research notes](../../../docs/archive/readme-research-before-2026-11-15.md#speakers).
 
 Editable SolidCraft source: [`speaker-candidates.sc`](speaker-candidates.sc).
 

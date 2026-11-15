@@ -18,8 +18,8 @@ each device is to doing it with vendor firmware alone.
 | M5Stack Atom VoiceS3R | **Sendspin**, in vendor YAML only | ESPHome **2026.10.0** per the YAML; the vendor's prose says 2026.1.0 | 48 kHz stereo `speaker_source`, FLAC or PCM | Music Assistant | `D` (code, not prose) [S22] |
 | ReSpeaker Lite (XIAO ESP32-S3) | **Sendspin** | XMOS I2S firmware ≥ **1.1.0** at 48 kHz, then a community ESPHome config | 48 kHz | Music Assistant | `D` + `R` [S25][S26] |
 | ESP32-S3-BOX-3 | none in stock firmware | — | — | — | `D` [S23]; one third-party firmware claims a player `R` [S24] |
-| Pi + ReSpeaker 2-Mics HAT (Debra's lab) | host software only: Snapcast client, squeezelite, shairport-sync, or MA Local Audio | depends on which one you install | 48 kHz card, host-decoded | Music Assistant **or** a Snapcast/Shairport server | `D` [S29][S30][S31][S32] |
-| ReSpeaker Lite (USB) | UAC2 sound card, no protocol | plug in | **16 kHz max** per the spec | host software, as above | `D` [S27][S28] |
+| Pi + ReSpeaker 2-Mics HAT (Debra's lab) | host software only: Sendspin client (**the one the lab ran**), Snapcast client, squeezelite, shairport-sync, or MA Local Audio | depends on which one you install | 48 kHz card, host-decoded | Music Assistant **or** a Snapcast/Shairport server | `D` [S29][S30][S31][S32]; Sendspin observed on the lab unit `T` |
+| ReSpeaker Lite (USB) | UAC2 sound card, no protocol | plug in | the Pi 5 guide pins a 16 kHz clock — a **configuration**, not a published hardware maximum | host software, as above | `D` [S28] |
 
 "Transport" means the device speaks a music protocol itself. A USB sound card or
 a Pi HAT with an ALSA card has no transport: something on the host has to
@@ -52,10 +52,14 @@ projects are heading, and Snapcast is the fallback that already works.
 - **Sendspin is not the only path, and the HA player path cannot sync.** Music
   Assistant's Home Assistant player provider defaults to MP3 and explicitly
   cannot synchronise with other players [S32].
-- **A HAT is not a player.** With Local Audio Out retired, the 2-Mics HAT needs
-  Snapcast, squeezelite, shairport-sync or Local Audio on the host [S29][S32].
-- **The USB ReSpeaker Lite is capped at 16 kHz.** Fine for voice, poor for
-  music, and the Pi 5 guide pins the clock there [S27][S28].
+- **A HAT is not a player by itself.** With Local Audio Out retired, the 2-Mics
+  HAT needs a receiver on the host: the Sendspin client — the one the lab
+  actually ran [T] — or Snapcast, squeezelite, shairport-sync, or MA Local Audio
+  [S29][S30][S31][S32].
+- **The USB ReSpeaker Lite is configured at 16 kHz by the Pi 5 guide.** That is a
+  sample-rate choice in that guide, not a published maximum for the Lite — the
+  source that states a 16 kHz ceiling describes the separate USB 4-Mic Array
+  [S27][S28]. Fine for voice; music capability is unproven either way.
 - **Two codec names for one HAT.** Seeed documents WM8960 for the 2-Mics HAT
   while its own v2 `aplay` output shows `tlv320aic3x`; the lab unit enumerates as
   TLV320AIC3104 [S29][T].
