@@ -14,17 +14,18 @@ each device is to doing it with vendor firmware alone.
 The protocol-level answer comes from the
 [music transport and control map](../notes/2026-11-15-music-transport-and-control-map.md)
 (R03, unreviewed). Pause, resume, per-player volume and mute are specified
-interfaces in Sendspin and implemented in Music Assistant; Snapcast has no pause
-at all. What remains unverified is the Debra device, not the existence of an
-interface. LVA's own player behavior still does not prove control of another
-process, and no multiroom or interruption test is claimed. Source checks dated
-2026-11-15.
+interfaces in Sendspin; **Snapcast has no pause at all**, and a Sendspin **pause
+ends the stream**, so resume is a fresh `stream/start` at the server. What remains
+unverified is the Debra device and what Music Assistant does in practice, not the
+existence of the interface. LVA's own player behavior still does not prove control
+of another process, and no multiroom or interruption test is claimed. Source checks
+dated 2026-11-15.
 
 | Layer | Documented control | What it does not give Debra |
 | --- | --- | --- |
-| Sendspin protocol | `controller@v1` pause/play/next/previous/seek; per-player `volume`/`mute` on a `(v/100)^1.5` curve | A paused buffer on the receiver: pause ends the stream, and resume is a fresh `stream/start` |
+| Sendspin protocol | `controller@v1` pause/play/next/previous/seek; per-player `volume`/`mute` on a `(v/100)^1.5` curve | A paused buffer on the receiver: pause ends the stream, and resume is a fresh `stream/start`. Whether Music Assistant emits that `stream/end` in practice is `U` |
 | Sendspin Python CLI 9.1.0 | controller role only when MPRIS is enabled; hardware volume in daemon mode writes the **system sink** | A private trim: that sink write is the same control the voice assistant's replies use |
-| Snapcast | `Client.SetVolume`, `Group.SetMute`, `Group.SetStream`; snapclient applies volume locally as a **sink-input** | Any pause. MA emulates it with stop+resume, so the player state never shows paused |
+| Snapcast | `Client.SetVolume`, `Group.SetMute`, `Group.SetStream`; snapclient applies volume locally as a **sink-input** | **Any pause.** MA emulates it with stop+resume, so the player state never shows paused |
 | Music Assistant | Pauses the queue and sets player volume through the active protocol | An announcement level on the Sendspin provider, and a stable group balance after a duck |
 | PipeWire / PulseAudio | Sink-input volume is per-stream and genuinely independent of the sink | A protocol-visible control: the sender cannot see a local gain change |
 | Home Assistant | `media_player.media_pause` and `volume_set` reach MA | Anything past MA, such as a per-device attenuation |
@@ -53,7 +54,7 @@ receive the stream and decode it.
 
 | Way | What it is | Why you would | Why you would not |
 | --- | --- | --- | --- |
-| **Sendspin** | The protocol Music Assistant is moving to; also what the ESPHome devices above use | One path for both the ESP32 devices and a Pi, so a mixed house is one system | Newest of the five; MA's support is beta [S21]; the Pi side is the least demonstrated |
+| **Sendspin** | The protocol Music Assistant is moving to; also what the ESPHome devices above use | One path for both the ESP32 devices and a Pi, so a mixed house is one system | Newest of the five; MA calls it a technical preview [S21][S56]; the Pi side is the least demonstrated |
 | **Snapcast** | Mature synchronised multi-room client/server [S30] | Real multi-room sync today, well understood, runs on a Pi Zero | A second server to run; Satellite1 dropped it for Sendspin [S33] |
 | **squeezelite** | Lyrion/Squeezebox client | Very light, well trodden on Pi hardware | Ties you to the LMS ecosystem |
 | **shairport-sync** | AirPlay receiver [S31] | iPhone users can just send audio | Single-source, no multi-room; MA control unverified `U` |
@@ -65,14 +66,25 @@ projects are heading, and Snapcast is the fallback that already works.
 
 ## Traps
 
-- **"Ready-made" is not "demonstrated".** Only the Voice PE and Satellite1 ship a
-  music transport in vendor firmware [S20][S33]. The VoiceS3R has it in vendor
-  YAML while its own documentation still describes wake word and announcements
-  [S22]; the BOX-3 has no audio pipeline at all in the stock configuration [S23].
+- **"Ready-made" is not "demonstrated".** Among the devices on this page, the
+  Voice PE and Satellite1 ship a music transport in vendor firmware
+  [S20][S33]. The VoiceS3R has it in vendor YAML while its own documentation
+  still describes wake word and announcements [S22]; the BOX-3 has no audio
+  pipeline at all in the stock configuration [S23].
+- **The Voice PE's music output is an unresolved report.** The built-in speaker is
+  documented as voice feedback, not music [S1]; one user reports heavy clipping
+  from the 3.5 mm jack into a powered speaker and hypothesises headphone-level
+  rather than line-level output, with no vendor answer found. That is one report
+  and a hypothesis, not a measurement — test the jack before trusting it for music.
+- **A dropout is not automatically the protocol's fault.** One Voice PE Sendspin
+  case closed with the reporter naming the access point and a 2.4 GHz channel
+  about 52 % busy, resolved by a cleaner channel; a maintainer had first read the
+  same logs as device-side [S55 R]. One resolved case, not a general cause.
 - **Version gates are sharp.** Sendspin needs a recent ESPHome and a Sendspin
-  server (MA 2.11 beta; stable was 2.10.12 when this was written). The Snapcast →
-  Sendspin move on Satellite1 is breaking: old players have to be deleted, not
-  upgraded [S33].
+  server (MA 2.11 beta; stable was 2.10.12 when this was written), and MA's own
+  Sendspin page says "still in technical preview… expect it to change" [S56]. The
+  Snapcast → Sendspin move on Satellite1 is breaking: old players have to be
+  deleted, not upgraded [S33].
 - **Sendspin is not the only path, and the HA player path cannot sync.** Music
   Assistant's Home Assistant player provider defaults to MP3 and explicitly
   cannot synchronise with other players [S32].
@@ -120,3 +132,10 @@ the release note says "Add support for Sendspin multi-room audio protocol (publi
 preview, works with Music Assistant)". The Seeed and FutureProofHomes rows come
 from the research report that produced [S25]–[S34] and were checked only for
 reachability, not re-read line by line.
+
+The transport control rows above come from R03, and the Voice PE limits, the
+clipping report, the dropout case and the "technical preview" wording on this page
+come from revision 2 of [the complete-alternatives comparison](../notes/2026-11-15-complete-alternatives-comparison-revision.md).
+All three are unreviewed. Revision 2 was moved into these tables at the strength it
+states: attributed reports stay attributed, and no music path, latency figure or
+multiroom behaviour on this page is a Debra measurement.
