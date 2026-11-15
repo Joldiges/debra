@@ -866,6 +866,14 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(keys(ord("u"), 4), ("unchecked", 0))
         self.assertEqual(keys(ord("z"), 4), None)
 
+    def test_the_six_tabs_still_fit_a_default_eighty_column_terminal(self):
+        # Adding a tab is cheap until the bar silently degrades to numbers on
+        # the most common terminal width, so the labels have to still fit.
+        tabs = [{"label": label} for _heading, label in activity.TUI_TABS]
+        bar = activity._tui_tab_bar(tabs, 0, 80)
+        for label in ("Needs", "Notices", "Todos", "Sessions", "Research", "Status"):
+            self.assertIn(label, bar)
+
     def test_tab_bar_degrades_to_numbers_when_narrow(self):
         tabs = [{"label": "Needs *", "entries": []}, {"label": "Sessions *", "entries": []}]
         wide = activity._tui_tab_bar(tabs, 0, 80)
@@ -948,17 +956,17 @@ class ActivityTests(unittest.TestCase):
         tabs = activity._tui_tabs(text, meta, 3)
         # Fixed tab order, whatever order the sections appear in the report.
         self.assertEqual([tab["base"] for tab in tabs],
-                         ["What I need from you", "Notices", "Agent sessions",
+                         ["What I need from you", "Notices", "Todos", "Agent sessions",
                           "Research runner", "Development web server"])
         # The checklist's count comes from the work queue, so only its place and
         # its prefix are this test's business.
         self.assertTrue(tabs[1]["label"].startswith("Notices"))
-        entries = tabs[2]["entries"]
+        entries = tabs[3]["entries"]
         rows = [entry for entry in entries if entry[0] == "row"]
         self.assertEqual([row[1][2] for row in rows], ["newer work", "older work", "recent"])
         self.assertEqual(rows[0][2], 2)
         self.assertIn(("header", activity.TUI_HEADERS), entries)
-        status = "\n".join(entry[1] for entry in tabs[4]["entries"] if entry[0] == "text")
+        status = "\n".join(entry[1] for entry in tabs[5]["entries"] if entry[0] == "text")
         self.assertIn("Not listening on port 8787", status)
 
     def test_tui_tabs_report_unavailable_sessions(self):
@@ -972,6 +980,211 @@ class ActivityTests(unittest.TestCase):
         self.assertIn(("text", "opencode unavailable", "dim"),
                       tabs["Sessions"]["entries"])
         self.assertIn("Status", tabs)
+
+
+class TodosTests(unittest.TestCase):
+    """The Todos tab: what could run next, read from files that already say so."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="todos-", dir="/tmp/opencode")
+        self.root = Path(self._tmp.name)
+        self.addCleanup(self._tmp.cleanup)
+
+    def empty_todos(self, **overrides):
+        base = {
+            "chains": {"error": None, "policy": None, "claims": [], "chains": []},
+            "queued": {"items": [], "skipped": 0, "error": None},
+            "backlog": {"error": None, "ready": [], "unqueued": [], "not_ready": [],
+                        "queued": 0, "malformed": 0},
+        }
+        base.update(overrides)
+        return base
+
+    def write_backlog(self, body, queue=(), state=()):
+        path = self.root / "backlog.md"
+        path.write_text("# Research backlog\n\n```debra-research-backlog\n"
+                        + body + "\n```\n")
+        (self.root / "queue.json").write_text(
+            json.dumps({"tasks": [{"id": task} for task in queue]}))
+        (self.root / "state.json").write_text(
+            json.dumps({"tasks": {task: {"status": "done"} for task in state}}))
+        return path
+
+    def test_queued_work_reads_the_table_and_counts_what_it_cannot_read(self):
+        path = self.root / "work-queue.md"
+        path.write_text(
+            "# Work queue\n\n## Queued\n\n"
+            "| Packet | Item ids | Why it is next |\n| --- | --- | --- |\n"
+            "| Acceptance review | — | must follow the contract |\n"
+            "| a row with two cells | only one |\n"
+            "\n## In review\n| not | queued | here |\n")
+        queued = activity._queued_work(path)
+        self.assertEqual([(item["packet"], item["ids"], item["why"])
+                          for item in queued["items"]],
+                         [("Acceptance review", "—", "must follow the contract")])
+        self.assertEqual(queued["skipped"], 1)
+        other = self.root / "other.md"
+        other.write_text("# Work queue\n\nnothing here\n")
+        self.assertIn("no Queued section", activity._queued_work(other)["error"])
+        self.assertIn("not readable", activity._queued_work(self.root / "gone.md")["error"])
+
+    def test_chain_groups_name_what_is_missing(self):
+        def row(**changes):
+            base = {"id": "x", "starter": "R01", "packet_state": "ready", "reason": "",
+                    "packets": ["R01"], "output": "docs/x.md", "waiting_on": []}
+            base.update(changes)
+            return base
+        self.assertEqual(activity._chain_group(row(), set())[0], "eligible")
+        self.assertEqual(activity._chain_group(row(), {"x"})[0], "worked")
+        self.assertEqual(activity._chain_group(row(starter=None), set())[0], "carded")
+        self.assertEqual(activity._chain_group(row(packet_state="review"), set())[0], "review")
+        self.assertEqual(activity._chain_group(row(packet_state="done"), set())[0], "carded")
+        self.assertEqual(activity._chain_group(row(packet_state="blocked"), set())[0], "blocked")
+        group, why = activity._chain_group(
+            row(reason="R01: roadmap prerequisites/state do not permit dispatch"), set())
+        self.assertEqual(group, "blocked")
+        self.assertIn("prerequisites", why)
+
+    def test_backlog_offers_only_new_ready_studies(self):
+        path = self.write_backlog(
+            "R01-OLD | ready | Already run | A scope long enough for the backlog format.\n"
+            "R02-NEW | ready | Waiting to run | A scope long enough for the backlog format.\n"
+            "N01-SLOW | not-ready | Needs a person | A scope long enough for the backlog format.\n"
+            "R02-NEW | ready | Duplicate id | A scope long enough for the backlog format.\n"
+            "this line is malformed",
+            queue=("R01-OLD",))
+        with mock.patch.object(runner, "BACKLOG_PATH", path), \
+             mock.patch.object(runner, "QUEUE_PATH", self.root / "queue.json"), \
+             mock.patch.object(runner, "STATE_PATH", self.root / "state.json"):
+            snapshot = activity.backlog_snapshot()
+        self.assertIsNone(snapshot["error"])
+        self.assertEqual([entry["id"] for entry in snapshot["ready"]], ["R01-OLD", "R02-NEW"])
+        self.assertEqual([entry["id"] for entry in snapshot["unqueued"]], ["R02-NEW"])
+        self.assertEqual([entry["id"] for entry in snapshot["not_ready"]], ["N01-SLOW"])
+        self.assertEqual(snapshot["queued"], 1)
+        self.assertEqual(snapshot["malformed"], 1)
+
+    def test_a_study_the_runner_already_finished_is_not_offered_again(self):
+        path = self.write_backlog(
+            "Z01-DONE | ready | Already studied | A scope long enough for the backlog format.",
+            state=("Z01-DONE",))
+        with mock.patch.object(runner, "BACKLOG_PATH", path), \
+             mock.patch.object(runner, "QUEUE_PATH", self.root / "queue.json"), \
+             mock.patch.object(runner, "STATE_PATH", self.root / "state.json"):
+            snapshot = activity.backlog_snapshot()
+        self.assertEqual(snapshot["unqueued"], [])
+        self.assertEqual(snapshot["queued"], 1)
+
+    def test_backlog_that_cannot_be_read_is_reported_not_hidden(self):
+        path = self.root / "backlog.md"
+        path.write_text("# no backlog block here\n")
+        with mock.patch.object(runner, "BACKLOG_PATH", path):
+            snapshot = activity.backlog_snapshot()
+        self.assertIn("not readable", snapshot["error"])
+        self.assertIn("not readable", "\n".join(activity._todos_lines(
+            self.empty_todos(backlog=snapshot))))
+
+    def test_chains_snapshot_asks_the_dispatcher_instead_of_redeciding(self):
+        catalog = [
+            {"id": "zero-w", "packets": ["Z01", "Z02"], "starter": "Z01",
+             "output": "docs/research/Z01-armv6.md"},
+            {"id": "audio", "packets": ["A01"]},
+        ]
+        tasks = {"Z01": ("ready", []), "Z02": ("blocked", ["Z01"]), "A01": ("blocked", [])}
+        state = {"version": 1, "policy": None,
+                 "claims": {"c1": {"chain": "zero-w", "packet": "Z01",
+                                   "status": "active", "owner": "worker"}}}
+        with mock.patch.object(activity.taskchain, "catalog", return_value=(catalog, tasks)), \
+             mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
+             mock.patch.object(activity.taskchain, "read_state", return_value=state), \
+             mock.patch.object(activity.taskchain, "reason",
+                               side_effect=lambda chain, _tasks, _state: ""):
+            snapshot = activity.chains_snapshot()
+        self.assertIsNone(snapshot["error"])
+        self.assertEqual([claim["owner"] for claim in snapshot["claims"]], ["worker"])
+        by_id = {row["id"]: row for row in snapshot["chains"]}
+        self.assertEqual(by_id["zero-w"]["packet_state"], "ready")
+        self.assertIsNone(by_id["audio"]["starter"])
+        lines = "\n".join(activity._todos_lines(self.empty_todos(chains=snapshot)))
+        self.assertIn("Being worked on (1)", lines)
+        self.assertIn("zero-w (active)", lines)
+        self.assertIn("No card written yet (1)", lines)
+        self.assertIn("`audio`", lines)
+
+    def test_an_unreadable_registry_keeps_the_rest_of_the_page(self):
+        with mock.patch.object(activity.taskchain, "catalog",
+                               side_effect=ValueError("no roadmap packets")):
+            snapshot = activity.chains_snapshot()
+        self.assertIn("no roadmap packets", snapshot["error"])
+        lines = "\n".join(activity._todos_lines(self.empty_todos(chains=snapshot)))
+        self.assertIn("Task chains not readable", lines)
+        self.assertIn("Queued work packets (0)", lines)
+
+    def test_todos_lines_separate_the_three_channels(self):
+        todos = self.empty_todos(
+            chains={"error": None, "policy": None, "claims": [], "chains": [
+                {"id": "zero-w", "packets": ["Z01", "Z02"], "starter": "Z01",
+                 "output": "docs/research/Z01-armv6.md", "packet_state": "ready",
+                 "reason": "", "waiting_on": []},
+                {"id": "recovery", "packets": ["B01"], "starter": "B01",
+                 "output": "docs/research/B01-recovery.md", "packet_state": "review",
+                 "reason": "B01: roadmap prerequisites/state do not permit dispatch",
+                 "waiting_on": []}]},
+            queued={"items": [{"packet": "Device run", "ids": "N02",
+                               "why": "needs a spare card"}], "skipped": 0, "error": None},
+            backlog={"error": None, "ready": [{"id": "R01", "title": "Study"}],
+                     "unqueued": [{"id": "R01", "title": "Study"}],
+                     "not_ready": [{"id": "A03", "title": "Needs a device"}],
+                     "queued": 0, "malformed": 1})
+        text = "\n".join(activity._todos_lines(todos))
+        self.assertIn("2 task chains; **none is being worked on right now**", text)
+        self.assertIn("The claim registry is **closed**", text)
+        self.assertIn("Ready to claim once dispatch opens (1)", text)
+        self.assertIn("docs/work/cards/Z01.md", text)
+        self.assertIn("Deliverable landed, waiting for review (1)", text)
+        self.assertIn("Queued work packets (1)", text)
+        self.assertIn("**Device run** (N02) — needs a spare card", text)
+        self.assertIn("Unattended research (1 ready to queue)", text)
+        self.assertIn("`A03`", text)
+        self.assertIn("1 malformed backlog line(s) were skipped.", text)
+        self.assertNotIn("### Being worked on", text)
+
+    def test_an_open_registry_stops_claiming_it_is_closed(self):
+        todos = self.empty_todos(chains={
+            "error": None, "claims": [],
+            "policy": {"base": "abc1234", "model": "provider/model#variant"},
+            "chains": [{"id": "zero-w", "packets": ["Z01"], "starter": "Z01",
+                        "output": "docs/research/Z01-armv6.md", "packet_state": "ready",
+                        "reason": "", "waiting_on": []}]})
+        text = "\n".join(activity._todos_lines(todos))
+        self.assertIn("claim registry is open for base `abc1234`", text)
+        self.assertNotIn("**closed**", text)
+        self.assertIn("### Ready to claim (1)", text)
+
+    def test_the_report_and_the_tab_share_one_todos_section(self):
+        meta = {}
+        with mock.patch.object(activity, "sessions_snapshot",
+                               return_value={"error": None, "sessions": []}), \
+             mock.patch.object(activity, "web_snapshot",
+                               return_value={"port": 8787, "listening": False}), \
+             mock.patch.object(activity, "todos_snapshot",
+                               return_value=self.empty_todos()):
+            text = activity.render(8787, 3, meta)
+        self.assertIn("## Todos", text)
+        tabs = {tab["base"]: tab for tab in activity._tui_tabs(text, meta, 3)}
+        self.assertIn("Todos", tabs)
+        self.assertIn("task chains",
+                      "\n".join(entry[1] for entry in tabs["Todos"]["entries"]))
+
+    def test_todos_flag_prints_only_that_section(self):
+        with mock.patch.object(activity, "todos_snapshot",
+                               return_value=self.empty_todos()), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(activity.main(["--todos"]), 0)
+        text = output.getvalue()
+        self.assertTrue(text.startswith("## Todos"))
+        self.assertNotIn("## Agent sessions", text)
+        self.assertNotIn("## Research runner", text)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,10 @@ model so another machine can resume it.
 - **Subagents are the workers.** Bounded assignments run as subagent sessions
   with a named model, an explicit file allowlist, a stated evidence format and
   an instruction not to commit. Several run at once when their files do not
-  overlap. [activity.py](../tools/activity.py) is the live view of them.
+  overlap. [activity.py](../tools/activity.py) is the live view of them, and
+  its Todos tab (`--todos` for the same text once) lists what nothing is
+  working on: chains with no card, chains waiting for review, queued packets
+  and ready studies.
 - **The taskchain registry is a different mechanism.** It coordinates *one
   clone's linked worktrees* and lets another clone claim prepared cards. Its
   "dispatch closed" state gates that registry, not the project. Coordinator-

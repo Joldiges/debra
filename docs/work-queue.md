@@ -8,6 +8,12 @@ Why it exists: work felt like it only happened when James asked for it, because
 nothing durable recorded the next item. A harvest note lists findings; it does
 not say which ones are claimed, finished, or stuck. This page does.
 
+Visible: the activity TUI's Todos tab (`python tools/activity.py --todos`)
+answers "what could run next" from three files instead of one screen — this
+page's Queued table, the ready entries of the [research backlog](research-backlog.md),
+and the task-chain catalog's claim registry. It reads them; it never adds a
+fourth list that could disagree.
+
 ## States
 
 | State | Means |
