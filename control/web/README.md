@@ -12,6 +12,8 @@ and [roadmap](../../docs/roadmap.md#browser-first-device-control).
   PulseAudio/PipeWire sink, linking its channels. Mute is a separate write.
 - Starting, installing, polling, reconnecting and stopping never restore or set
   volume. No sound, microphone recording or test tone is generated.
+- Most status is cached for two seconds; the selected sink's audio state is
+  re-read on every status request, including cache hits.
 - No fallback sink, package installation, sudo, component restart, Wi-Fi change,
   LED write, update or firmware operation is exposed.
 - The selected sink must be the output used by speech/music; this does not
@@ -35,6 +37,8 @@ reachable client that passes the Host and cross-site checks. Do not put secrets
 in the list. The installer and server also accept `--auth none`, a development
 bypass: any reachable client can read full status and use the audio controls
 without a key. Use it only if that exposure is acceptable.
+`/api/status` reports the active mode in its `auth` field (`key` or `none`);
+this is not a browser enrollment or revocation status.
 
 The key is kept in
 an owner-only file on the device and browser `sessionStorage` for the tab;
@@ -81,9 +85,13 @@ working audio session. No dependency manager is needed for this stdlib slice.
 
    Repeat `--host` for an authorized IP authority if mDNS is unreliable. This
    does not rename the device or configure DNS, mDNS or the firewall.
+   The installer requires a listening port from 1024 to 65535, and every
+   explicit `--host` authority must use that same port.
    Loopback-only installation uses `--bind 127.0.0.1` and
    `--host 127.0.0.1:8787`. Never broaden firewall/network access to work around
-   failure without separate agreement.
+   failure without separate agreement. The installer requires `--host` even for
+   loopback; the server run directly with that bind and no `--host` defaults to
+   `127.0.0.1:<port>`.
 4. The installer prepares files only. It reports release ID, service path,
    `changed`, and the previous-unit path when upgrading. It does **not** print
     the key. Review the generated unit before explicitly starting a fresh install:
@@ -136,6 +144,10 @@ working audio session. No dependency manager is needed for this stdlib slice.
 | `~/.config/systemd/user/debra-web.service` | Generated user service; no key in arguments |
 | `~/.local/share/debra/web/previous-units/` | Previous generated service files, retained for rollback |
 
+An unreadable, malformed or invalid `hardware.json` refuses server startup with
+an error message; correct it or preserve it elsewhere before starting again.
+The generated unit is configured to retry on failure.
+
 State/application directories are owner-only. An identical installation preserves
 the key and service byte-for-byte. Unmanaged services and modified releases are
 refused, not overwritten. Interrupted copying retains private staging files;
@@ -152,21 +164,27 @@ Injected write/publication failure recovery is tested, **not abrupt power-loss
 durability**: release/unit publication has no complete filesystem flush protocol,
 and neither filesystem integrity nor sudden-power-loss restoration is proven.
 
-An optional `--devices <path>` JSON array supplies the public inventory. Each
-entry has a `name`, `url` and optional `label`. URLs must use HTTP, an explicit
-port from 1 to 65535, and a DNS-style ASCII hostname or canonical IPv4 address;
-paths other than `/`, whitespace, control characters, credentials, `?` and `#`
-are refused. The server returns lowercase hostnames and scheme, a decimal port
-and a trailing slash. Both server and browser apply this same restricted form.
-**Port 80 is refused on purpose**: a browser drops a default port, so
+An optional `--devices <path>` JSON array supplies configured entries for the
+public inventory. It allows at most 50 entries; each has a `name` of 1–64
+letters, digits, dots, dashes or underscores, a `url` of at most 200 characters,
+and an optional `label` of at most 80 characters. URLs must use HTTP, an explicit
+port from 1 to 65535 **except 80**, and a DNS-style ASCII hostname or canonical
+IPv4 address; paths other than `/`, whitespace, control characters, credentials,
+`?` and `#` are refused. The server returns lowercase hostnames and scheme, a
+decimal port and a trailing slash. Both server and browser apply this same
+restricted URL form.
+The installer listening-port rule above is separate from the device-link rule.
+Port 80 is refused on purpose: a browser drops a default port, so
 `http://device.local:80/` becomes `http://device.local/`, and the Host check this
 service applies would then reject the page it had just linked to. An entry that
 cannot round-trip is worse than one that never appears.
 
-Local `_debra._tcp` mDNS discovery is on when the web service runs; it needs
+Local `_debra._tcp` mDNS discovery is attempted when the web service runs; it needs
 `avahi-browse` and a working Avahi daemon, but no Python packages. The first
 scan starts in a background thread at startup and is bounded by an 8-second
-command timeout. Until it finishes, only configured entries are shown. After
+command timeout. Announcements must have a `.local` host and a port from 1 to
+65535; the hub then applies the device-link rule above, so port 80 is not listed.
+Until the scan finishes, only configured entries are shown. After
 each scan the thread waits 30 seconds before starting the next; during a scan
 the previous result remains cached. A failed, timed-out or empty scan clears
 discovered entries, leaving the configured list. The page refreshes the list
@@ -177,6 +195,11 @@ The server also browses its own advertisement if Avahi returns it; repeated
 announcements with the same instance and port coalesce across interfaces, and
 matching canonical URLs merge. Different names/ports or URL aliases for the same
 physical device are not generally recognized as one identity.
+
+`/api/devices` reports each entry's `source` as `configured`, `discovered` or
+`configured+discovered`. Its `discovery` block reports `enabled`, `found`,
+`seconds_since_scan` and `error`. The configured list remains available without
+Avahi, even when discovery fails or cannot start.
 
 Discovery is a convenience, **never authentication or proof of reachability**:
 any local peer can make an announcement, and plain HTTP cannot authenticate the

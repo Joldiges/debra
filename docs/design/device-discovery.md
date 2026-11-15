@@ -11,6 +11,25 @@ household overview, any "apply to all", and any use of the record in TXT beyond 
 display name and label. The rest of this page is still a proposal; nothing here
 is approved work.
 
+The hub browses in a background thread, with an 8-second timeout per browse and
+30 seconds between the end of one scan and the next. During the first scan it
+shows configured entries and says the first scan has not finished; during later
+scans it keeps the previous discovery result. A failed, timed-out or empty scan
+clears discovered entries but keeps configured links, including when Avahi is
+unavailable. When discovery is enabled, the page shows an error or, after a
+successful empty scan, `Discovery found 0 devices` and the scan age. If the
+discovery thread could not start, the page says discovery is off when configured
+links are present; with no links it hides the device section.
+
+The browse parser accepts only `.local` hosts and ports 1–65535; the hub also
+validates each link and silently omits port 80 because browsers drop the default
+port and the service's Host check would reject it. An announcement is a claim,
+not authentication or proof of reachability. Verify the destination before
+entering a key. `/api/devices` labels each entry `configured`, `discovered` or
+`configured+discovered` and returns discovery status (`enabled`, `found`,
+`seconds_since_scan`, `error`); see the [prototype guide](../../control/web/README.md)
+for the full link rules.
+
 ## What is actually being asked for
 
 1. **Find peers.** A device page lists other Debra devices on the same network

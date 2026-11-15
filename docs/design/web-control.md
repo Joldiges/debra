@@ -203,7 +203,7 @@ revoke browser access, and perform ordinary supported setup without SSH.
 | --- | --- |
 | System hostname | Current: `hostname`; it is not proof of a stable hardware-derived identity or a working `.local` address. |
 | Hardware-derived identity, identity validity/collision and mDNS reachability | Collector: N02 identity evidence and discovery/reachability; without evidence the identity and collision status cannot be known. |
-| Friendly room name | Collector: retained device name; current optional `/api/devices` list names/labels are manually supplied directory entries, not the device's retained room name. |
+| Friendly room name | Collector: retained device name; current `/api/devices` names/labels come from configured entries or discovery announcements, not proof of the device's retained room name. |
 | Current IP addresses, interface and port, plus reachable fallback | Collector: addresses and browser-usable advertised authority/reachability. An address alone cannot prove the browser can reach it or that it identifies the intended board. |
 | Browser enrollment status, authorized access identities and revocation result | Collector for non-secret access state and operation result; no current enrollment or revocation API. `auth` currently reports `key` or `none`, not enrollment. Never expose key material in status. |
 
@@ -277,8 +277,10 @@ enrollment and transport design remains a prerequisite, not a feature claim.
 **Roadmap/code gap:** WEB02 requires browser enrollment and revocation and no
 SSH for ordinary operation. The prototype instead uses one shared bearer key;
 its guide retrieves it via a device terminal, and disconnect clears only the
-current tab. It accepts explicitly configured hostname/IP authorities, but does
-not discover addresses, create stable identity or provide Wi-Fi onboarding.
+current tab. It accepts explicitly configured hostname/IP authorities and the hub
+lists configured devices and `_debra._tcp` mDNS discoveries. An announcement is
+a claim, not authentication or proof of reachability; stable identity and Wi-Fi
+onboarding remain unimplemented. See [discovery](device-discovery.md).
 
 ### WEB03: board, HAT and speaker
 
@@ -423,8 +425,9 @@ ownership; present lifecycle actions as enabled without an available operation.
 
 **Roadmap/code gap:** WEB04 requires six component states, versions and
 prerequisites. The prototype returns only partial systemd enabled/running
-evidence for named LVA, Sendspin and user/system Snapcast units. It does not
-detect the Bluetooth proxy, installed/configured/connected/working state, exact
+evidence for named user LVA, Sendspin, PipeWire and WirePlumber units and
+user/system Snapcast units. It does not detect the Bluetooth proxy,
+installed/configured/connected/working state, exact
 versions or prerequisites. No full six-state answer exists today.
 
 ### WEB07: metrics and freshness
