@@ -19,6 +19,7 @@ each unattended action reviewable; it does not prove a worker stayed in scope.
 Usage:
     python tools/scheduled_runner.py init
     python tools/scheduled_runner.py add --id ID --title "..." --prompt-file F
+    python tools/scheduled_runner.py refill [--min-pending 3] [--dry-run]
     python tools/scheduled_runner.py status
     python tools/scheduled_runner.py run --once [--dry-run]
 """
@@ -26,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -44,6 +46,9 @@ CONFIG_PATH = RUNNER_DIR / "config.json"
 STOP_PATH = RUNNER_DIR / "STOP"
 LOCK_PATH = RUNNER_DIR / "run.lock"
 RUNS_DIR = RUNNER_DIR / "runs"
+BACKLOG_PATH = ROOT / "docs" / "research-backlog.md"
+BACKLOG_OPEN = "```debra-research-backlog"
+BACKLOG_CLOSE = "```"
 
 DEFAULT_CONFIG = {
     "daily_budget_usd": None,
@@ -163,34 +168,113 @@ def next_pending(queue: dict) -> dict | None:
 def acquire_lock() -> bool:
     """Create an exclusive lock file, reclaiming one whose owner is gone."""
     RUNNER_DIR.mkdir(parents=True, exist_ok=True)
-    for _ in range(2):
-        try:
-            fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with os.fdopen(fd, "w") as f:
-                json.dump({"pid": os.getpid(), "started": _now()}, f)
-            return True
-        except FileExistsError:
+    # Serialize stale-lock reclamation: two reclaimers must not unlink each
+    # other's new lock. A permanent guard file is safe even after a crash.
+    guard_fd = os.open(RUNNER_DIR / "lock.guard", os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(guard_fd, fcntl.LOCK_EX)
+        for _ in range(2):
             try:
-                owner = json.loads(LOCK_PATH.read_text()).get("pid")
-            except (OSError, ValueError):
-                owner = None
-            alive = False
-            if type(owner) is int and owner > 0:
+                fd = os.open(LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    json.dump({"pid": os.getpid(), "started": _now()}, f)
+                return True
+            except FileExistsError:
+                try:
+                    owner = json.loads(LOCK_PATH.read_text()).get("pid")
+                except (OSError, ValueError, AttributeError):
+                    # Another process may still be writing its PID. Never guess.
+                    return False
+                if type(owner) is not int or owner <= 0:
+                    return False
                 try:
                     os.kill(owner, 0)
-                    alive = True
+                    return False
                 except PermissionError:
-                    alive = True
-                except OSError:
-                    alive = False
-            if alive:
-                return False
-            LOCK_PATH.unlink(missing_ok=True)
-    return False
+                    return False
+                except ProcessLookupError:
+                    LOCK_PATH.unlink(missing_ok=True)
+        return False
+    finally:
+        os.close(guard_fd)
 
 
 def release_lock() -> None:
     LOCK_PATH.unlink(missing_ok=True)
+
+
+# --------------------------------------------------------------------------- #
+# Backlog: a deliberately small, deterministic format
+# --------------------------------------------------------------------------- #
+
+def _backlog_entries(path: Path) -> list[tuple[int, str, str, str, str]]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    starts = [i for i, line in enumerate(lines) if line == BACKLOG_OPEN]
+    if len(starts) != 1:
+        raise ValueError("expected exactly one backlog block")
+    start = starts[0]
+    ends = [i for i in range(start + 1, len(lines)) if lines[i] == BACKLOG_CLOSE]
+    if not ends:
+        raise ValueError("backlog block is not closed")
+    entries = []
+    for index in range(start + 1, ends[0]):
+        line = lines[index]
+        if not line:
+            continue
+        fields = line.split(" | ")
+        if (len(fields) != 4 or any(not f or f != f.strip() or "|" in f for f in fields)
+                or not _valid_task_id(fields[0]) or fields[1] not in ("ready", "not-ready")
+                or len(fields[3]) < 40):
+            print(f"skipped backlog line {index + 1}: malformed", file=sys.stderr)
+            continue
+        entries.append((index + 1, *fields))
+    return entries
+
+
+def _refill_queue(queue: dict, cfg: dict, minimum: int, *, dry_run: bool) -> bool:
+    """Append only new ready tasks; caller holds the run lock unless previewing."""
+    entries = _backlog_entries(BACKLOG_PATH)
+    counts = {}
+    for _, task_id, _, _, _ in entries:
+        counts[task_id] = counts.get(task_id, 0) + 1
+    tasks = queue["tasks"]
+    existing = {task["id"] for task in tasks}
+    pending = sum(task.get("status", "pending") == "pending" for task in tasks)
+    added = 0
+    for line, task_id, readiness, title, prompt in entries:
+        if counts[task_id] > 1:
+            reason = "duplicate backlog id"
+        elif task_id in existing:
+            reason = "already in queue"
+        elif readiness != "ready":
+            reason = "not ready"
+        elif pending >= minimum:
+            reason = "threshold met"
+        else:
+            tasks.append({"id": task_id, "title": title, "prompt": prompt,
+                          "model": None, "agent": None,
+                          "timeout_minutes": cfg["default_timeout_minutes"],
+                          "status": "pending", "added_utc": _now()})
+            existing.add(task_id)
+            pending += 1
+            added += 1
+            print(f"{'would add' if dry_run else 'added'} {task_id}: {title}")
+            continue
+        print(f"skipped {task_id} (line {line}): {reason}")
+    print(f"pending after {'preview' if dry_run else 'refill'}: {pending}; "
+          f"{'would add' if dry_run else 'added'} {added} (target {minimum})")
+    return bool(added)
+
+
+def _runner_is_committed() -> bool:
+    """Do not let the installed timer execute an unreviewed runner change."""
+    try:
+        result = subprocess.run(["git", "show", "HEAD:tools/scheduled_runner.py"],
+                                cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                check=False)
+        return result.returncode == 0 and result.stdout == Path(__file__).read_bytes()
+    except OSError:
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -317,10 +401,6 @@ def cmd_add(args) -> int:
         print("refusing: invalid task id", file=sys.stderr)
         return 2
     ensure_layout()
-    queue = _read_json(QUEUE_PATH, {"version": 1, "tasks": []})
-    if any(t["id"] == args.id for t in queue["tasks"]):
-        print(f"refusing: task id {args.id!r} already exists", file=sys.stderr)
-        return 2
     if args.prompt_file:
         prompt = Path(args.prompt_file).read_text()
     elif args.prompt:
@@ -331,15 +411,46 @@ def cmd_add(args) -> int:
     if len(prompt.strip()) < 40:
         print("refusing: prompt is too short to be a bounded assignment", file=sys.stderr)
         return 2
-    queue["tasks"].append({
-        "id": args.id, "title": args.title, "prompt": prompt.strip(),
-        "model": args.model, "agent": args.agent,
-        "timeout_minutes": args.timeout_minutes,
-        "status": "pending", "added_utc": _now(),
-    })
-    _write_json(QUEUE_PATH, queue)
-    print(f"queued {args.id} ({len(queue['tasks'])} tasks)")
-    return 0
+    if not acquire_lock():
+        print("runner active; task not added", file=sys.stderr)
+        return 1
+    try:
+        queue = _read_json(QUEUE_PATH, {"version": 1, "tasks": []})
+        if any(t["id"] == args.id for t in queue["tasks"]):
+            print(f"refusing: task id {args.id!r} already exists", file=sys.stderr)
+            return 2
+        queue["tasks"].append({
+            "id": args.id, "title": args.title, "prompt": prompt.strip(),
+            "model": args.model, "agent": args.agent,
+            "timeout_minutes": args.timeout_minutes,
+            "status": "pending", "added_utc": _now(),
+        })
+        _write_json(QUEUE_PATH, queue)
+        print(f"queued {args.id} ({len(queue['tasks'])} tasks)")
+        return 0
+    finally:
+        release_lock()
+
+
+def cmd_refill(args) -> int:
+    if args.min_pending < 0:
+        print("refusing: --min-pending must be nonnegative", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        queue = _read_json(QUEUE_PATH, {"version": 1, "tasks": []})
+        _refill_queue(queue, load_config(), args.min_pending, dry_run=True)
+        return 0
+    if not acquire_lock():
+        print("runner active; refill skipped", file=sys.stderr)
+        return 1
+    try:
+        ensure_layout()
+        queue = _read_json(QUEUE_PATH, {"version": 1, "tasks": []})
+        if _refill_queue(queue, load_config(), args.min_pending, dry_run=False):
+            _write_json(QUEUE_PATH, queue)
+        return 0
+    finally:
+        release_lock()
 
 
 def cmd_status(_args) -> int:
@@ -388,6 +499,22 @@ def cmd_log(args) -> int:
 
 def cmd_run(args) -> int:
     ensure_layout()
+    if STOP_PATH.exists():
+        print("stop file present; nothing to do")
+        return 0
+    if args.dry_run:
+        return _run_locked(args)
+    if not acquire_lock():
+        print("another runner is active; nothing to do")
+        return 0
+    try:
+        return _run_locked(args)
+    finally:
+        release_lock()
+
+
+def _run_locked(args) -> int:
+    """Run from a fresh queue snapshot under the lock (except dry-run)."""
     cfg = load_config()
     if STOP_PATH.exists():
         print("stop file present; nothing to do")
@@ -395,63 +522,73 @@ def cmd_run(args) -> int:
     queue = _read_json(QUEUE_PATH, {"tasks": []})
     state = _read_json(STATE_PATH, {"version": 1, "days": {}, "tasks": {}})
     task = next_pending(queue)
+    if task is not None and not _valid_task_id(task.get("id")):
+        print("refusing: invalid task id", file=sys.stderr)
+        return 2
+    auto_refill = not args.dry_run and _runner_is_committed()
+    if task is None and not auto_refill:
+        print("queue empty")
+        return 0
+    remaining = budget_remaining(state, cfg)
+    if remaining <= 0:
+        print(f"daily budget exhausted (${spent_today(state):.4f} spent); not running")
+        return 0
+    if auto_refill:
+        try:
+            added = _refill_queue(queue, cfg, 3, dry_run=False)
+        except (OSError, UnicodeError, ValueError) as exc:
+            print(f"automatic refill skipped: {exc}", file=sys.stderr)
+        else:
+            if added:
+                _write_json(QUEUE_PATH, queue)
+    task = next_pending(queue)
     if task is None:
         print("queue empty")
         return 0
     if not _valid_task_id(task.get("id")):
         print("refusing: invalid task id", file=sys.stderr)
         return 2
-    remaining = budget_remaining(state, cfg)
-    if remaining <= 0:
-        print(f"daily budget exhausted (${spent_today(state):.4f} spent); not running")
-        return 0
     if args.dry_run:
         print(f"would run {task['id']} with {task.get('model') or cfg['default_model']}")
         return 0
     if not opencode_available():
         print("opencode executable not found on PATH", file=sys.stderr)
         return 1
-    if not acquire_lock():
-        print("another runner is active; nothing to do")
-        return 0
     exit_code = 0
-    try:
-        run_dir = RUNS_DIR / f"{_today()}-{uuid.uuid4().hex[:8]}"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        _activity_write({"event": "start", "utc": _now(), "task": task["id"],
-                         "title": task.get("title", ""), "run_dir": str(run_dir),
-                         "model": task.get("model") or cfg["default_model"]})
-        record = run_task(task, cfg, run_dir)
-        task["status"] = "done" if record["ok"] else "failed"
-        task["finished_utc"] = _now()
-        task["last_record"] = str(run_dir / f"{task['id']}.record.json")
-        _write_json(QUEUE_PATH, queue)
-        day = state["days"].setdefault(_today(), {"tasks": 0, "cost_usd": 0.0})
-        day["tasks"] += 1
-        day["cost_usd"] = round(day["cost_usd"] + record["cost_usd"], 6)
-        state["tasks"][task["id"]] = {
-            "status": task["status"], "rc": record["rc"],
-            "cost_usd": record["cost_usd"], "session": record.get("session"),
-            "finished_utc": task["finished_utc"],
-        }
-        _write_json(STATE_PATH, state)
-        _activity_write({
-            "event": "finish", "utc": record.get("started_utc"),
-            "task": record["task"], "ok": record["ok"],
-            "cost_usd": record["cost_usd"],
-            "duration_s": record.get("duration_s"),
-            "report": str(run_dir / f"{task['id']}.report.md"),
-        })
-        print(json.dumps({k: record[k] for k in
-                          ("task", "ok", "rc", "cost_usd", "duration_s", "session")
-                          if k in record}, indent=2))
-        cap = cfg.get("daily_budget_usd")
-        cap_text = "no local cap" if cap is None else f"of ${float(cap):.2f}"
-        print(f"spent today: ${spent_today(state):.4f} {cap_text}")
-        if not record["ok"]:
-            exit_code = 1
-    finally:
-        release_lock()
+    run_dir = RUNS_DIR / f"{_today()}-{uuid.uuid4().hex[:8]}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _activity_write({"event": "start", "utc": _now(), "task": task["id"],
+                     "title": task.get("title", ""), "run_dir": str(run_dir),
+                     "model": task.get("model") or cfg["default_model"]})
+    record = run_task(task, cfg, run_dir)
+    task["status"] = "done" if record["ok"] else "failed"
+    task["finished_utc"] = _now()
+    task["last_record"] = str(run_dir / f"{task['id']}.record.json")
+    _write_json(QUEUE_PATH, queue)
+    day = state["days"].setdefault(_today(), {"tasks": 0, "cost_usd": 0.0})
+    day["tasks"] += 1
+    day["cost_usd"] = round(day["cost_usd"] + record["cost_usd"], 6)
+    state["tasks"][task["id"]] = {
+        "status": task["status"], "rc": record["rc"],
+        "cost_usd": record["cost_usd"], "session": record.get("session"),
+        "finished_utc": task["finished_utc"],
+    }
+    _write_json(STATE_PATH, state)
+    _activity_write({
+        "event": "finish", "utc": record.get("started_utc"),
+        "task": record["task"], "ok": record["ok"],
+        "cost_usd": record["cost_usd"],
+        "duration_s": record.get("duration_s"),
+        "report": str(run_dir / f"{task['id']}.report.md"),
+    })
+    print(json.dumps({k: record[k] for k in
+                      ("task", "ok", "rc", "cost_usd", "duration_s", "session")
+                      if k in record}, indent=2))
+    cap = cfg.get("daily_budget_usd")
+    cap_text = "no local cap" if cap is None else f"of ${float(cap):.2f}"
+    print(f"spent today: ${spent_today(state):.4f} {cap_text}")
+    if not record["ok"]:
+        exit_code = 1
     return exit_code
 
 
@@ -471,6 +608,11 @@ def main(argv: list[str] | None = None) -> int:
     add.add_argument("--timeout-minutes", type=int, default=25)
     add.set_defaults(func=cmd_add)
 
+    refill = sub.add_parser("refill", help="queue ready tasks from the research backlog")
+    refill.add_argument("--min-pending", type=int, default=3)
+    refill.add_argument("--dry-run", action="store_true")
+    refill.set_defaults(func=cmd_refill)
+
     sub.add_parser("status", help="queue, budget and recent history").set_defaults(func=cmd_status)
 
     log = sub.add_parser("log", help="recent finished tasks, newest last")
@@ -485,7 +627,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+    except (OSError, ValueError, UnicodeError) as exc:
         print(f"runner unavailable ({exc.__class__.__name__})", file=sys.stderr)
         return 1
 
