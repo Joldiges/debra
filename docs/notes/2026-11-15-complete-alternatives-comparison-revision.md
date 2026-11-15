@@ -63,8 +63,11 @@ stock cell for each part; this note does not re-derive them:
 | **A′. Complete purchase, every line priced** — untested hardware combination | same, with the WM8960 HAT (onboard 1 W/ch amp, bundled 8 Ω 5 W speaker) instead of the 2-Mics HAT | **$62.49 listed** |
 | **B. Reused-parts** — Pi, supply, microSD and printer already owned | ReSpeaker 2-Mics V2 + one speaker (historical price) | **$16.40 listed**; **$17.35** if the owned board needs a 2×20 header |
 
-Total A is **not** a complete price: it excludes an unpriced speaker amplifier, an
-enclosure that has never been printed, shipping, tax and all labour. Total A′ is
+Total A is **not** a complete price: it excludes an
+enclosure that has never been printed, shipping, tax and all labour. As of
+2026-11-15 the 2-Mics HAT's onboard TPA2005D1 amplifier means no separate
+amplifier line is needed for that path; see the
+[correction](../updates/2026-11-15.md). Total A′ is
 the only fully-priced line-item build, and it is not the combination Debra has
 tested. Total B is a **marginal** cost, not a unit price, and the brief forbids
 presenting it as one ([brief][brief]).
@@ -204,10 +207,11 @@ and all of them are mutable except the tagged release.
 
 ## Still unknown
 
-- **Debra's speaker amplifier.** The 2-Mics HAT has no amplifier and the modelled
-  DWEII modules are passive. Unpriced, so total A is a floor, not a price.
-  One sentence to settle it: read the lab record for what actually drove the
-  speaker in the tested unit.
+- **Whether a separate amplifier is ever needed.** The 2-Mics HAT carries an
+  onboard TPA2005D1 that drives its speaker output (measured on one specimen;
+  see the [path test record](../testing/results/2026-11-15-lab-pi5-silence-and-hang.md)),
+  so this build needs no extra amplifier line. Whether any of the modelled DWEII
+  modules needs one, and how they behave with the HAT's output, is **unknown**.
 - **Debra's enclosure and filament cost.** Never printed, never priced.
 - **Seeed's Voice PE price and stock** on the revision date. The page renders
   price and stock client-side; R02's $59.00 and 2-per-account limit are reused
@@ -228,8 +232,9 @@ and all of them are mutable except the tagged release.
 
 ## What would settle it
 
-1. **Price the amplifier** from the lab record or a sourced listing — that is the
-   only way total A becomes a price instead of a floor.
+1. **Settle whether any chosen speaker needs an amplifier** beyond the HAT's
+   onboard TPA2005D1 — that is now the only way total A becomes a price instead
+   of a floor, since the HAT itself needs no extra one.
 2. **Read the three Amazon DWEII listings** from a session Amazon will serve, and
    record pack quantity, per-unit price and stock. This is desk work; it converts
    the weakest number in both totals into a sourced one.

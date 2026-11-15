@@ -83,10 +83,13 @@ rectangle blended into a round speaker pod with r = 11 mm tangent arcs, every
 edge filleted at 1.0–1.3 mm, a recessed ring around the speaker, and a Pi Zero
 pocket with four posts on a 58 × 23 mm pattern.
 Its speaker opening is Ø18 over a Ø10 inner ring. It has **no four-screw square
-speaker mount**: the speaker side is a 31.10 × 66 × 7 mm pocket with two M2.5
-pilots 36.5 mm apart and the Ø10 hole at its centre, so the square mount James
+speaker mount**: the speaker side has a 31.10 × 28.125 mm lower footprint with the
+stepped Ø10/Ø18/Ø20 opening at its centre and two threaded through pilots 36.5 mm
+apart, so the square mount James
 remembers is either a separate part that was never exported or a different
-revision. Even the post diameter is unresolved — Ø4.76 mm in
+revision. The earlier "31.10 × 66 × 7 mm pocket" description is withdrawn; see the
+[bay inventory](../../../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md).
+Even the post diameter is unresolved — Ø4.76 mm in
 [the extraction](../../components/rpispeaker-v17/README.md), Ø8 mm in an earlier
 read of the same STEP.
 
