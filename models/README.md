@@ -29,10 +29,19 @@ what the model actually is — including the parts it does not have yet.
 | --- | --- | --- |
 | [zero2w-respeaker-stack](assemblies/zero2w-respeaker-stack/README.md) | Pi Zero 2 W + ReSpeaker HAT stacked on a header, with a 40 mm driver beside them | **Reference assembly, CAD-only**: proves the stack clears itself and is ~21 mm tall; no tray, no case |
 
+## Parts
+
+Printable parts, as opposed to the reference envelopes above. A part here is
+something you could slice.
+
+| Folder | What it is | Status |
+| --- | --- | --- |
+| [zero2w-hat-tray](parts/zero2w-hat-tray/README.md) | Base plate, locating lip and four screw standoffs for the Zero 2 W + HAT stack | **Not printed, not fit-tested**; no lid, no speaker chamber |
+
 ## Not modelled yet
 
-- A printable tray or case for the Zero stack. This is the next real deliverable
-  and it needs the connector positions verified first.
+- A lid or a case around the tray, and a speaker chamber with a grille. The tray
+  is the base; the acoustic half does not exist.
 - The ReSpeaker Lite, Satellite1 HAT and the other comparison devices.
 - Speaker cut-outs and recesses; only outer envelopes exist.
 - Cable routing, gaskets and grille retention.
