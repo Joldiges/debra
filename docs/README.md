@@ -38,6 +38,31 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
 | [James's Fusion model](notes/2026-11-15-james-fusion-model-quality-bar.md) | Original observations retained; speaker/form interpretations are superseded by the linked correction and James's reconstruction requirement |
 
+## Recent research (unreviewed)
+
+These notes came out of roadmap packets in November 2026. They are evidence, not
+decisions. A note marked "changes requested" has an independent review that
+found claims stronger than their sources; read the review before using it.
+
+| Note | Packet | Status |
+| --- | --- | --- |
+| [Independent review of four research notes](notes/2026-11-15-research-notes-review.md) | review | 28 findings. Read this before the four rows below it |
+| [Complete alternatives comparison](notes/2026-11-15-complete-alternatives-comparison.md) | R02 | Changes requested: cost and exclusivity claims not established |
+| [Alternative board screen](notes/2026-11-15-alternative-board-screen.md) | R07 | Changes requested: several exclusions stronger than the evidence |
+| [Upstream reuse audit](notes/2026-11-15-upstream-reuse-audit.md) | R04 | Changes requested: boot, feasibility and reproducibility not proved |
+| [Wi-Fi onboarding options](notes/2026-11-15-wifi-onboarding-options.md) | N01 | Changes requested: the single-radio flow is internally impossible |
+| [Parts inventory and build cost](notes/2026-11-15-parts-inventory.md) | R01 | $59.90 complete, $16.40 reused-parts; speaker prices are historical |
+| [Music transport and control map](notes/2026-11-15-music-transport-and-control-map.md) | R03 | Sendspin documents a controller role; Snapcast has no pause |
+| [Storage durability](notes/2026-11-15-storage-durability.md) | B01 | A no-intervention rollback means an A/B slot or a verified restore |
+| [License and provenance proposal](notes/2026-11-15-license-and-provenance-proposal.md) | F04 | MIT proposed for Debra's own work; nothing applied |
+| [Agent permission scoping](notes/2026-11-15-agent-permission-scoping.md) | F06 | Proposal only; no configuration changed |
+
+Two design specifications are also new and unreviewed:
+[RPiSpeaker v17 speaker mount options](design/rpispeaker-v17-speaker-mount-options.md)
+(which arrangements the measured body permits, and the photo that would settle
+the missing four-screw mount) and [LED profiles](design/led-profiles.md) (three
+profiles, the event vocabulary, and cosmetic versus actual microphone mute).
+
 ## Where information belongs
 
 These are purpose-based locations, not a requirement to create empty folders.

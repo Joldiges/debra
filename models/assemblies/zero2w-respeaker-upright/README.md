@@ -1,20 +1,21 @@
 # Pi Zero 2 W + ReSpeaker HAT, standing up
 
 **Reference assembly, not a case.** It shows one arrangement of the three parts
-and what that arrangement costs. The board-to-board gap is assumed, the
-component positions on both boards are estimates, and nothing here is
-print-ready or fit-tested.
+and what that arrangement costs. The board-to-board gap is assumed, the Pi's
+component positions are estimates (the HAT's come from Seeed's Eagle board file),
+and nothing here is print-ready or fit-tested.
 
 > **The driver in this model is a stand-in.** It is the Adafruit 3968 Ø40 × 21 mm
 > envelope, which is not the speaker James selected. The current target is a
-> reconstruction of the original square-speaker enclosure, not this layout. If a
+> reconstruction of the original `RPiSpeaker_v17` enclosure, not this layout. If a
 > DWEII housed module —
-> [44 × 28 × 15 or 65 × 30 × 15](../../components/dweii-speakers/README.md) —
-> were used instead, the 44 mm one is much smaller than a Ø40 driver while the
-> 65 mm one is longer than it (and its depth is an assumption), and neither is
-> confirmed to need a sealed chamber, so **this arrangement would probably not
-> suit them**. This model is kept as the study of the inverted-T idea and as the
-> height reference for a bare-driver build.
+> [44 × 28 × 15 or 100 × 45 × 21](../../components/dweii-speakers/README.md) —
+> were used instead, the 44 × 28 × 15 module is a different shape rather than a
+> smaller one, the 100 × 45 × 21 module is far larger than a Ø40 driver in every
+> direction and fits no case in this repository, and neither is confirmed to need
+> a sealed chamber, so **this arrangement would probably not suit them**. This
+> model is kept as the study of the inverted-T idea and as the height reference
+> for a bare-driver build.
 
 Editable SolidCraft source:
 [`zero2w-respeaker-upright.sc`](zero2w-respeaker-upright.sc).
@@ -95,7 +96,7 @@ overall size is 75 × 40 × 78 mm.
 
 Does not prove: that the driver can be mounted (nothing in this model holds it
 up), that the microphones work in this position, that the enclosure has enough
-volume behind the driver, or that any of the estimated component positions are
+volume behind the driver, or that any of the inherited component positions are
 right.
 
 ## Known gaps
@@ -111,9 +112,12 @@ right.
   side facing forward here, and it is why the HAT is the front board and the
   microphones sit low and clear rather than under the driver. See
   [the research note](../../../docs/research/2026-11-15-respeaker-microphone.md).
-  What is still unknown is where on the board the two ports are, so no hole can
-  be cut for them.
-- **Component positions are inherited estimates** from the two component files.
+  The ports are located too — 58.93 mm apart, 8.66 mm inboard of the header edge
+  — because the same Eagle board file gives their coordinates; see
+  [the HAT envelope](../../components/respeaker-2mic-hat/README.md). What this
+  model still lacks is a lid to cut them in.
+- **Component positions are inherited** from the two component files: sourced for
+  the HAT, approximate for the Pi's connectors and can.
 - Cable routing is not modelled.
 
 ## Regenerate

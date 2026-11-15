@@ -7,24 +7,25 @@ Editable SolidCraft source: [`dweii-speakers.sc`](dweii-speakers.sc).
 
 These are the three speakers James selected in the
 [archived research notes](../../../docs/archive/readme-research-before-2026-11-15.md#speakers),
-and they are the parts a case should be designed around. They are **housed
-modules**, not bare drivers: each has its own plastic housing and its own
-acoustic openings. That is the most important fact for enclosure work here,
-because a case should **carry** the module rather than **seal** it — a pocket cut
-tight around a module with rear vents can silence it. Whether each housing is
-actually a sealed chamber is **unconfirmed** (see the caveats below), so treat
-"carry, do not seal" as the working assumption, not a verified specification.
+and they are the parts a case should be designed around — one module per case,
+because they are not interchangeable sizes. They are **housed modules**, not bare
+drivers: each has its own plastic housing and its own acoustic openings. That is
+the most important fact for enclosure work here, because a case should **carry**
+the module rather than **seal** it — a pocket cut tight around a module with rear
+vents can silence it. Whether each housing is actually a sealed chamber is
+**unconfirmed** (see the caveats below), so treat "carry, do not seal" as the
+working assumption, not a verified specification.
 
 ## What the envelopes look like
 
-![Isometric view of two rectangular speaker modules, each with a shallow round grille recess on its front face](assets/iso.png)
+![Isometric view of three rectangular speaker modules — two the same size and one much larger — each with a shallow round grille recess on its front face](assets/iso.png)
 
 *Isometric. Left to right: the 701715519671 and 701715519664 envelopes, both
 44 × 28 × 15 mm, then the 701715520462 envelope at 100 × 45 × 21 mm. Each is
 drawn as the housing a pocket has to accept, with the round recess marking the
 cone/grille opening — not as the cone itself.*
 
-![Front view of the two modules: rectangles with a circle recessed in the middle](assets/front.png)
+![Front view of the three modules: rectangles with a circle recessed in the middle](assets/front.png)
 
 *Front. The rectangles are the housings; the circles are where sound leaves. A
 case needs a rectangular pocket for the housing and a round opening in its
@@ -86,9 +87,10 @@ are not useful for cutting a pocket. Use these.
   match the 671 family, but DWEII reuses listing text across variants, so this
   is strong evidence rather than proof.
 - **The acoustic openings are unknown**, so the grille recesses are placeholders.
-- **Whether each module already has its own sealed chamber** is unconfirmed for
-  all three. If one is an open-frame module, a case pocket must be sealed and
-  that changes the part entirely.
+- **Whether each module already has its own sealed chamber** is unconfirmed. The
+  701715520462's listing claims its "entire cavity is tightly sealed", but that is
+  a seller statement; the other two carry no such claim. If one is an open-frame
+  module, a case pocket must be sealed and that changes the part entirely.
 - The 110 mm lead and its JST plug are not modelled; the lead has to go
   somewhere, and that usually decides the layout.
 - No mounting holes are modelled, because none are documented.

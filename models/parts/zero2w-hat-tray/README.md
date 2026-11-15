@@ -78,8 +78,8 @@ Volume check: 9283 mm³ measured, and 9283 mm³ by hand (plate 7540 + lip ring 2
   [the stack assembly](../../assemblies/zero2w-respeaker-stack/README.md).
 - No ventilation, no mounting holes for a wall or a foot.
 - The HAT's jack and the two microphones need openings in whatever goes on top;
-  those positions are still estimates in
-  [the HAT envelope](../../components/respeaker-2mic-hat/README.md).
+  their X/Y are sourced in [the HAT envelope](../../components/respeaker-2mic-hat/README.md),
+  their heights are not.
 - No fillets. Sharp edges everywhere, which is fine for a first print and poor
   for handling.
 

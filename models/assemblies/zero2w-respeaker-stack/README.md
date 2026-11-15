@@ -2,7 +2,7 @@
 
 **Reference assembly, not a case. It shows how the three parts sit relative to
 each other and how tall the stack is. The board-to-board gap is assumed, the
-connector positions are estimates, and no printed part exists yet.**
+Pi's connector positions are estimates, and no printed part exists yet.**
 
 > **This is the flat layout, kept as the height reference.** James called it
 > ugly on 2026-11-15 — boards at one end and the driver bolted on the side make a
@@ -75,8 +75,9 @@ print.
 - No tray, no standoffs, no case. This is three parts in space.
 - The speaker is placed beside the boards for scale; nothing says where it
   should actually go.
-- Connector positions and heights inherit the estimates from the two component
-  files.
+- Connector positions and heights inherit from the two component files: the HAT's
+  X/Y come from Seeed's Eagle board file, the Pi's connectors and every height
+  are estimates.
 - Cable routing — the JST speaker lead, the USB power lead — is not modelled at
   all, and it is the thing that usually decides a case layout.
 

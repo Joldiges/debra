@@ -80,9 +80,15 @@ James's own Fusion 360 model
 (`RPiSpeaker_v17.step`, OneDrive, 2026-05-18) is the reference for the finish
 expected here: a slim back plate, 66.15 × 75.30 × 16.10 mm, whose outline is a
 rectangle blended into a round speaker pod with r = 11 mm tangent arcs, every
-edge filleted at 1.0–1.3 mm, a raised circular boss around the speaker with a
-recessed ring, and a Pi Zero pocket with four Ø8 posts on a 58 × 23 mm pattern.
-Its speaker opening is Ø18 over a Ø10 inner ring.
+edge filleted at 1.0–1.3 mm, a recessed ring around the speaker, and a Pi Zero
+pocket with four posts on a 58 × 23 mm pattern.
+Its speaker opening is Ø18 over a Ø10 inner ring. It has **no four-screw square
+speaker mount**: the speaker side is a 31.85 × 66 × 7 mm pocket with two M2.5
+pilots 36.5 mm apart and the Ø10 hole at its centre, so the square mount James
+remembers is either a separate part that was never exported or a different
+revision. Even the post diameter is unresolved — Ø4.76 mm in
+[the extraction](../../components/rpispeaker-v17/README.md), Ø8 mm in an earlier
+read of the same STEP.
 
 What carried over is the treatment of edges: 5 mm rounds on the four vertical
 corners, a 2 mm round on the base, 1.2 mm on the lid's top edge, a 0.6 mm chamfer

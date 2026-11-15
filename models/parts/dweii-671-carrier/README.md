@@ -1,8 +1,10 @@
 # DWEII 701715519671 carrier
 
-**A printable carrier for the smallest of James's three speaker choices. Not
-printed, not fit-tested, and its dimensions come from a seller listing that
-contradicts itself.**
+**A printable carrier for the 701715519671 module, the smaller of James's three
+speaker choices: 44 × 28 × 15, the same size as its 664 sibling and far smaller
+than the 100 × 45 × 21 module, which this part cannot accept. Not printed, not
+fit-tested, and its dimensions come from a seller listing that contradicts
+itself.**
 
 Editable SolidCraft source:
 [`dweii-671-carrier.sc`](dweii-671-carrier.sc).

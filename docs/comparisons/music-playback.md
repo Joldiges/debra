@@ -9,6 +9,30 @@ Debra's premise is one box that is both a voice satellite and a music player, so
 "can it play music" is not a nice-to-have row. The table is ordered by how close
 each device is to doing it with vendor firmware alone.
 
+## Transports and server: control boundaries
+
+The protocol-level answer comes from the
+[music transport and control map](../notes/2026-11-15-music-transport-and-control-map.md)
+(R03, unreviewed). Pause, resume, per-player volume and mute are specified
+interfaces in Sendspin and implemented in Music Assistant; Snapcast has no pause
+at all. What remains unverified is the Debra device, not the existence of an
+interface. LVA's own player behavior still does not prove control of another
+process, and no multiroom or interruption test is claimed. Source checks dated
+2026-11-15.
+
+| Layer | Documented control | What it does not give Debra |
+| --- | --- | --- |
+| Sendspin protocol | `controller@v1` pause/play/next/previous/seek; per-player `volume`/`mute` on a `(v/100)^1.5` curve | A paused buffer on the receiver: pause ends the stream, and resume is a fresh `stream/start` |
+| Sendspin Python CLI 9.1.0 | controller role only when MPRIS is enabled; hardware volume in daemon mode writes the **system sink** | A private trim: that sink write is the same control the voice assistant's replies use |
+| Snapcast | `Client.SetVolume`, `Group.SetMute`, `Group.SetStream`; snapclient applies volume locally as a **sink-input** | Any pause. MA emulates it with stop+resume, so the player state never shows paused |
+| Music Assistant | Pauses the queue and sets player volume through the active protocol | An announcement level on the Sendspin provider, and a stable group balance after a duck |
+| PipeWire / PulseAudio | Sink-input volume is per-stream and genuinely independent of the sink | A protocol-visible control: the sender cannot see a local gain change |
+| Home Assistant | `media_player.media_pause` and `volume_set` reach MA | Anything past MA, such as a per-device attenuation |
+
+Consequence for Debra's duck/resume setting: an independent attenuation has to
+live below the protocol, and a duck implemented as player volume rewrites Music
+Assistant's group balance. Both are recorded in R03's traps.
+
 ## The table
 
 | Device | Transport | Turned on by | Stream | Server side | Evidence |
@@ -32,7 +56,7 @@ receive the stream and decode it.
 | **Sendspin** | The protocol Music Assistant is moving to; also what the ESPHome devices above use | One path for both the ESP32 devices and a Pi, so a mixed house is one system | Newest of the five; MA's support is beta [S21]; the Pi side is the least demonstrated |
 | **Snapcast** | Mature synchronised multi-room client/server [S30] | Real multi-room sync today, well understood, runs on a Pi Zero | A second server to run; Satellite1 dropped it for Sendspin [S33] |
 | **squeezelite** | Lyrion/Squeezebox client | Very light, well trodden on Pi hardware | Ties you to the LMS ecosystem |
-| **shairport-sync** | AirPlay receiver [S31] | iPhone users can just send audio | Single-source, no multi-room, no MA control |
+| **shairport-sync** | AirPlay receiver [S31] | iPhone users can just send audio | Single-source, no multi-room; MA control unverified `U` |
 | **MA Local Audio** | Music Assistant's own player app on the host | No extra server | It is the successor to "Local Audio Out", which MA retired, and is still experimental [S32] |
 
 Debra's stated direction is Sendspin first with room left for Snapcast, and this

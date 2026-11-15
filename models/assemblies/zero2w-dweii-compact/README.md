@@ -62,9 +62,10 @@ this arrangement.*
 - **Two acoustic directions in one box.** Sound leaves the front; sound enters the
   top. A case therefore needs a baffle opening in front **and** an acoustic area
   in the lid. Neither is modelled here.
-- **The lid cannot be cut yet.** The HAT's two microphone ports are known to be
-  at opposite ends of the board, but their coordinates have not been extracted,
-  so there is no honest place to put holes. See
+- **There is no lid to cut.** The HAT's two microphone ports are 58.93 mm apart
+  and 8.66 mm inboard of the header edge, sourced from Seeed's Eagle board file
+  and carried in [the HAT envelope](../../components/respeaker-2mic-hat/README.md);
+  this study has no lid to put the holes in. See
   [the microphone note](../../../docs/research/2026-11-15-respeaker-microphone.md).
 - **The module's real size is unresolved** — sellers give 31 or 44 mm for its
   width. This model uses 44, the larger, so a pocket cut from it accepts either.

@@ -8,6 +8,47 @@ The `Music playback` column is only a summary. [music-playback.md](music-playbac
 carries the transport, the firmware version that enables it, the stream format
 and what the server has to run, for every row.
 
+## Buying alternatives at a glance
+
+These are snapshots from the unreviewed [R02 research note](../notes/2026-11-15-complete-alternatives-comparison.md),
+not Debra tests. Prices are for one device; tax and shipping are not established.
+Where required, Home Assistant and other parts are extra. Stock and prices may change.
+
+| Alternative | Price and evidence date | What it does | Limit or missing piece |
+| --- | --- | --- | --- |
+| Voice Preview Edition | $58.95–$59 USD, ameriDroid, CloudFree or Seeed; 2026-11-15 [S35 D][S36 D][S37 D] | HA voice satellite; Sendspin from firmware 25.12.0 [S1 D][S20 D] | Built-in speaker is for voice feedback; music needs an external speaker. Power supply and cable are extra [S1 D][S51 D] |
+| Satellite1.1 Smart Speaker | $132.99–$134.99 USD, FutureProofHomes; 2026-11-15 [S13 D] | Assembled voice satellite with Sendspin music and grouping [S13 D][S15 D] | Needs HA and MA; 30 W supply recommended. Wake word may be missed at full volume [S11 D][S19 D] |
+| M5Stack ATOM Voice (C008-C) | $13.50 USD, M5Stack; 2026-11-15 [S4 D] | ESPHome voice satellite; on-device or HA-server wake word [S5 D] | No music path documented `U`; user flashes it [S5 D] |
+| M5Stack Atom VoiceS3R (C126-ECHO) | $14.50 USD, M5Stack; 2026-11-15 [S38 D] | ESPHome voice; Sendspin appears in vendor YAML [S7 D][S22 D] | Sendspin is not in the vendor feature prose; conflicting stock readings [S7 D][S22 D][S38 R] |
+| Echo Dot, fifth generation | $79.99 USD list, PCMag review dated 2026-06-16; checked 2026-11-15 [S39 R] | Alexa voice speaker; Music Assistant offers an experimental Alexa skill route [S40 D] | R02 says it is not an HA voice satellite; MA requires a self-hosted skill service [S40 D][S41 D] |
+| HomePod mini 2 | $149 USD, Apple; 2026-11-15 [S48 D] | Siri speaker; AirPlay target for Music Assistant [S49 D] | Cannot act as an HA voice satellite, per R02; Apple setup requirements apply `D` |
+| Google Home Speaker | `U` — price source not identified in R02; evidence dated 2026-11-15 | Gemini-for-Home speaker, reported [S52 R] | HA voice path absent per R02; Music Assistant Cast compatibility is unverified `U` |
+
+The Google price's launch-coverage source was not identified separately in R02;
+its $99.99 figure is a lead, not a sourced buying price. See the R02 note for seller
+availability, external-speaker estimates, account requirements and caveats.
+
+For a build-your-own comparison, the unreviewed [R01 parts inventory](../notes/2026-11-15-parts-inventory.md)
+uses historical, unverified speaker prices and leaves amplification and enclosure
+costs unpriced. Its subtotals are not complete kit prices or compatibility proof.
+
+## Non-Raspberry-Pi host boards: 2-Mics HAT screen
+
+The [R07 screen](../notes/2026-11-15-alternative-board-screen.md) is unreviewed
+documentation research, checked 2026-11-15. No board was tested. Header alignment
+alone does not establish electrical, driver, OS, or Debra compatibility. The
+decisive unknowns below concern the ReSpeaker 2-Mics Pi HAT; USB audio and
+board-native options were not evaluated as replacements.
+
+| Exact board | HAT screen | Decisive unknown or exclusion |
+| --- | --- | --- |
+| Orange Pi Zero 2W V1.1 | 40-pin header; I2C on 3/5; I2S not documented in pin table [S42 D] | Are H618 I2S nets routed to any header pin, and exposed by the vendor kernel? `U` |
+| Orange Pi Zero 3 | Excluded for direct fitting: 26-pin plus 13-pin headers [S43 D] | None for direct HAT fit: no 40-pin header [S43 D] |
+| Orange Pi 3B | 40-pin header; HAT pinout not evaluated [S44 D] | Does the image-only pin table or schematic show I2S on pins 12/35/38/40? `U` |
+| Radxa ZERO 3W V1.11/V1.12 | I2S matches; pins 3/5 are UART in the pin table, not I2C [S45 D] | Can a tested overlay and re-pin reach the HAT codec on I2C4 pins 27/28? `U` |
+| Radxa ROCK 3C V1.3/V1.4 | I2S and I2C positions match on paper; **not evaluated** [S46 D] | Can an overlay operate I2S3 and the I2C3 codec simultaneously with the HAT's MCLK arrangement? `U` |
+| Libre Computer Le Potato AML-S905X-CC | Forum reports I2S is not on its 40-pin header [S47 R] | For the distinct V2 board, is its separate I2S header supported by a codec overlay and HAT jumper wiring? `U` [S50 R] |
+
 ## Complete devices and near-complete kits
 
 | Device (exact variant) | SoC / audio silicon | Microphone topology | Speaker output | On-device wake word | Home Assistant path | Music playback | Architecture | Price, market, date | Availability | Maintenance burden | Weakest cell |

@@ -41,10 +41,28 @@ makes the cell unusable.
 | S32 | Music Assistant — Local Audio player | https://www.music-assistant.io/player-support/local-audio/ | 2026-11-15 | MA's own on-host player, successor to the retired "Local Audio Out", still experimental; the HA player provider defaults to MP3 and cannot synchronise with other players |
 | S33 | Satellite1-ESPHome — release v0.2.0 | https://github.com/FutureProofHomes/Satellite1-ESPHome/releases/tag/v0.2.0 | 2026-11-15 | published 2026-05-28; Sendspin replaces Snapcast, and the upgrade note says old Snapcast players must be deleted rather than upgraded |
 | S34 | Satellite1-ESPHome — issue 521 | https://github.com/FutureProofHomes/Satellite1-ESPHome/issues/521 | 2026-11-15 | announcements regressed after the Sendspin change; the vendor's own bug report |
+| S35 | ameriDroid — Home Assistant Voice Preview Edition | https://ameridroid.com/products/home-assistant-voice-preview-edition/ | 2026-11-15 | $58.95 USD, pre-order with no restock date in R02 |
+| S36 | CloudFree — Home Assistant Voice Preview Edition | https://cloudfree.shop/product/home-assistant-voice-preview-edition/ | 2026-11-15 | $58.95 USD, sold out in R02 |
+| S37 | Seeed — Home Assistant Voice Preview Edition | https://www.seeedstudio.com/Home-Assistant-Voice-p-6998.html | 2026-11-15 | $59 USD, maximum two per account; stock not confirmed in R02 |
+| S38 | M5Stack shop — Atom VoiceS3R | https://shop.m5stack.com/products/atom-echos3r-smart-speaker-dev-kit | 2026-11-15 | $14.50 USD; conflicting stock readings in R02 |
+| S39 | PCMag — Amazon Echo Dot fifth-generation review | https://www.pcmag.com/reviews/amazon-echo-dot-5th-gen | 2026-11-15 | $79.99 USD list price reported in R02; review dated 2026-06-16 |
+| S40 | Music Assistant — Alexa player support | https://www.music-assistant.io/player-support/alexa/ | 2026-11-15 | Experimental self-hosted Alexa skill route and prerequisites, as recorded in R02 |
+| S41 | Home Assistant — Alexa Devices integration | https://www.home-assistant.io/integrations/alexa_devices/ | 2026-11-15 | Alexa integration limitations and cloud polling, as recorded in R02 |
+| S42 | Orange Pi wiki — Zero 2W | http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_Zero_2W | 2026-11-15 | V1.1 header table: I2C on 3/5 and no listed I2S function, per R07 |
+| S43 | Orange Pi wiki — Zero 3 | http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_Zero_3 | 2026-11-15 | 26-pin and 13-pin headers; no direct 40-pin HAT fit, per R07 |
+| S44 | Orange Pi wiki — 3B | http://www.orangepi.org/orangepiwiki/index.php/Orange_Pi_3B | 2026-11-15 | 40-pin header; detailed pin table published as images and not evaluated in R07 |
+| S45 | Radxa docs — ZERO 3W hardware interface | https://docs.radxa.com/en/zero/zero3/hardware-design/hardware-interface | 2026-11-15 | I2S pins, UART on 3/5 in pin table, I2C4 on 27/28; page has a pin-description conflict, per R07 |
+| S46 | Radxa docs — ROCK 3C hardware interface | https://docs.radxa.com/en/rock3/rock3c/hardware-design/hardware-interface | 2026-11-15 | I2S and I2C header positions; matching positions do not establish HAT support, per R07 |
+| S47 | Libre Computer forum — Le Potato overview and guides | https://hub.libre.computer/t/aml-s905x-cc-le-potato-overview-resources-and-guides/288 | 2026-11-15 | I2S header availability reports for original Le Potato, per R07 |
+| S48 | Apple — HomePod mini | https://www.apple.com/shop/buy-homepod/homepod-mini | 2026-11-15 | HomePod mini 2 $149 USD price and setup requirements, as recorded in R02 |
+| S49 | Music Assistant — AirPlay player support | https://www.music-assistant.io/player-support/airplay/ | 2026-11-15 | HomePod AirPlay player path, as recorded in R02 |
+| S50 | Libre Computer — AML-S905X-CC V2 | https://libre.computer/products/aml-s905x-cc-v2/ | 2026-11-15 | Separate V2 I2S header, from a search-result extract; page body was JS-rendered in R07 |
+| S51 | Nabu Casa — Voice Preview Edition getting started | https://support.nabucasa.com/hc/en-us/articles/25918770371229 | 2026-11-15 | USB-C power supply and cable not included, as recorded in R02 |
+| S52 | Engadget — Google discontinues Nest Mini and Nest Audio | https://www.engadget.com/2197748/google-has-discontinued-the-nest-home-mini-and-nest-audio | 2026-11-15 | Google Home Speaker and Gemini-for-Home, reported in R02; article dated 2026-06-18 |
 
 `T` is the only source in this register that is a Debra observation rather than a
-third-party page. Everything else is what a vendor or upstream project publishes;
-none of it has been reproduced on Debra hardware.
+third-party page. The others include vendor, upstream and attributed secondary
+sources; none of their claims has been reproduced on Debra hardware here.
 
 ## What the register deliberately does not hold
 
@@ -53,8 +71,9 @@ none of it has been reproduced on Debra hardware.
   BOX-3 user guide. A URL that did not resolve is not evidence and gets no key.
 - **Prices without a date.** A price is a snapshot; the cell and the entry both
   carry the date read.
-- **Aggregated or secondary pages.** Where a shop listing and a datasheet
-  disagree, both are kept as separate keys rather than averaged.
+- **Unattributed secondary claims.** Secondary pages are labeled as reports;
+  where a shop listing and a datasheet disagree, both are kept as separate keys
+  rather than averaged.
 
 ## Adding a source
 
