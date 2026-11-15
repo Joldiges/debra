@@ -20,23 +20,44 @@ class NmError(Exception):
     """A NetworkManager operation failed. The message is safe to show a user."""
 
 
+# What a failure means, in words a person can act on. Raw external text is
+# never stored or shown: it can contain anything at all, and the setup state and
+# the page are not places to put it. A test submits a passphrase in stderr and
+# asserts it reaches neither.
+PUBLIC_FAILURES = (
+    ("secrets were required", "The Wi-Fi password was refused by the network"),
+    ("no network with ssid", "That network was not found"),
+    ("no wifi device", "This device has no usable Wi-Fi interface"),
+    ("not authorized", "NetworkManager refused the change"),
+    ("activation failed", "The device could not join that network"),
+)
+
+
+def public_failure(detail, code):
+    """One bounded, credential-free sentence for a NetworkManager failure."""
+    text = " ".join((detail or "").lower().split())
+    for needle, message in PUBLIC_FAILURES:
+        if needle in text:
+            return message
+    return f"NetworkManager reported failure {code}"
+
+
 def _run(argv, timeout=45):
     try:
         result = subprocess.run(argv, capture_output=True, text=True,
                                 timeout=timeout, check=False)
-    except FileNotFoundError as exc:
+    except FileNotFoundError:
         # Name the binary that is actually missing. `raspi-config` and `iw` use
         # this too, and telling someone their NetworkManager is absent when it
         # is `raspi-config` that is absent is a false statement about their
-        # device, shown on the setup page.
-        raise NmError(f"{argv[0]} is not installed") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise NmError(f"{argv[0]} {argv[1]} timed out") from exc
+        # device, shown on the setup page. No chain: the traceback of a timeout
+        # carries the command line, and the command line is not for a journal.
+        raise NmError(f"{argv[0]} is not installed") from None
+    except subprocess.TimeoutExpired:
+        raise NmError(f"{argv[0]} did not answer in time") from None
     if result.returncode != 0:
-        # nmcli writes the reason to stderr; the browser never sees raw output,
-        # so only a short, single-line form is kept.
-        detail = " ".join(result.stderr.strip().split())[:200]
-        raise NmError(detail or f"nmcli {argv[1]} exited {result.returncode}")
+        # Only the classification leaves this function; the raw text does not.
+        raise NmError(public_failure(result.stderr or result.stdout, result.returncode))
     return result.stdout
 
 
@@ -175,6 +196,18 @@ class Nmcli:
         return {"interface": interface, "address": address, "gateway": gateway,
                 "routable": routable(address), "has_route": bool(gateway)}
 
+    def active_connection(self, interface):
+        """The connection name NetworkManager has active on a device, or None."""
+        if not interface:
+            return None
+        detail = self._run(["nmcli", "-t", "-f", "GENERAL.CONNECTION",
+                            "device", "show", interface])
+        for line in detail.splitlines():
+            key, _, value = line.partition(":")
+            if key.strip() == "GENERAL.CONNECTION":
+                return value.strip() or None
+        return None
+
     def device_address(self, interface):
         """The IPv4 address a device holds, or None.
 
@@ -231,6 +264,12 @@ class Nmcli:
         active = self.active()
         if active is None:
             raise NmError("Joined the network but NetworkManager reports no uplink")
+        # A connected Wi-Fi device is not proof that *this* profile is the one
+        # that came up: an older profile could have won the race. Success means
+        # the profile that was just loaded is the active connection.
+        current = self.active_connection(active["interface"])
+        if current is not None and current != connection_id:
+            raise NmError("Joined the network, but a different saved network is active")
         if not active["routable"]:
             raise NmError("Joined the network but received no usable address")
         if not active["has_route"]:
@@ -253,11 +292,17 @@ class Nmcli:
 
 
 def routable(address):
-    """A usable address, not link-local, loopback or unspecified."""
+    """A usable unicast address for a device.
+
+    Multicast and broadcast are not device addresses, and 224.0.0.1 and
+    255.255.255.255 used to pass because only link-local, loopback and
+    unspecified were rejected.
+    """
     if not address:
         return False
     try:
         parsed = ipaddress.IPv4Address(address)
     except ipaddress.AddressValueError:
         return False
-    return not (parsed.is_link_local or parsed.is_loopback or parsed.is_unspecified)
+    return not (parsed.is_link_local or parsed.is_loopback or parsed.is_unspecified
+                or parsed.is_multicast or parsed.is_reserved)

@@ -111,11 +111,6 @@ def capture(destination, paths=CAPTURE, root="/", stamp=None):
     payload = buffer.getvalue()
     if len(payload) > MAX_BYTES:
         raise BaselineError(f"compressed baseline would exceed {MAX_BYTES} bytes")
-    fd = os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(payload)
-        stream.flush()
-        os.fsync(stream.fileno())
     manifest = {
         "archive": archive.name,
         "created": stamp,
@@ -126,10 +121,34 @@ def capture(destination, paths=CAPTURE, root="/", stamp=None):
         "missing": missing,
         "note": "Configuration baseline, not whole-device recovery. Contains secrets.",
     }
-    (destination / f"baseline-{stamp}.json").write_text(
-        json.dumps(manifest, indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    os.chmod(destination / f"baseline-{stamp}.json", 0o600)
+    # Write under a name nothing reads, then rename. A full disk partway through
+    # then leaves a .part file, never a final-named archive that looks complete;
+    # the manifest is the last thing to appear, so "a manifest exists" means the
+    # archive beside it is whole.
+    _write(destination / f".baseline-{stamp}.tar.gz.part", payload)
+    _write(destination / f".baseline-{stamp}.json.part",
+           (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8"))
+    os.replace(destination / f".baseline-{stamp}.tar.gz.part", archive)
+    os.replace(destination / f".baseline-{stamp}.json.part",
+               destination / f"baseline-{stamp}.json")
     return manifest
+
+
+def _write(path, payload):
+    """Write one owner-only file and flush it to disk, or leave nothing."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    return path
 
 
 def latest(destination):

@@ -5,6 +5,9 @@ const el = id => document.getElementById(id);
 const SECTIONS = ["loading", "form-card", "handover", "failed", "online"];
 let status = null;
 let busy = false;
+// True while the person is filling the form after a failure. Without it the
+// 15-second poll re-rendered the failure screen and wiped the form mid-typing.
+let editing = false;
 
 // A short list covers most homes; "Other" swaps to a two-letter code so no
 // country is unreachable rather than silently missing from a long dropdown.
@@ -77,6 +80,7 @@ function render() {
     : "Only Wi-Fi details are accepted on this page. Nothing here changes your home router.";
 
   if (status.phase === "online") {
+    editing = false;
     el("online-ssid").textContent = status.ssid || "your network";
     const list = el("online-values");
     list.replaceChildren();
@@ -99,17 +103,20 @@ function render() {
     return;
   }
   if (status.phase === "connecting") {
+    editing = false;
     el("hotspot-name").textContent = status.hotspot?.ssid || "the setup network";
     el("join-name").textContent = status.ssid || "your network";
     show("handover");
     return;
   }
-  if (status.phase === "failed") {
+  if (status.phase === "failed" && !editing) {
     el("failed-reason").textContent = status.last_error || "The device could not join that network.";
     show("failed");
     return;
   }
-  buildCountries(status.country || "");
+  // Keep a country the person already chose, so a poll does not reset the form.
+  const chosen = el("country").value;
+  buildCountries(status.country || (/^[A-Z]{2}$/.test(chosen) ? chosen : ""));
   const needsCountry = !status.country;
   showCountryField(needsCountry);
   el("step-label").textContent = needsCountry ? "STEP 1 OF 2" : "ONE STEP";
@@ -156,6 +163,7 @@ el("join").addEventListener("click", async () => {
   if (country === "") { error("Enter a two-letter country code, or choose one from the list."); return; }
   error("");
   busy = true;
+  editing = false;
   el("join").disabled = true;
   el("join").textContent = "Sending…";
   try {
@@ -187,6 +195,7 @@ el("join").addEventListener("click", async () => {
 el("retry").addEventListener("click", () => {
   // The access point is back, so the page is reachable again: show the form
   // without a reload, and keep the last failure out of the way.
+  editing = true;
   buildCountries(status?.country || "");
   showCountryField(!status?.country);
   // Keep the network name, which is probably right, and clear the password,
@@ -198,4 +207,7 @@ el("retry").addEventListener("click", () => {
 });
 
 load();
-setInterval(() => { if (!busy && status?.phase !== "connecting") load(); }, 15000);
+// Keep polling while connecting too: the access point is down then, the fetch
+// simply fails, and when it comes back the page has to discover whether the
+// join worked. Stopping at `connecting` left a reload as the only way to know.
+setInterval(() => { if (!busy) load(); }, 15000);

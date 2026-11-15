@@ -159,7 +159,7 @@ window.addEventListener("load", async () => {
       assert(shown("failed"), "the failure screen never appeared");
       assert(!shown("handover") && !shown("form-card") && !shown("online"),
              "another screen is showing with the failure");
-      assert(/Secrets were required/.test(textOf("failed-reason")),
+      assert(/password was refused/.test(textOf("failed-reason")),
              "the failure reason is not shown: " + JSON.stringify(textOf("failed-reason")));
       byId("retry").click();
       await wait(50);
@@ -168,6 +168,15 @@ window.addEventListener("load", async () => {
       assert(textOf("form-error") === "", "the retry left an error message behind");
       assert(textOf("device-name") === "debra-demo1", "the form lost the device name after retry");
       assert(byId("country").options.length > 2, "the form lost the country list after retry");
+      // The 15-second poll must not put the failure back over a form being
+      // filled in. Calling render() is what that poll does, without the wait.
+      const typed = byId("ssid");
+      typed.value = "HomeWiFi";
+      render();
+      assert(shown("form-card") && !shown("failed"),
+             "a status poll replaced the form with the old failure");
+      assert(typed.value === "HomeWiFi", "a status poll cleared what had been typed");
+      assert(byId("psk").value === "", "the retry did not clear the password");
       result.textContent = "PASS: a wrong password ends on the reason and retry returns to the form";
     } else if (mode === "validation") {
       assert(await formReady(), "the Wi-Fi form never appeared");
@@ -480,7 +489,7 @@ class SetupBrowserTests(unittest.TestCase):
     def test_a_wrong_password_ends_on_the_reason_and_retry_returns_to_the_form(self):
         state = self.assert_driven("bad-psk", "--behaviour", "bad-psk")
         self.assertEqual(state["phase"], "failed")
-        self.assertIn("Secrets were required", state["last_error"])
+        self.assertIn("password was refused", state["last_error"])
         self.assertEqual(state["attempts"], 1)
         # The setup network must be back, or there is no way to try again.
         self.assertEqual(state["hotspot"]["ssid"], "Debra-Setup-demo1")

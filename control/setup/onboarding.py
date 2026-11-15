@@ -86,6 +86,12 @@ def read_serial(paths=SERIAL_PATHS):
     return None
 
 
+def _public_text(exc, limit=200):
+    """One bounded line from an internal exception, safe to show a person."""
+    text = " ".join(str(exc).split())
+    return text[:limit] or exc.__class__.__name__
+
+
 def hotspot_name(hostname):
     suffix = (hostname or "debra").split("-")[-1][:6]
     return f"{HOTSPOT_PREFIX}-{suffix}"
@@ -161,6 +167,7 @@ class Onboarder:
             "last_error": data["last_error"],
             "attempts": data["attempts"],
             "baseline": data["baseline"],
+            "baseline_error": data.get("baseline_error"),
             "hotspot": ({**hotspot,
                          "password": hotspot_password(data["hostname"])}
                         if hotspot else None),
@@ -183,7 +190,14 @@ class Onboarder:
             # then wiped the hostname it had just set.
             data["hostname"] = self.ensure_identity()
         hostname = data["hostname"]
-        interface = self.network.wifi_interface()
+        try:
+            interface = self.network.wifi_interface()
+        except nm_module.NmError as exc:
+            # A missing or broken nmcli used to escape this function and kill the
+            # boot unit with a traceback. It is a failure the page can explain.
+            data.update(phase="failed", last_error=str(exc))
+            state_module.write(self.state_path, data)
+            return self.status()
         if not interface:
             data.update(phase="failed", last_error="No Wi-Fi interface was found")
             state_module.write(self.state_path, data)
@@ -229,19 +243,27 @@ class Onboarder:
         except OSError as exc:
             LOGGER.warning("Setup note not written: %s", exc)
 
-    def join(self, ssid, psk, country=None):
-        """Try to join. Returns the new status; the caller answers the page first.
+    def admit(self, ssid, psk, country=None):
+        """Reserve the one in-flight attempt, or say why not.
 
-        This is synchronous and slow by design (association plus DHCP), so the
-        portal runs it on a worker thread after replying.
+        Two requests arriving together used to pass the same snapshot check and
+        start two associations. Reserving under the lock closes that gap: the
+        phase becomes `connecting` before the page is answered, so a second
+        request sees a device that is already busy.
         """
         with self._lock:
             data = state_module.read(self.state_path)
             if self._locked_out(data):
-                return self.status()
+                return False, "locked"
+            if data["phase"] not in ("hotspot", "failed"):
+                return False, "busy"
+            if not data["hotspot"]:
+                # A failed phase with no access point is a device that could not
+                # raise one at all. There is nothing to hand over to, and the old
+                # handler then crashed on `hotspot["ssid"]`.
+                return False, "no-hotspot"
             if self.clock() - self._last_submit < SUBMIT_INTERVAL_S:
-                return self.status()
-            self._last_submit = self.clock()
+                return False, "throttle"
             if country and not data["country"]:
                 try:
                     self.network.set_country(country)
@@ -249,14 +271,32 @@ class Onboarder:
                 except nm_module.NmError as exc:
                     data.update(phase="failed", last_error=str(exc))
                     state_module.write(self.state_path, data)
-                    return self.status()
+                    return False, "country"
             # The page has already answered; from here the AP is expendable.
             # A capped counter starts again after the cooldown, so the retry
             # the page offers is always a retry that can work.
+            self._last_submit = self.clock()
             data.update(phase="connecting", ssid=ssid, last_error=None,
                         attempts=min(data["attempts"], MAX_ATTEMPTS - 1) + 1,
                         last_attempt=state_module.now())
             state_module.write(self.state_path, data)
+            return True, None
+
+    def join(self, ssid, psk, country=None):
+        """Admit and join in one call. The portal does the two steps separately."""
+        accepted, _ = self.admit(ssid, psk, country)
+        if not accepted:
+            return self.status()
+        return self.join_reserved(ssid, psk)
+
+    def join_reserved(self, ssid, psk):
+        """Do the slow part of a join that `admit()` already reserved."""
+        data = state_module.read(self.state_path)
+        if data["phase"] != "connecting" or data["ssid"] != ssid:
+            # Something else moved the state on while this worker waited; the
+            # reservation is no longer this worker's to use.
+            LOGGER.warning("Join for %s abandoned: the device is no longer connecting", ssid)
+            return self.status()
 
         try:
             self.network.stop_hotspot()
@@ -289,17 +329,31 @@ class Onboarder:
         return age < LOCKOUT_COOLDOWN_S
 
     def _capture_baseline(self):
-        """One baseline, once, after the first successful join."""
-        data = state_module.read(self.state_path)
-        if data["baseline"]:
+        """One baseline, once. Called after a join and on every online boot.
+
+        The record is re-read after the capture rather than written back from
+        before it: a capture takes time, and the phase or the address may have
+        changed while it ran.
+        """
+        if state_module.read(self.state_path)["baseline"]:
             return
         try:
             manifest = baseline_module.capture(self.baseline_dir, root=self.root)
         except (baseline_module.BaselineError, OSError) as exc:
-            # A missing baseline must not undo a working network.
+            # A missing baseline must not undo a working network, but it must be
+            # visible: "not captured yet" with no reason reads as progress that
+            # is not happening.
             LOGGER.warning("Baseline not captured: %s", exc)
+            try:
+                data = state_module.read(self.state_path)
+                data["baseline_error"] = _public_text(exc)
+                state_module.write(self.state_path, data)
+            except (OSError, ValueError):
+                LOGGER.warning("Baseline error could not be recorded")
             return
+        data = state_module.read(self.state_path)
         data["baseline"] = str(self.baseline_dir / manifest["archive"])
+        data["baseline_error"] = None
         state_module.write(self.state_path, data)
 
     def resume(self):
@@ -314,6 +368,11 @@ class Onboarder:
             if data["phase"] != "online" or data["address"] != active["address"]:
                 data.update(phase="online", address=active["address"], hotspot=None)
                 state_module.write(self.state_path, data)
+            # A device can be online without ever having taken its baseline: it
+            # was already connected at boot, or the capture died with the power.
+            # The baseline is a milestone, not a side effect of joining, so a
+            # boot retries it instead of leaving the gap for ever.
+            self._capture_baseline()
             return self.status()
         if data["phase"] == "online":
             # Was online and is not now: say so, and offer the setup point again
@@ -427,19 +486,31 @@ class PortalHandler(BaseHTTPRequestHandler):
         if country is not None and not nm_module.valid_country(country):
             self._reply(400, {"error": "Country must be two capital letters"})
             return
+        # Reserve the attempt *before* answering. Two requests arriving together
+        # used to pass the same snapshot check and start two associations; the
+        # reservation makes the second one see a device that is already busy.
+        accepted, reason = self.server.onboarder.admit(ssid, psk or None, country)
+        if not accepted:
+            if reason == "locked":
+                # The counter is in the state file, so a power cycle cannot clear
+                # it. The advice has to be the wait that actually works.
+                self._reply(429, {"error": "Too many attempts. Wait ten minutes, "
+                                           "then try again."})
+            elif reason == "throttle":
+                self._reply(429, {"error": "One attempt every few seconds. "
+                                           "Try again shortly."})
+            elif reason in ("busy", "no-hotspot"):
+                self._reply(409, {"error": "The device is not waiting for setup right now"})
+            else:
+                self._reply(400, {"error": "The country could not be set"})
+            return
         status = self.server.onboarder.status()
-        if status["attempts"] >= MAX_ATTEMPTS:
-            self._reply(429, {"error": "Too many attempts. Power-cycle the device and try again."})
-            return
-        if status["phase"] not in ("hotspot", "failed"):
-            self._reply(409, {"error": "The device is not waiting for setup right now"})
-            return
         # Answer before the network goes away: this reply is the last thing the
         # browser can receive over the setup access point.
         self._reply(202, {"status": "connecting", "ssid": ssid,
-                          "hotspot": status["hotspot"]["ssid"]})
-        worker = threading.Thread(target=self.server.onboarder.join,
-                                  args=(ssid, psk or None, country), daemon=True,
+                          "hotspot": (status.get("hotspot") or {}).get("ssid")})
+        worker = threading.Thread(target=self.server.onboarder.join_reserved,
+                                  args=(ssid, psk or None), daemon=True,
                                   name="debra-onboarding")
         worker.start()
 

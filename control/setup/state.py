@@ -41,6 +41,10 @@ def blank(hostname=""):
         "last_attempt": None,
         "hotspot": None,
         "baseline": None,
+        # Why the last baseline attempt failed, in words a person can read. It
+        # is separate from last_error, which is about joining: a device can be
+        # online and still have no baseline.
+        "baseline_error": None,
         "updated": now(),
     }
 
@@ -53,23 +57,31 @@ def validate(data):
     extra = set(data) - allowed
     if extra:
         raise ValueError(f"Unknown setup state keys: {', '.join(sorted(extra))}")
+    missing = allowed - set(data)
+    if missing:
+        # A record that validates but then raises KeyError in status() is worse
+        # than one refused at the boundary.
+        raise ValueError(f"Setup state is missing keys: {', '.join(sorted(missing))}")
     if data.get("schema") != SCHEMA:
         raise ValueError(f"Unsupported setup state schema: {data.get('schema')!r}")
     if data.get("phase") not in PHASES:
         raise ValueError(f"Unknown setup phase: {data.get('phase')!r}")
-    for key in ("hostname", "ssid", "address", "last_error"):
+    for key in ("hostname", "ssid", "address", "last_error", "baseline_error"):
         value = data.get(key)
         if value is not None and (not isinstance(value, str) or len(value) > 200):
             raise ValueError(f"Setup state {key} must be text up to 200 characters")
     if data.get("country") is not None:
         if not isinstance(data["country"], str) or len(data["country"]) != 2:
             raise ValueError("Country must be a two-letter code or null")
-    if not isinstance(data.get("attempts"), int) or not 0 <= data["attempts"] <= 1000:
+    attempts = data.get("attempts")
+    if isinstance(attempts, bool) or not isinstance(attempts, int) \
+            or not 0 <= attempts <= 1000:
+        # bool is an int subclass: True would otherwise pass as one attempt.
         raise ValueError("Attempts must be a whole number up to 1000")
-    last_attempt = data.get("last_attempt")
-    if last_attempt is not None and (not isinstance(last_attempt, str)
-                                     or len(last_attempt) > 40):
-        raise ValueError("last_attempt must be a timestamp or null")
+    for key, limit in (("last_attempt", 40), ("updated", 40)):
+        value = data.get(key)
+        if value is not None and (not isinstance(value, str) or len(value) > limit):
+            raise ValueError(f"{key} must be a timestamp or null")
     hotspot = data.get("hotspot")
     if hotspot is not None:
         if not isinstance(hotspot, dict) or set(hotspot) != {"ssid", "interface"}:

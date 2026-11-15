@@ -37,10 +37,14 @@ class Temp(unittest.TestCase):
         self._temp.cleanup()
 
     def onboarder(self, network=None, **kwargs):
-        # A fixed name and a serial path that cannot exist keep every test
-        # independent of the machine it runs on.
+        # A fixed name, a serial path that cannot exist and an empty fake root
+        # keep every test independent of the machine it runs on. Without the
+        # root, a join would capture this laptop's real keyfiles.
         kwargs.setdefault("hostname", "debra-demo1")
         kwargs.setdefault("serial_paths", (str(self.dir / "no-serial"),))
+        root = self.dir / "fake-root"
+        root.mkdir(exist_ok=True)
+        kwargs.setdefault("root", str(root))
         return onboarding.Onboarder(network or FakeNetwork(), self.state_path,
                                     self.baseline_dir, **kwargs)
 
@@ -172,7 +176,7 @@ class JoinTests(Temp):
         onboarder.start_hotspot()
         status = onboarder.join("HomeWiFi", "wrong password", None)
         self.assertEqual(status["phase"], "failed")
-        self.assertIn("Secrets were required", status["last_error"])
+        self.assertIn("password was refused", status["last_error"])
         # The access point must be back, or the user has no way to try again.
         self.assertEqual(status["hotspot"]["ssid"], "Debra-Setup-demo1")
         self.assertEqual(network.hotspot["ssid"], "Debra-Setup-demo1")
@@ -519,7 +523,7 @@ class Recorder:
             return ""
         if argv[1:4] == ["connection", "up", "id"]:
             if self.up_fails:
-                raise nm_module.NmError("Secrets were required, but not provided.")
+                raise nm_module.NmError("The Wi-Fi password was refused by the network")
             return ""
         return ""
 
@@ -618,3 +622,218 @@ class HostnameTests(Temp):
         with self.assertLogs(onboarding.LOGGER, level="WARNING"):
             status = self.onboarder(Broken()).start_hotspot()
         self.assertEqual(status["hostname"], "debra-demo1")
+
+
+class AdmissionTests(Temp):
+    """One attempt in flight, enforced before the page is answered."""
+
+    def test_two_requests_cannot_both_be_admitted(self):
+        onboarder = self.onboarder()
+        onboarder.start_hotspot()
+        results = []
+        barrier = threading.Barrier(2)
+
+        def attempt():
+            barrier.wait()
+            results.append(onboarder.admit("HomeWiFi", "correct horse", None)[0])
+
+        threads = [threading.Thread(target=attempt) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(sorted(results), [False, True],
+                         "two requests were admitted for one device")
+
+    def test_a_reserved_worker_abandons_if_the_state_moved_on(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        self.assertTrue(onboarder.admit("First", "correct horse", None)[0])
+        # A second network is reserved by someone else in the meantime.
+        data = state_module.read(self.state_path)
+        data["ssid"] = "Second"
+        state_module.write(self.state_path, data)
+        before = len(network.calls)
+        status = onboarder.join_reserved("First", "correct horse")
+        self.assertEqual(len(network.calls), before,
+                         "the abandoned worker touched the network")
+        self.assertEqual(status["phase"], "connecting")
+
+    def test_a_second_admission_is_refused_while_one_is_in_flight(self):
+        onboarder = self.onboarder()
+        onboarder.start_hotspot()
+        self.assertTrue(onboarder.admit("HomeWiFi", "correct horse", None)[0])
+        self.assertEqual(onboarder.admit("HomeWiFi", "correct horse", None),
+                         (False, "busy"))
+
+
+class BaselineRetryTests(Temp):
+    def test_an_online_boot_still_takes_the_missing_baseline(self):
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        onboarder = self.onboarder(network)
+        data = state_module.blank("debra-demo1")
+        data.update(phase="online", ssid="HomeWiFi", address="192.0.2.40")
+        state_module.write(self.state_path, data)
+        status = onboarder.resume()
+        self.assertEqual(status["phase"], "online")
+        self.assertIsNotNone(status["baseline"],
+                             "a device that was already online never took its baseline")
+
+    def test_a_capture_failure_is_recorded_and_shown_not_swallowed(self):
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        onboarder = self.onboarder(network)
+        data = state_module.blank("debra-demo1")
+        data.update(phase="online", ssid="HomeWiFi", address="192.0.2.40")
+        state_module.write(self.state_path, data)
+        with patch.object(baseline_module, "capture", side_effect=OSError("No space left on device")):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+                status = onboarder.resume()
+        self.assertIsNone(status["baseline"])
+        self.assertIn("No space left on device", status["baseline_error"])
+        # The next boot tries again rather than believing it is done.
+        status = onboarder.resume()
+        self.assertIsNotNone(status["baseline"])
+        self.assertIsNone(status["baseline_error"])
+
+
+class ErrorBoundaryTests(unittest.TestCase):
+    """Raw NetworkManager text never reaches the page or the state."""
+
+    def test_a_passphrase_in_nmcli_output_is_not_reported_back(self):
+        class Runner:
+            def __call__(self, argv, timeout=45):
+                if argv[1:3] == ["connection", "load"]:
+                    return ""
+                raise nm_module.NmError(
+                    nm_module.public_failure(
+                        "Error: 802-11-wireless-security.psk: 'SYNTHETIC-SECRET-123' is wrong", 4))
+
+        with tempfile.TemporaryDirectory(prefix="nm-", dir="/tmp/opencode") as directory:
+            with self.assertRaises(nm_module.NmError) as caught:
+                nm_module.Nmcli(runner=Runner()).connect("HomeWiFi", "SYNTHETIC-SECRET-123",
+                                                         keyfile_dir=directory)
+        self.assertNotIn("SYNTHETIC-SECRET-123", str(caught.exception))
+
+    def test_an_unknown_failure_is_bounded_and_carries_no_external_text(self):
+        message = nm_module.public_failure("Error: something odd with 'a secret'", 10)
+        self.assertNotIn("secret", message)
+        self.assertIn("failure 10", message)
+
+    def test_the_known_failures_become_sentences_a_person_can_act_on(self):
+        self.assertEqual(nm_module.public_failure("Secrets were required, but not provided.", 4),
+                         "The Wi-Fi password was refused by the network")
+        self.assertEqual(nm_module.public_failure("Error: No network with SSID 'X' found.", 10),
+                         "That network was not found")
+
+    def test_multicast_and_broadcast_are_not_device_addresses(self):
+        for address in ("224.0.0.1", "255.255.255.255", "0.0.0.0", "169.254.1.1", "127.0.0.1"):
+            self.assertFalse(nm_module.routable(address), address)
+        for address in ("192.168.1.40", "10.42.0.1"):
+            self.assertTrue(nm_module.routable(address), address)
+
+
+class FailedWithoutHotspotTests(Temp):
+    def test_a_join_on_a_failed_device_with_no_access_point_is_refused_not_crashed(self):
+        onboarder = self.onboarder()
+        data = state_module.blank("debra-demo1")
+        data.update(phase="failed", last_error="No Wi-Fi interface was found", hotspot=None)
+        state_module.write(self.state_path, data)
+        server = onboarding.Portal(("127.0.0.1", 0), onboarder, onboarding.ASSETS / "setup.html")
+        host = "127.0.0.1:%d" % server.server_port
+        server.host = host
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            request = urllib.request.Request(
+                "http://" + host + "/api/join",
+                data=json.dumps({"ssid": "HomeWiFi", "psk": "correct horse"}).encode(),
+                method="POST")
+            request.add_header("Host", host)
+            request.add_header("Content-Type", "application/json")
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    code = response.status
+            except urllib.error.HTTPError as exc:
+                code = exc.code
+        finally:
+            server.shutdown()
+            thread.join()
+        # No access point means nothing to hand over to; the page must get a
+        # refusal, not a dropped connection from a TypeError in the handler.
+        self.assertEqual(code, 409)
+
+
+class BaselineAtomicityTests(Temp):
+    def test_a_full_disk_leaves_no_archive_that_looks_complete(self):
+        root = self.dir / "fake-root"
+        (root / "etc").mkdir(parents=True)
+        (root / "etc" / "hostname").write_text("debra-demo1\n")
+        real_open = os.open
+
+        def failing_open(path, flags, mode=0o777):
+            if str(path).endswith(".tar.gz.part"):
+                raise OSError(28, "No space left on device")
+            return real_open(path, flags, mode)
+
+        with patch.object(baseline_module.os, "open", side_effect=failing_open):
+            with self.assertRaises(OSError):
+                baseline_module.capture(self.baseline_dir, root=root, stamp="T1")
+        names = sorted(path.name for path in self.baseline_dir.iterdir())
+        self.assertEqual(names, [], f"a failed capture left {names}")
+        self.assertIsNone(baseline_module.latest(self.baseline_dir))
+
+    def test_a_complete_capture_is_readable_and_owner_only(self):
+        root = self.dir / "fake-root"
+        (root / "etc").mkdir(parents=True)
+        (root / "etc" / "hostname").write_text("debra-demo1\n")
+        manifest = baseline_module.capture(self.baseline_dir, root=root, stamp="T2")
+        self.assertEqual(manifest["captured"], ["etc/hostname"])
+        archive = self.baseline_dir / manifest["archive"]
+        self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o600)
+        self.assertEqual(baseline_module.latest(self.baseline_dir)["archive"], manifest["archive"])
+
+
+class ActiveProfileTests(Temp):
+    class Runner:
+        """Answers nmcli like a device whose saved profile won the race."""
+
+        def __init__(self, active):
+            self.active, self.calls = active, []
+
+        def __call__(self, argv, timeout=45):
+            self.calls.append(list(argv))
+            if argv[1:3] == ["connection", "load"]:
+                return ""
+            if argv[1:4] == ["connection", "up", "id"]:
+                return ""
+            if argv[1:] == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
+                return "wlan0:wifi:connected\n"
+            if argv[1:3] == ["-t", "-f"] and argv[4:6] == ["device", "show"]:
+                if "GENERAL.CONNECTION" in argv[3]:
+                    return f"GENERAL.CONNECTION:{self.active}\n"
+                return "IP4.ADDRESS[1]:192.0.2.40/24\nIP4.GATEWAY:192.0.2.1\n"
+            return ""
+
+    def test_a_different_active_profile_is_not_success(self):
+        runner = self.Runner("HomeWiFi-old")
+        with self.assertRaises(nm_module.NmError) as caught:
+            nm_module.Nmcli(runner=runner).connect("HomeWiFi", "correct horse",
+                                                   keyfile_dir=self.dir)
+        self.assertIn("different saved network", str(caught.exception))
+
+    def test_the_profile_that_was_just_loaded_is_success(self):
+        runner = self.Runner("placeholder")
+        # The loaded profile id is generated per call, so read it from the argv.
+        def answer(argv, timeout=45):
+            if argv[1:3] == ["connection", "load"]:
+                return ""
+            if argv[1:4] == ["connection", "up", "id"]:
+                runner.active = argv[4]
+                return ""
+            return runner(argv, timeout)
+        result = nm_module.Nmcli(runner=answer).connect("HomeWiFi", "correct horse",
+                                                        keyfile_dir=self.dir)
+        self.assertEqual(result["address"], "192.0.2.40")

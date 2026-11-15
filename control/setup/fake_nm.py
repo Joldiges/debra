@@ -76,7 +76,10 @@ class FakeNetwork:
             import nm as nm_module
         self.calls.append(("connect", ssid, bool(psk)))
         if self.behaviour == "bad-psk":
-            raise nm_module.NmError("Secrets were required, but not provided.")
+            # The same sentence the real adapter produces: nmcli's raw text is
+            # classified at the boundary and never reaches the page or state.
+            raise nm_module.NmError(nm_module.public_failure(
+                "Secrets were required, but not provided.", 4))
         if self.behaviour == "no-uplink":
             raise nm_module.NmError("Joined the network but NetworkManager reports no uplink")
         if self.behaviour == "no-address":
