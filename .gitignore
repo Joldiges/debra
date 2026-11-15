@@ -9,3 +9,7 @@
 .env.*
 !.env.example
 !.env.*.example
+
+# UniFi MCP audit log: contains full client inventories (MACs/hostnames/IPs).
+# Kept untracked; sanitized copies belong in .local/.
+/audit.jsonl
