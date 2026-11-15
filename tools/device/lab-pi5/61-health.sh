@@ -30,10 +30,13 @@ sink=$(pactl get-default-sink 2>/dev/null || true)
 if [ -z "$sink" ]; then
   log "no default sink"; fail=1
 else
+  # Volume and mute belong to the user. A quiet device at night is not a fault,
+  # so a muted or turned-down sink is left alone and not logged: a line every two
+  # minutes saying "still quiet" is noise, and the current state is one `pactl`
+  # call away. Only a sink that reports no volume at all means the codec is not
+  # being driven, which is a real fault.
   vol=$(pactl get-sink-volume "$sink" 2>/dev/null | sed -n "1s/.*\/ *\([0-9]*\)%.*/\1/p")
-  mute=$(pactl get-sink-mute "$sink" 2>/dev/null | awk '{print $2}')
-  [ "${vol:-0}" -gt 0 ] 2>/dev/null || { log "sink volume is ${vol:-unknown}%"; fail=1; }
-  [ "${mute:-no}" = "no" ] || { log "sink is muted"; fail=1; }
+  [ -n "$vol" ] || { log "sink $sink reports no volume"; fail=1; }
 fi
 
 # The HAT's speaker is on the codec's LINE output, measured 2026-11-15.
