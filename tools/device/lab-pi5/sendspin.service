@@ -8,12 +8,15 @@ Type=simple
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
+# The daemon determines its address at startup for mDNS; if it starts before the
+# link has a route it advertises nothing and Music Assistant never finds it.
+ExecStartPre=/bin/sh -c 'for i in $(seq 60); do ip -4 route get 1.1.1.1 >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
 # 8927 is taken by the Music Assistant Sendspin server on this host.
 ExecStart=%h/.local/bin/sendspin daemon --name "Debra Lab" --port 8928
 StandardOutput=append:%h/lab/sendspin.log
 StandardError=append:%h/lab/sendspin.log
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=default.target

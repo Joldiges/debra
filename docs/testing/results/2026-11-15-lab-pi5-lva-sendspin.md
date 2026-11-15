@@ -30,7 +30,7 @@ are in [tools/device/lab-pi5/](../../../tools/device/lab-pi5/README.md).
 | Home Assistant accepted the satellite | HA connected, and LVA logged syncing its wake-word and stop-word entities to Home Assistant |
 | Music Assistant sees the satellite as a player | MA log: `Setting active output protocol on Debra Lab to Sendspin` |
 | Sendspin carries audio from a server to the HAT | `Stream started with codec flac`, `Audio format: flac 44100Hz/24-bit/2ch`, `Stream STARTED`; capture during playback peaked at −12.5 dBFS |
-| The player reconnects after reboot | After a cold boot, MA log: `Admitted server 'Music Assistant (d5369777-music-assistant-nightly)'` |
+| The player reconnects after reboot | After a cold boot the daemon advertises again and MA logs `Admitted server 'Music Assistant (d5369777-music-assistant-nightly)'` — but only after the unit was made to wait for a network route (trap 12) |
 | Wake-word detection by voice | **not tested.** Nobody spoke to it. The audio path to it is measured; the detector is not |
 
 ## Traps worth remembering
@@ -69,6 +69,11 @@ are in [tools/device/lab-pi5/](../../../tools/device/lab-pi5/README.md).
     it as an app, visible on port 8095 of the HA host but invisible to container
     listings elsewhere. Checking "no MA container on the NAS" was not evidence of
     "no Music Assistant".
+12. **A Sendspin daemon that starts before the route exists advertises nothing.**
+    It logged `Could not determine local IP address, mDNS may not work properly`
+    after a reboot, kept listening on 8928, and Music Assistant never found it.
+    The unit now waits for `ip -4 route get 1.1.1.1` before starting and restarts
+    unconditionally.
 
 ## Power: this device browns out
 
