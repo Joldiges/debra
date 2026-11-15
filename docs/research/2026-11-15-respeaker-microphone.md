@@ -49,16 +49,63 @@ arrangement:
 This also explains why the HAT works lying flat on a Pi: the mics point at the
 ceiling, which is the normal orientation for a voice assistant on a shelf.
 
+## Where the ports are: the board layout
+
+The schematic does not carry coordinates, but Seeed publish the **V1.0 Eagle board
+file** (`ReSpeaker 2-Mics Pi HAT_PCB.zip`, 2017-08-16), and their own
+hardware-revision page states:
+
+> "The PCB layout of v1 and v2 remains basically the same, but additional circuits
+> are added."
+> — Seeed wiki, *How to Distinguish ReSpeaker 2-Mics Pi HAT Hardware Revisions*, 2024-12-11
+
+That makes the V1 file a usable source for the V2 board, with one caveat below.
+Parsed from the `.brd` (Eagle XML), in a board frame whose origin is the board's
+lower-left corner, X along the 65 mm length and **+Y the 40-pin header edge**:
+
+| Feature | Value | How it was read |
+| --- | --- | --- |
+| Board | 65.02 × 29.97 mm, ~3 mm corner chamfers | dimension layer, 8 wires |
+| Mounting holes | (3.5, 3.5), (61.5, 3.5), (3.5, 26.5), (61.5, 26.5), Ø2.75 | the Pi Zero's 58 × 23 pattern |
+| 40-pin header | rows y = 25.23 and 27.77, x 8.37…56.63 | 40 through-hole pads |
+| **MIC1 acoustic port** | **(3.05, 21.34)** | element at (2.67, 21.34), `R270`, plus the package's Ø0.762 silk port marker at local (0, 0.381) |
+| **MIC2 acoustic port** | **(61.98, 21.34)** | element at (62.36, 21.34), `R90`, same marker mirrored |
+| Port spacing | **58.93 mm** | difference of the two |
+| 3.5 mm jack mouth | (54.74, −1.52), facing −Y | `R90`, body 14.5 mm extending +Y |
+| Micro-USB power | mouth facing −X, 0.89 mm proud of the edge | `R270` |
+| Grove ×2 | mouths facing −Y at x = 12.95 and 26.67 | `R180` |
+| JST speaker | mouth facing +Y at (38.10, 4.95) | 2.0 mm right-angle |
+
+Two independent checks that the parse is right: the two ports come out
+**symmetric about the board centre to within 0.03 mm**, and the header's 40 pads
+land exactly 2.54 mm apart across 48.26 mm. A wrong rotation or a wrong origin
+would not produce either.
+
+The port offset matters: the port is **not** at the package centre. It is
+0.381 mm inboard, from the Ø0.762 mm silk circle the package draws over it. For a
+case hole that is a small correction; for a 3.76 mm package it is a tenth of the
+part.
+
+### The one caveat
+
+**This is the V1.0 layout.** V1 used a WM8960 codec and V2 uses a
+TLV320AIC3104; the revision page says additional circuits were added. The
+microphones sit at the extreme corners of an unchanged outline and are the
+safest positions on the board. The codec and its passives are the least safe. A
+case that cuts holes only for the microphone ports, the micro-USB and the jack is
+relying on the corner geometry, which is the part most likely to have survived.
+
+**Cheapest confirmation available:** a ruler on the real board — each port is
+3.0 mm from a short edge and 8.66 mm from the header edge, to the centre.
+
 ## What it does not tell us
 
-- **Where on the board the mics sit.** The schematic shows two mics at opposite
-  ends; the exact X/Y coordinates are still not extracted, so the component
-  model's positions remain invented.
 - **Whether the port is recessed or flush** with the package top, which decides
   how much clearance a case must leave above it.
-- **How much the HAT's own board shadows the ports** at grazing angles.
-- **Whether the V1 board uses the same part.** V1 used a WM8960 and a different
-  microphone; do not carry this finding across revisions without checking.
+- **How much the HAT's own board shadows the ports** at grazing angles. The
+  header socket is 5 mm from each port in Y and the board is 1.6 mm thick, so
+  there is a real baffle behind them.
+- **Whether the V2 board kept every position.** See the caveat above.
 
 ## Cross-check against the models
 
