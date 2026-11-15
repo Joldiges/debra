@@ -13,6 +13,8 @@ for a finished appliance, but mechanical fit does not establish software support
 
 ## Inventory every candidate; build a bounded useful set
 
+Use the [parts manifest](parts-manifest.md) as the owned-inventory input to enclosure design.
+
 Maintain a coverage table for the concrete candidates in
 [R01](../work/cards/R01.md), the hardware inventory and the historical README.
 Include additional selected parts as research progresses. A listing identity,
