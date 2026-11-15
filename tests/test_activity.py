@@ -1240,6 +1240,28 @@ class TodosTests(unittest.TestCase):
         self.assertIn("### Spawnable now (1)", text)
         self.assertIn("1 spawnable now.", text)
 
+    def test_an_integrated_claim_is_reported_even_before_the_roadmap_moves(self):
+        # The coordinator records integration in the registry before it edits
+        # the roadmap row. Dropping integrated claims from the snapshot would
+        # leave the packet looking like it is still waiting for a reviewer.
+        registry = self.root / activity.taskchain.REGISTRY
+        registry.mkdir()
+        (registry / "state.json").write_text(json.dumps({
+            "version": 1, "policy": None,
+            "claims": {"c9": {"id": "c9", "chain": "zero-w", "packet": "Z01",
+                              "status": "integrated", "owner": "session-abc"}}}))
+        with mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
+             mock.patch.object(activity.taskchain, "catalog",
+                               return_value=([{"id": "zero-w", "packets": ["Z01"],
+                                               "starter": "Z01"}],
+                                             {"Z01": ("review", [])})):
+            snapshot = activity.chains_snapshot()
+        lines = "\n".join(activity._todos_lines(self.empty_todos(chains=snapshot)))
+        self.assertEqual(activity._chain_group(snapshot["chains"][0], snapshot["claims"][0])[0],
+                         "advance")
+        self.assertIn("Finished, coordinator must advance (1)", lines)
+        self.assertNotIn("waiting for review (1)", lines)
+
     def test_an_unreadable_registry_keeps_the_rest_of_the_page(self):
         with mock.patch.object(activity.taskchain, "catalog",
                                side_effect=ValueError("no roadmap packets")):
@@ -1306,8 +1328,7 @@ class TodosTests(unittest.TestCase):
                         "reason": "", "waiting_on": []}]})
         text = "\n".join(activity._todos_lines(todos))
         self.assertIn("claim registry is open for base `abc1234`", text)
-        self.assertNotIn("**closed**", text)
-        self.assertNotIn("the closed", text)
+        self.assertNotIn("closed", text)
         self.assertIn("assignment does not use the claim registry either way", text)
 
     def test_the_report_and_the_tab_share_one_todos_section(self):

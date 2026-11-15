@@ -66,7 +66,7 @@ not commit, push, or approve their own work.
 | The lid checked against the reconstructed body | D02 | `models/assemblies/rpispeaker-v17-body-lid/` — 0 mm³ interference at the lid's defaults, with a 0.5 mm per-side oversize control that is caught; a composed assembly, no duplicate `.sc`; still nothing printed |
 | Tabbed TUI that redraws only changed lines, and drops columns instead of truncating them | — | this round |
 | Two unattended studies: the ARMv6 audio stack, first-boot identity | — | `35d43c3` |
-| Todos tab: what nothing is working on | — | `fafb8f2`, fixed by `f355347` and `04b0867` — the first review found it read `.git/state.json` instead of `.git/debra-work/state.json`, so claims were never seen; 18 Todos tests, three of them against a real registry file |
+| Todos tab: what nothing is working on | — | `fafb8f2`, fixed by `f355347` and `04b0867`, then test tightening — the first review found it read `.git/state.json` instead of `.git/debra-work/state.json`, so claims were never seen; 19 Todos tests, five of them against a real registry file |
 
 ## Queued
 
