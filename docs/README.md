@@ -11,6 +11,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Getting started](guides/getting-started.md) | Current progress, how the pieces fit, and separate newcomer/existing-device/builder paths |
 | [Project brief](project-brief.md) | What James wants; requirements are not proof of implementation |
 | [Roadmap](roadmap.md) | Current packets, prerequisites, and acceptance; not permission to operate devices |
+| [Work queue](work-queue.md) | Execution state: what is running, queued, in review, done or blocked, and what blocks it |
 | [Task chains](task-chains.md) | “Any chain” / named-chain worker entrypoint, atomic claims, workspaces, and handoffs |
 | [AI workflow](ai-workflow.md) | Coordinator/worker roles, the operating model as practised, task scope, review, and integration |
 | [AI model and provider strategy](ai-model-strategy.md) | Named role selections, allowance priorities, paid Flex choices, costs, and unresolved quota/connection gaps |

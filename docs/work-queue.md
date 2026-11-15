@@ -25,11 +25,19 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Stale documentation claims | A1, A3–A7, A10–A14 | `AGENTS.md`, `docs/README.md`, `docs/roadmap.md`, guides, extraction notes, R01/R02 | also folds the three optional-extras notes into the map and roadmap |
-| Evidence claims | B16–B25, B27, B28 | comparison pages, `audio-outputs.md`, `device-backup.md`, tray README | downgrade a claim, never upgrade one |
 | Discovery contract | C1, C2, C4, B14 | `control/web/server.py`, `discovery.py`, `install.py`, `test_web.py`, `test_discover.py` | one acceptance rule for CLI and hub; `--port` range; name a failed discovery thread |
-| Activity TUI | `--tui`, B15 | `tools/activity.py`, `tests/test_activity.py` | additive; Markdown output stays the default |
-| Runner guide and models index | B1–B4, B26 | `docs/guides/scheduled-runner.md`, `models/README.md` | code is the evidence; the guide is wrong |
+
+## Done this round
+
+| Packet | Item ids | Proof |
+|---|---|---|
+| The v17 body as an editable source | A2 | `f7b2163` — reconstruction, honest about what it cannot reproduce |
+| Web pages matched to the server | A8, A9, B5–B11, C3 | `f35d47f` |
+| Evidence claims matched to sources | B16–B25, B27, B28 | `5e83273` |
+| Eleven stale claims and the optional studies indexed | A1, A3–A7, A10–A14 | `7918ccd`, `503ce7f` |
+| Runner guide and models index | B1–B4, B26 | `f5da00d` |
+| Activity TUI and the runner elapsed-time fix | `--tui`, B15 | `a6732d1` |
+| Idle reasons in the session table | — | `5d329ec` |
 
 ## Queued
 
