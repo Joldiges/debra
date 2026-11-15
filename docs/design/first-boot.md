@@ -279,9 +279,9 @@ python3 -B -m unittest tests.test_onboarding -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-115 onboarding tests and 12 browser scenarios, all passing on 2026-11-15. They
-prove the decisions and the HTTP contract against the fake; they prove nothing
-about a radio.
+122 onboarding tests, 27 installer tests and 13 browser scenarios, all passing
+on 2026-11-15. They prove the decisions and the HTTP contract against the fake;
+they prove nothing about a radio.
 
 ## Where the code and the older notes disagree
 
@@ -295,7 +295,7 @@ was written; the rest are still open, so the coordinator can decide them.
 | Trial profile and rollback | Credentials stored as a trial profile (`autoconnect=no`, retries 1), deleted on failure, old profile kept | **Resolved in code:** the profile is written into NetworkManager's own profile directory with `autoconnect=false`, activated, verified, then promoted to `autoconnect=yes`. A failed attempt deletes the profile and its file, and a promotion that keeps failing is treated as a failed join. No profile has been loaded by a real NetworkManager |
 | Country | A precondition supplied at image build, because a disabled radio cannot host the portal | **Partly resolved:** the country already on the device is read first, so the question is only asked when there is none. The radio-off case is still an error |
 | Success test | Four layers: associated, routable address, default route, then DNS or an HTTP probe | **Three of four:** active device, routable address and default route. No DNS or HTTP probe, so a LAN with no internet still passes |
-| Finding the device | Write `debra-address.txt` to the boot partition and announce mDNS | Neither; the page prints a `.local:8787` URL and no announcement is made by this code |
+| Finding the device | Write `debra-address.txt` to the boot partition and announce mDNS | **Partly resolved:** the card note and the page print the address the portal is actually bound to, and the operating systems' captive-portal probes are redirected to it. No `debra-address.txt`, no mDNS announcement, and whether a phone's probe arrives depends on the setup network's DNS |
 | Re-entry | Physical input, or 3 boots with no uplink; a bounded hotspot window | The boot unit now raises the setup network when the last phase was `online` and the network is unreachable. Still no timer, no input, no boot counter |
 | Rate limit | 5 submissions per 10 minutes, form visibly limited | **Partly resolved:** one per 5 seconds, 10 attempts, then a 10-minute cooldown instead of a permanent refusal. Still not the note's rate |
 | Password field after a failure | Cleared, SSID kept | **Resolved:** the password is cleared and the network name kept |
@@ -308,8 +308,9 @@ was written; the rest are still open, so the coordinator can decide them.
 - The setup passphrase is now derived and written to the boot partition, but is
   it actually printed or shown anywhere a person will look? A card reader on the
   Pi is not the same as a label on the case.
-- Does the page need a captive-portal helper to be found at all, or is typing
-  `10.42.0.1` acceptable for a beginner? No phone has been tried.
+- Does a phone's captive-portal probe reach the access point at all? The probe
+  paths are answered, but the setup network's DNS decides whether the phone asks
+  them, and Debra does not configure that DNS. No phone has been tried.
 - Does a phone rejoin the returning setup network by itself after a failed
   attempt, and does it stay on a network with no internet long enough to finish
   typing?
@@ -320,9 +321,10 @@ was written; the rest are still open, so the coordinator can decide them.
 - What is the right check for "this network works"? A routable address is
   necessary and not sufficient; a LAN-only household with no internet is a valid
   outcome the current check cannot distinguish.
-- Does the hostname actually get applied on a device, given that the adapter has
-  no `set_hostname`, and does the DHCP client then announce it so the router's
-  client list shows it?
+- Does the hostname actually get applied on a device? The adapter has a
+  `set_hostname` and the service applies it on every boot, but no boot has run
+  it. And does the DHCP client then announce it, so the router's client list
+  shows it?
 - What does `resume()` do on a device that is deliberately offline, and should a
   device with a working Ethernet uplink stay quiet instead of raising a hotspot?
 - Which parts of the baseline can actually be restored, and what does a restore

@@ -32,6 +32,7 @@ not commit, push, or approve their own work.
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
 | Acceptance review `setup-r3` | — | `.local/reviews/setup-r3-20261115/` | independent, `gpt-6.1-sol`; reviews the r2 fixes, which are the first candidate that writes a persistent Wi-Fi profile |
+| Acceptance review `code-r7` | — | `.local/reviews/code-r7-20261115/` | independent, `gpt-6.1-sol`; the browser control since the approved discovery contract: the Setup card, atomic rollback, the phone nav, and the docs |
 
 ## Done this round
 
@@ -69,7 +70,6 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Why it is next |
 |---|---|---|
-| Acceptance review `code-r7` | — | must follow B14/C1–C4, from a model that did not write it |
 | Device run of the onboarding flow | N02 | needs a spare card and one of the next Pis; nothing in `control/setup/` has touched a radio |
 | Retained releases are never re-verified | B13 | an upgraded-away release is never re-checked, so a corrupted old release is restored by rollback without complaint. Either verify every retained release at install, or record that rollback may restore bad content |
 | Staging files can be `0644` | B13 | an interrupted copy is retained with files created before `chmod`; the containing directory is `0700`, so the README's "private staging files" is true only at directory level |
