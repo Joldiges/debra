@@ -41,16 +41,21 @@ should, and that is the intended pipeline:
 
 | Step | Artifact | Exists? |
 | --- | --- | --- |
-| 1. Component envelope | `models/components/*` — the space each part occupies | yes, but with estimated positions |
-| 2. Carrier / cavity part | a printable part whose pocket is the envelope plus clearance | **one**: the DWEII carrier |
-| 3. Case shell | walls, baffle, openings, cable exits, assembled from the carriers | no |
-| 4. Product assembly | case parts + components in one file, showing the finished device | no |
+| 1. Component envelope | `models/components/*` — the space each part occupies | yes; the HAT's positions are now **sourced from Seeed's board file**, not estimated |
+| 2. Carrier / cavity part | a printable part whose pocket is the envelope plus clearance | yes: the [DWEII carrier](../../models/parts/dweii-671-carrier/README.md) |
+| 3. Case shell | walls, baffle, openings, cable exits | yes: the [DWEII 671 case](../../models/parts/dweii-671-case/README.md), a tub and lid |
+| 4. Product assembly | case parts + components in one file, showing the finished device | yes: [debra-compact](../../models/assemblies/debra-compact/README.md), with the case and the HAT linked |
 
 Step 2 is where the envelope earns its keep: the pocket is derived from the
 envelope, not guessed, so correcting a component dimension changes the part. The
 carrier's pocket is `MOD_L + 2*CLEAR` wide for exactly that reason. The first part
 built this way is the
 [DWEII carrier](../../models/parts/dweii-671-carrier/README.md).
+
+The case turned out **not** to use that carrier: it is 41.6 mm tall and the case
+interior is 28.4 mm, so the pocket is built into the tub and the carrier stays a
+fit-test coupon for the module on its own. That is worth knowing about step 2 —
+a carrier designed in isolation gets ears and margins that a case cannot afford.
 
 ## What was actually wrong
 
