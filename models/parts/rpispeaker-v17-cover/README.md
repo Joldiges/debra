@@ -25,6 +25,15 @@ assumed 32 mm pitch speaker holes. No body, speaker, fasteners or grille shown.*
 underside reliefs. The assumed speaker height sets their 9 mm length; the
 actual support, speaker frame and fit are not shown or proven.*
 
+![The provisional cover composed onto the reconstructed v17 body, standing in front of the speaker bay](assets/installed.png)
+
+*The same cover composed onto the reconstructed body. Its plate underside sits
+at Y 17.5, 2 mm above the body's Y 15.50 face, carried on two Ø8 feet at the
+body's measured 36.5 mm pilot pitch. Two of the four assumed-pitch speaker
+holes are above the Pi-side divider. No lid is shown, because the two parts
+cannot be installed together — see the conflict note. No speaker or screw is
+modelled.*
+
 ## Geometry and intended assembly
 
 Coordinates use the body's frame: X across the bays, Z along the case, +Y out
@@ -125,15 +134,19 @@ steps.append({'command': 'inspect.interference',
 fd = os.memfd_create('cover-interference', 0)
 os.write(fd, json.dumps(steps).encode())
 r = subprocess.run(['solidcraft-cli', 'run', f'/proc/self/fd/{fd}',
-                    '--in', body, '--results'], pass_fds=(fd,),
+                    '--in', body, '--save', '/tmp/opencode/v17-body-cover.sc',
+                    '--results'], pass_fds=(fd,),
                    check=True, text=True, capture_output=True)
 print(json.dumps(json.loads(r.stdout)[-1], indent=2))
 PY
+solidcraft-cli snapshot --in /tmp/opencode/v17-body-cover.sc --out models/parts/rpispeaker-v17-cover/assets/installed.png --camera '{"target":[17,9,0],"yaw":2.4,"pitch":0.35,"distance":170}' --width 1200 --height 900 --no-grid --no-axes
 ```
 
 On 2026-11-15: **0 overlapping pairs, 0 mm³ intersection**, two bodies checked,
 one pair Boolean-intersected, no unchecked pairs, not truncated. This result
 uses the reconstructed body, not the original STEP, speaker, or a physical fit.
+The `--save` writes the composed pair only to `/tmp/opencode/`, and the snapshot
+is the `installed.png` view above.
 
 This separate non-saving check changes pitch 32 → 30 → 32 mm and reads the
 actual Ø2.7 cylindrical face axes and body volume after each rebuild:
