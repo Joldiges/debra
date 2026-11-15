@@ -20,7 +20,7 @@ uncertainty; none of these models has been physically fit-tested.
 | Raspberry Pi Zero (“Pi 0”) | At least 1; exact count unknown | **v1.3 or Zero W unknown**, as is header fit. Both use the [Zero-family envelope](../../models/components/pi-zero-family/README.md): 65 × 30 mm board, 58 × 23 mm hole pattern. |
 | Raspberry Pi Zero 2 W (“Pi 02”) | At least 1; exact count unknown | Header fit unknown. [Zero-family envelope](../../models/components/pi-zero-family/README.md): 65 × 30 mm board, 58 × 23 mm hole pattern. |
 | Raspberry Pi 5 | At least 1; exact count unknown | Memory and revision of the owned board not specified by the statement. [Pi 5 Model B envelope](../../models/components/pi5-5-model-b/README.md): 85 × 56 mm board, asymmetric 58 × 49 mm hole pattern. A [lab result](../testing/results/2026-11-15-lab-pi5-lva-sendspin.md) identifies one Pi 5 Model B Rev 1.0, 4 GB specimen. |
-| Speakers | 3; individual model counts unknown | **Which three is unknown.** This is a single group row because the individual variants and whether any are identical are not established; do not add the candidate rows below to this count. No particular envelope is yet identified as theirs. |
+| Speakers | 3 | **Identified 2026-11-15:** the three DWEII housed modules already modelled in [dweii-speakers](../../models/components/dweii-speakers/README.md) — the ones linked from that page and selected in the archived research. Which module is which physical unit, and how many of each, is still unstated. They are housed modules, not bare drivers: a case should carry them without sealing their openings. Every dimension there is a seller claim, not a measurement. |
 | microSD cards | Multiple; exact count unknown | Capacity, type, condition and availability for each design unknown; no component envelope. |
 | Cables | Multiple; exact count unknown | Types, connectors, lengths and plug dimensions unknown; no component envelope. |
 | Power supplies | Multiple; exact count unknown | Ratings, connectors and allocation unknown; no component envelope. |
@@ -28,10 +28,11 @@ uncertainty; none of these models has been physically fit-tested.
 
 ## Assumptions to confirm, not additional owned parts
 
-These are conditional design references, **not assertions that the parts are in
-hand or available to a new build**. The speaker candidates may overlap the three
-owned speakers or each other; do not count them as extra units. Dimensions below
-describe the CAD references, not measurements of James's speakers.
+The three DWEII modules are the owned speakers (answered 2026-11-15); what is
+still unconfirmed is which physical unit is which and how many of each. The
+remaining rows are conditional design references, **not assertions that the parts
+are in hand or available to a new build**. Dimensions below describe the CAD
+references, not measurements of James's speakers.
 
 | Part / possible variant | Quantity | CAD reference and limitation | Exact question to confirm |
 | --- | --- | --- | --- |
@@ -43,21 +44,19 @@ describe the CAD references, not measurements of James's speakers.
 
 The ten [catalogue speaker envelopes](../../models/components/speaker-candidates/README.md)
 are also references, not an inventory: their simplified cylinders are unsuitable
-as pocket geometry for a rectangular housed module. **Question:** Are any of
-those exact catalogue models among the three speakers, and if so which and how
-many? Their documented dimensions and modelling limitations are in that README.
+as pocket geometry for a rectangular housed module. They are **not** among the
+three speakers James described — those are the DWEII modules above.
 
 ## Open questions and consequences
 
 1. **Is “Pi 0” a Zero v1.3 or a Zero W, and is its header fitted?** This chooses
    the board-specific envelope and radio/can clearance, and determines the
    actual header/stack arrangement; it does not establish software support.
-2. **Which three speakers are they, how many of each model, and is the original
-   v17 square speaker among them?** Their identity determines which envelope,
-   frame, mounting, acoustic openings, connector and lead clearance to design
-   around. If a model is not in the repository, its dimensions remain unknown;
-   a hypothetical square or catalogue cylinder is not a substitute. For v17,
-   what do the four screws attach to? The answer changes the mounting interface;
+2. **Which DWEII module is which unit, and how many of each?** The three are the
+   modelled DWEII modules (answered 2026-11-15). What remains open is which
+   physical module is which, the count of each, and whether the original v17
+   square speaker is one of them. For v17, what do its four screws attach to?
+   The answer changes the mounting interface;
    see the [mount analysis](rpispeaker-v17-speaker-mount-options.md).
 3. **Which HATs and revisions are available for the intended builds, including
    whether the lab v2 can be used?** This selects microphone, connector, stack

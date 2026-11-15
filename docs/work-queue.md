@@ -47,6 +47,14 @@ not commit, push, or approve their own work.
 | Acceptance review `code-r7` | — | must follow B14/C1–C4, from a model that did not write it |
 | Browser verification of the device list | — | the discovered badge and the discovery status line have no browser proof yet |
 
+## In review
+
+| Item | Reviewer | Outcome |
+|---|---|---|
+| v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
+| Discovery contract `f2b5c72` | not yet reviewed | the port-80 guard, the shared acceptance rule and the thread-start report all want an outside check |
+| Activity TUI `a6732d1` | in flight | also checking that the Markdown path stayed intact |
+
 ## Blocked
 
 | Item | Blocker | What would unblock it |
@@ -73,8 +81,8 @@ changes. Delete a row when it is answered.
 
 | Need | Blocks | What the answer changes |
 |---|---|---|
-| Which three speakers does James have? Model names, or a measurement of one: outside diameter, mounting-hole spacing and screw size, overall depth | The speaker bay, the arm geometry and the acoustic volume behind the driver | The bay stops being a documented default and becomes a measured fit |
 | Which board should the first demo case fit: the Pi Zero (v1.3/W) or the Zero 2 W? He owns both | The board bay, the header height, and the port cut-outs differ between them | One case design, sized to the board that is actually the target |
+| Measure one DWEII module: its real outside dimensions and where its acoustic openings sit, since the envelopes are seller claims | The bay's clearances and whether the case can carry the module without sealing a vent | A measured bay instead of a seller-claim bay |
 | Save or close the design open in SolidCraft, and confirm it can be replaced | Every SolidCraft MCP tool is refused while an unsaved design is loaded, so designs are built headless and never shown in the window | The v17 body and the demo assembly can be opened and looked at directly |
 | Does the demo case have to be wall-mountable, or desktop-only? | The base, the wall bracket and where the speaker fires | One layout instead of two, and no bracket designed against an assumption |
 | If the STEP's square-pattern search finds nothing: a photo of the assembled original with the cover off, showing the speaker and what its four screws enter | The four-screw mount, and the claim that the STEP contains no such pattern | Distinguishes a part that was never exported from a different revision |
