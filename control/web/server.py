@@ -53,6 +53,8 @@ class DiscoveryCache:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.devices = ()
+        self.last_scan = None      # monotonic; None means no scan has finished yet
+        self.last_error = None
         self.thread = None
 
     def scan(self):
@@ -77,12 +79,23 @@ class DiscoveryCache:
         except Exception:
             # A broken discovery implementation must not take down the page.
             devices = ()
+            result = {"error": "discovery failed"}
         with self.lock:
             self.devices = devices
+            self.last_scan = time.monotonic()
+            self.last_error = (result or {}).get("error") if isinstance(result, dict) else None
 
     def snapshot(self):
         with self.lock:
             return self.devices
+
+    def status(self):
+        """What the page needs to say whether discovery is actually working."""
+        with self.lock:
+            age = None if self.last_scan is None else max(0, time.monotonic() - self.last_scan)
+            return {"enabled": self.thread is not None, "found": len(self.devices),
+                    "seconds_since_scan": None if age is None else round(age),
+                    "error": self.last_error}
 
     def run(self):
         while not self.stop.is_set():
@@ -100,12 +113,28 @@ class DiscoveryCache:
 
 
 def merge_devices(configured, discovered):
-    result, seen = [], set()
-    for device in (*configured, *discovered):
+    """Configured first, one row per URL, and a device found both ways says both.
+
+    Collapsing a discovered device into a quiet "configured" row is what made a
+    working discovery look like a hand-written list.
+    """
+    result, index = [], {}
+    for device in configured:
+        # A hand-written file can repeat a URL; the first entry still wins.
+        if device["url"] not in index:
+            entry = dict(device, source="configured")
+            index[entry["url"]] = len(result)
+            result.append(entry)
+    for device in discovered:
         url = device["url"]
-        if url not in seen:
-            seen.add(url)
-            result.append(device)
+        if url in index:
+            # Only a configured row can become "both"; two discovered records for
+            # one URL are one discovered device, not a configured one.
+            if result[index[url]]["source"] == "configured":
+                result[index[url]]["source"] = "configured+discovered"
+        else:
+            index[url] = len(result)
+            result.append(dict(device, source="discovered"))
     return result
 
 
@@ -478,9 +507,13 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/devices":
             try:
                 discovered = self.server.discovery.snapshot() if self.server.discovery else ()
+                status = self.server.discovery.status() if self.server.discovery else {
+                    "enabled": False, "found": 0, "seconds_since_scan": None, "error": None}
             except Exception:
-                discovered = ()
-            self.reply(200, {"devices": merge_devices(self.server.devices, discovered)})
+                discovered, status = (), {"enabled": False, "found": 0,
+                                          "seconds_since_scan": None, "error": "discovery unavailable"}
+            self.reply(200, {"devices": merge_devices(self.server.devices, discovered),
+                             "discovery": status})
         elif self.path == "/api/status":
             try:
                 data = self.server.backend.status(deadline=self.deadline)

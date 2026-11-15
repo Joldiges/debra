@@ -584,7 +584,8 @@ class NoAuthTests(unittest.TestCase):
     def test_device_list_is_served_without_a_key(self):
         code, _, raw = self.request(path="/api/devices")
         self.assertEqual(code, 200)
-        self.assertEqual(json.loads(raw)["devices"], self.devices)
+        self.assertEqual(json.loads(raw)["devices"],
+                         [dict(device, source="configured") for device in self.devices])
 
 
 class DeviceListTests(unittest.TestCase):
@@ -684,6 +685,10 @@ class DiscoveryTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def served(self, *extra):
+        """The list /api/devices returns: configured rows marked, then extras."""
+        return [dict(device, source="configured") for device in self.configured] + list(extra)
+
     def scan(self, records, error=None):
         self.cache.browse = lambda: {"devices": records, "error": error}
         self.cache.scan()
@@ -697,14 +702,19 @@ class DiscoveryTests(unittest.TestCase):
         ])
         code, data = self.request("/api/devices")
         self.assertEqual(code, 200)
-        self.assertEqual(data["devices"], self.configured + [
+        expected = self.served(
             {"name": "new", "url": "http://new.local:8787/", "label": "Kitchen",
-             "source": "discovered"}])
+             "source": "discovered"})
+        # A discovered record matching a configured URL adds no row, but the row
+        # must say it was found both ways or working discovery looks hand-written.
+        expected[0]["source"] = "configured+discovered"
+        self.assertEqual(data["devices"], expected)
         self.assertEqual(self.request("/api/status")[0], 401)
 
     def test_duplicate_configured_urls_appear_once(self):
         self.server.devices = (*self.configured, dict(self.configured[0], label="Duplicate"))
-        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+        code, body = self.request("/api/devices")
+        self.assertEqual((code, body["devices"]), (200, self.served()))
 
     def test_invalid_discovered_hosts_ports_names_and_labels_are_dropped(self):
         records = [
@@ -716,9 +726,35 @@ class DiscoveryTests(unittest.TestCase):
             None,
         ]
         self.scan(records)
-        self.assertEqual(self.request("/api/devices")[1]["devices"], self.configured + [
+        self.assertEqual(self.request("/api/devices")[1]["devices"], self.served(
             {"name": "good", "url": "http://okay.local:8787/", "label": "",
-             "source": "discovered"}])
+             "source": "discovered"}))
+
+    def test_devices_found_both_ways_say_so_and_discovery_reports_its_state(self):
+        # A working discovery that finds nothing looks identical to a broken one,
+        # so the response carries when it last scanned and whether it is running.
+        self.scan([{"name": "first", "url": "http://first.local:8787/", "label": "ignored"},
+                   {"name": "other", "url": "http://other.local:8787/", "label": "Other"}])
+        code, body = self.request("/api/devices")
+        self.assertEqual(code, 200)
+        sources = {device["name"]: device["source"] for device in body["devices"]}
+        self.assertEqual(sources, {"first": "configured+discovered", "second": "configured",
+                                   "other": "discovered"})
+        status = body["discovery"]
+        self.assertEqual(status["found"], 2)
+        self.assertIsNone(status["error"])
+        self.assertIsInstance(status["seconds_since_scan"], int)
+        self.assertFalse(status["enabled"])  # no worker thread was started here
+
+    def test_discovery_status_reports_an_error_and_never_started(self):
+        cache = web.DiscoveryCache(browse=lambda: {"devices": [], "error": "avahi-browse timed out"})
+        self.assertIsNone(cache.status()["seconds_since_scan"])
+        self.assertFalse(cache.status()["enabled"])
+        cache.scan()
+        status = cache.status()
+        self.assertEqual(status["error"], "avahi-browse timed out")
+        self.assertEqual(status["found"], 0)
+        self.assertIsInstance(status["seconds_since_scan"], int)
 
     def test_error_timeout_exception_and_empty_clear_previous_cache(self):
         record = {"name": "new", "url": "http://new.local:8787/", "label": "New"}
@@ -739,14 +775,16 @@ class DiscoveryTests(unittest.TestCase):
                         return {"devices": None, "error": None}
                     self.cache.browse = fail
                     self.cache.scan()
-                self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+                code, body = self.request("/api/devices")
+        self.assertEqual((code, body["devices"]), (200, self.served()))
 
     def test_missing_avahi_clears_cache_using_default_browser(self):
         self.scan([{"name": "old", "url": "http://old.local:8787/", "label": "Old"}])
         self.cache.browse = web.DiscoveryCache().browse
         with patch.object(discovery.subprocess, "run", side_effect=FileNotFoundError()):
             self.cache.scan()
-        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+        code, body = self.request("/api/devices")
+        self.assertEqual((code, body["devices"]), (200, self.served()))
 
     def test_request_serves_cache_while_background_scan_is_blocked(self):
         started, release = threading.Event(), threading.Event()
@@ -759,7 +797,8 @@ class DiscoveryTests(unittest.TestCase):
         self.cache.start()
         self.assertTrue(started.wait(1))
         start = time.monotonic()
-        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+        code, body = self.request("/api/devices")
+        self.assertEqual((code, body["devices"]), (200, self.served()))
         self.assertLess(time.monotonic() - start, 1)
         self.assertTrue(self.cache.thread.is_alive())
         release.set()
@@ -804,9 +843,9 @@ class DiscoveryTests(unittest.TestCase):
             self.cache.scan()
         self.assertEqual(parse.call_count, 2)
         self.assertEqual(json.loads(output.getvalue())["devices"][0]["label"], "Changed parser")
-        self.assertEqual(self.request("/api/devices")[1]["devices"], self.configured + [
+        self.assertEqual(self.request("/api/devices")[1]["devices"], self.served(
             {"name": "debra-1", "url": "http://debra.local:8787/",
-             "label": "Changed parser", "source": "discovered"}])
+             "label": "Changed parser", "source": "discovered"}))
         self.assertEqual(run.call_count, 2)
         self.assertEqual(run.call_args.args[0], ["avahi-browse", "-rtp", "-t", "_debra._tcp"])
         self.assertEqual(run.call_args.kwargs["timeout"], 8)
@@ -820,9 +859,9 @@ class DiscoveryTests(unittest.TestCase):
         with patch.object(discovery.subprocess, "run",
                           return_value=subprocess.CompletedProcess([], 0, text, "")):
             self.cache.scan()
-        self.assertEqual(self.request("/api/devices")[1]["devices"], self.configured + [
+        self.assertEqual(self.request("/api/devices")[1]["devices"], self.served(
             {"name": "self", "url": "http://self.local:8787/", "label": "Debra self",
-             "source": "discovered"}])
+             "source": "discovered"}))
 
     def test_serve_starts_discovery_without_waiting_for_a_request(self):
         with tempfile.TemporaryDirectory(prefix="web-start-", dir="/tmp/opencode") as temp:
@@ -838,7 +877,8 @@ class DiscoveryTests(unittest.TestCase):
         with patch.object(threading.Thread, "start", side_effect=RuntimeError("no threads")):
             self.cache.start()
         self.assertIsNone(self.cache.thread)
-        self.assertEqual(self.request("/api/devices"), (200, {"devices": self.configured}))
+        code, body = self.request("/api/devices")
+        self.assertEqual((code, body["devices"]), (200, self.served()))
 
 
 class InstallerTests(unittest.TestCase):
@@ -991,7 +1031,8 @@ class InstallerTests(unittest.TestCase):
                     if process.poll() is not None or time.monotonic() >= deadline:
                         self.fail("Installed server did not start")
                     time.sleep(0.05)
-            self.assertEqual((status, body), (200, {"devices": configured}))
+            self.assertEqual((status, body["devices"]),
+                             (200, [dict(device, source="configured") for device in configured]))
             self.assertIsNone(process.poll())
         finally:
             process.terminate()

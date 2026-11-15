@@ -332,16 +332,29 @@ async function loadDevices() {
     const data = await response.json();
     const list = el("device-links");
     list.replaceChildren();
+    const badges = {configured: "Configured", discovered: "Discovered",
+                    "configured+discovered": "Configured + discovered"};
     for (const device of data.devices || []) {
       const url = canonicalDeviceUrl(device?.url);
       if (!url) continue;
       const link = document.createElement("a");
       link.href = url;
       const name = device.label ? `${device.name} · ${device.label}` : String(device.name);
-      link.textContent = `${name} · ${device.source === "discovered" ? "Discovered" : "Configured"}`;
+      link.textContent = `${name} · ${badges[device.source] || "Configured"}`;
       list.append(link);
     }
-    el("devices").hidden = list.children.length === 0;
+    // Discovery that finds nothing looks identical to discovery that is broken,
+    // so say what it did and when; that is the difference the eye needs.
+    const discovery = data.discovery || {};
+    let summary;
+    if (!discovery.enabled) summary = "Discovery is off on this server; the list is the configured file.";
+    else if (discovery.error) summary = `Discovery reported: ${String(discovery.error)}.`;
+    else if (discovery.seconds_since_scan === null || discovery.seconds_since_scan === undefined)
+      summary = "Discovery has not finished its first scan yet.";
+    else summary = `Discovery found ${discovery.found || 0} device${(discovery.found || 0) === 1 ? "" : "s"},`
+                   + ` last scan ${discovery.seconds_since_scan}s ago.`;
+    el("devices-status").textContent = summary;
+    el("devices").hidden = list.children.length === 0 && !discovery.enabled;
   } catch {
     // Keep the last visible list on a temporary HTTP failure.
   } finally {
