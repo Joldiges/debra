@@ -16,7 +16,7 @@ Type=simple
 # Runs as root: nmcli changes NetworkManager profiles and the hostname,
 # raspi-config sets the regulatory domain, the setup page binds port 80, and the
 # baseline reads root-only keyfiles. A user unit cannot do any of that at boot.
-ExecStart=@PYTHON@ -B @RUNNER@ --serve --state-dir @STATE@ --card-note @CARD_NOTE@
+ExecStart=@PYTHON@ -B @RUNNER@ --serve --state-dir @STATE@ --card-note @CARD_NOTE@ --setup-security @SECURITY@
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes

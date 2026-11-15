@@ -23,6 +23,11 @@ LOGGER = logging.getLogger("debra.setup.nm")
 # A profile anywhere else is not persistent, however successfully it loads.
 PROFILES_DIR = "/etc/NetworkManager/system-connections"
 
+# The one connection name the setup access point uses. Fixed rather than
+# generated, so a stale setup profile is always found and removed instead of
+# piling up under a new name each attempt.
+SETUP_CONNECTION = "debra-setup"
+
 
 class NmError(Exception):
     """A NetworkManager operation failed. The message is safe to show a user."""
@@ -481,18 +486,53 @@ class Nmcli:
             pass
 
     def start_hotspot(self, ssid, interface, password=None):
+        """Raise the setup access point, or take it down again.
+
+        `nmcli device wifi hotspot` picks the security itself: a password means
+        WPA2, but the manual also allows a WEP fallback, and no password means
+        an open network. A network that came up open while the card note says
+        "Password:" cannot be joined as advertised, and an open one that was
+        meant to be protected is worse than no setup network at all. So what
+        was actually created is read back, and a mismatch removes it.
+        """
         if not valid_ssid(ssid):
             raise NmError("Hotspot name must be 1-32 printable characters")
         argv = ["nmcli", "device", "wifi", "hotspot", "ifname", interface,
-                "con-name", "debra-setup", "ssid", ssid]
+                "con-name", SETUP_CONNECTION, "ssid", ssid]
         if password:
             argv += ["password", password]
         self._run(argv, timeout=60)
+        wanted = "wpa-psk" if password else ""
+        try:
+            actual = self._hotspot_security()
+        except NmError:
+            self._remove_hotspot()
+            raise
+        if actual != wanted:
+            self._remove_hotspot()
+            raise NmError("The setup network could not be secured as asked")
+        return actual
+
+    def _hotspot_security(self):
+        """The key management of the access point that is now running."""
+        output = self._run(["nmcli", "-t", "-f",
+                            "802-11-wireless-security.key-mgmt",
+                            "connection", "show", "id", SETUP_CONNECTION],
+                           timeout=30)
+        return output.strip()
+
+    def _remove_hotspot(self):
+        try:
+            self.stop_hotspot()
+        except NmError as exc:
+            # Nothing left to try: the caller is about to fail for a reason the
+            # page can show, and a second failure here would replace it.
+            LOGGER.warning("Setup access point could not be removed: %s", exc)
 
     def stop_hotspot(self):
         # Deleting the profile as well as deactivating it keeps a stale
         # "debra-setup" connection from competing with the real network later.
-        self._run(["nmcli", "connection", "delete", "debra-setup"], timeout=30)
+        self._run(["nmcli", "connection", "delete", SETUP_CONNECTION], timeout=30)
 
 
 def routable(address):

@@ -54,9 +54,6 @@ def blank(hostname=""):
         # holding the same valid token both passed the check.
         "attempt_claimed": False,
         "hotspot": None,
-        # The setup network's generated password. Written to the boot-partition
-        # note so the owner can join; not derivable from anything public.
-        "hotspot_password": None,
         "baseline": None,
         # Why the last baseline attempt failed, in words a person can read. It
         # is separate from last_error, which is about joining: a device can be
@@ -100,15 +97,10 @@ def validate(data):
     if not isinstance(data.get("attempt_claimed"), bool):
         # A truthy string here would be treated as "a worker owns this attempt".
         raise ValueError("attempt_claimed must be true or false")
-    for key, limit in (("last_attempt", 40), ("updated", 40), ("attempt_token", 64),
-                       ("hotspot_password", 63)):
+    for key, limit in (("last_attempt", 40), ("updated", 40), ("attempt_token", 64)):
         value = data.get(key)
         if value is not None and (not isinstance(value, str) or len(value) > limit):
             raise ValueError(f"{key} must be a timestamp or null")
-    password = data.get("hotspot_password")
-    if password is not None and (not isinstance(password, str)
-                                 or not 8 <= len(password) <= 63):
-        raise ValueError("Hotspot password must be 8-63 characters or null")
     hotspot = data.get("hotspot")
     if hotspot is not None:
         if not isinstance(hotspot, dict) or set(hotspot) != {"ssid", "interface"}:

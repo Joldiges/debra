@@ -4,6 +4,7 @@ Every test here runs offline. The NetworkManager is a recorded double, so a pass
 proves the decisions and the HTTP contract, not that a radio works.
 """
 
+import hashlib
 import json
 import secrets
 import os
@@ -227,8 +228,8 @@ class HotspotTests(Temp):
         self.assertEqual(status["hotspot"]["ssid"], "Debra-Setup-demo1")
         self.assertEqual(status["hotspot"]["interface"], "wlan0")
         # A setup network nobody can join is not a setup network: the password
-        # has to be somewhere a person can read it.
-        self.assertGreaterEqual(len(status["hotspot"]["password"]), 8)
+        # has to be somewhere a person can read it, which is the card note.
+        self.assertNotIn("password", status["hotspot"])
         # The hostname is applied before the access point is named after it, and
         # an already-set country is read rather than asked for again.
         # The scan sits before the access point is raised, which is the only
@@ -647,51 +648,59 @@ if __name__ == "__main__":
 
 
 class SetupPasswordTests(Temp):
-    """The setup network has to be joinable by a person with no console.
+    """The setup network has to be joinable, and only by someone with the card."""
 
-    It also has to be unguessable. The password used to be derived from the
-    device name, which is broadcast in the setup network's own SSID: anyone in
-    range could compute it, so it protected nothing.
-    """
-
-    def test_the_password_is_generated_and_not_computable_from_the_name(self):
-        first = onboarding.new_hotspot_password()
-        second = onboarding.new_hotspot_password()
-        self.assertNotEqual(first, second, "two passwords were the same")
-        name = onboarding.hotspot_name("debra-345678")
-        self.assertNotIn(name.split("-")[-1], first,
-                         "the password leaks the device name it used to be made from")
+    def test_the_password_is_random_rather_than_computed_from_the_device_name(self):
+        # The network name is the device name, so a password derived from it -
+        # "debra-" plus a hash of "debra-345678" - was the same public
+        # information in different letters. Anyone in range could compute it.
+        first = onboarding.setup_secret(self.dir / "one" / "secret")
+        second = onboarding.setup_secret(self.dir / "two" / "secret")
+        self.assertNotEqual(first, second)
+        self.assertNotIn(hashlib.sha256(b"debra-demo1").hexdigest()[:8], first)
         self.assertGreaterEqual(len(first), 8)
         self.assertLessEqual(len(first), 63)
-        self.assertTrue(set(first) <= set(onboarding.HOTSPOT_ALPHABET))
+        self.assertTrue(set(first) <= set(onboarding.SECRET_ALPHABET))
+
+    def test_the_password_is_kept_so_a_second_raise_agrees_with_the_note(self):
+        # The access point is raised again after a failed join. A fresh
+        # password each time would strand a person holding a note already read.
+        path = self.dir / "secret"
+        first = onboarding.setup_secret(path)
+        self.assertEqual(onboarding.setup_secret(path), first)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600,
+                         "the setup password must not be world-readable")
 
     def test_the_adapter_is_given_a_password_rather_than_left_to_invent_one(self):
-        # Below eight characters `nmcli` falls back to WEP, and a longer one is
-        # never shown to anyone, so the page could not be joined.
+        # Asking nmcli to invent one produced a WPA2 network whose key nobody
+        # was ever shown, so the password has to be ours and has to be long
+        # enough to be a valid PSK (8-63).
         network = FakeNetwork()
-        self.onboarder(network).start_hotspot()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
         # The fake records only whether a password was passed, so that a test
         # log never holds a credential; the length is checked on the real one.
         hotspot_calls = [call for call in network.calls if call[0] == "start_hotspot"]
         self.assertTrue(hotspot_calls[0][3], "start_hotspot was called without a password")
-        self.assertGreaterEqual(len(onboarding.new_hotspot_password()), 8,
-                                "nmcli would fall back to WEP below eight characters")
+        self.assertGreaterEqual(len(onboarding.setup_secret(onboarder.secret_path)), 8,
+                                "a PSK shorter than eight characters is invalid")
 
     def test_the_household_passphrase_is_never_written_into_the_setup_state(self):
         onboarder = self.onboarder()
         onboarder.start_hotspot()
         stored = self.state_path.read_text(encoding="utf-8")
-        self.assertNotIn("correct horse", stored)
-        self.assertNotIn("psk", stored)
+        password = onboarding.setup_secret(onboarder.secret_path)
+        self.assertNotIn(password, stored)
+        self.assertNotIn("password", stored)
 
-    def test_the_setup_password_is_stored_so_the_page_and_the_note_agree(self):
-        # It protects the setup window, not the household. Keeping it lets the
-        # status report it and the note be reprinted after a rebind.
+    def test_the_password_is_not_served_by_the_status_page(self):
+        # The status response is read by anything that has joined the network,
+        # so it is not a place to keep the credential that let it join.
         onboarder = self.onboarder()
         status = onboarder.start_hotspot()
-        stored = state_module.read(self.state_path)["hotspot_password"]
-        self.assertEqual(status["hotspot"]["password"], stored)
-        self.assertEqual(len(stored), onboarding.HOTSPOT_PASSWORD_LENGTH)
+        self.assertNotIn("password", status["hotspot"])
+        self.assertNotIn(onboarding.setup_secret(onboarder.secret_path),
+                         json.dumps(status))
 
     def test_the_card_note_says_the_three_things_needed_before_any_page_loads(self):
         note = self.dir / "boot" / "debra-setup.txt"
@@ -699,18 +708,94 @@ class SetupPasswordTests(Temp):
         status = onboarder.start_hotspot()
         text = note.read_text(encoding="utf-8")
         self.assertIn("Debra-Setup-demo1", text)
-        self.assertIn(status["hotspot"]["password"], text)
+        self.assertIn(onboarding.setup_secret(onboarder.secret_path), text)
         self.assertIn("http://", text)
 
     def test_a_reprinted_note_keeps_the_password_the_access_point_was_raised_with(self):
+        # The note is rewritten once the page's real address is known. It has to
+        # carry the same password the access point is running with: the status
+        # no longer serves it, so the device's own file is the source.
         note = self.dir / "boot" / "debra-setup.txt"
         network = FakeNetwork()
-        onboarder = self.onboarder(network, card_note_path=note)
-        first = onboarder.start_hotspot()["hotspot"]["password"]
+        onboarder = self.onboarder(network, card_note_path=note, security="wpa")
+        onboarder.start_hotspot()
+        first = onboarding.setup_secret(onboarder.secret_path)
         onboarder.announce_portal("192.0.2.9")
         text = note.read_text(encoding="utf-8")
         self.assertIn(first, text, "the reprinted note lost the password")
         self.assertIn("192.0.2.9", text)
+
+
+class SetupSecurityTests(Temp):
+    """Open is a mode somebody chose, not what happens when nothing was set."""
+
+    def test_the_secured_mode_is_the_default(self):
+        network = FakeNetwork()
+        status = self.onboarder(network).start_hotspot()
+        self.assertEqual(status["security"], "wpa")
+        calls = [call for call in network.calls if call[0] == "start_hotspot"]
+        self.assertTrue(calls[0][3], "the default must not be an open network")
+
+    def test_a_development_build_raises_an_open_network_and_says_so(self):
+        network = FakeNetwork()
+        note = self.dir / "boot" / "debra-setup.txt"
+        status = self.onboarder(network, security="none",
+                                card_note_path=note).start_hotspot()
+        self.assertEqual(status["security"], "none")
+        calls = [call for call in network.calls if call[0] == "start_hotspot"]
+        self.assertEqual(calls[0][3], False, "an open network carries no password")
+        # The note and the page both have to be honest: a person who cannot
+        # join will otherwise go looking for a password that does not exist.
+        text = note.read_text(encoding="utf-8")
+        self.assertIn("none", text)
+        self.assertIn("development", text)
+
+    def test_an_unknown_mode_is_refused_rather_than_treated_as_open(self):
+        # A typo in an install argument must not quietly widen access.
+        with self.assertRaises(ValueError):
+            self.onboarder(FakeNetwork(), security="off")
+
+    def test_a_mode_nobody_wrote_yet_is_not_assumed(self):
+        with self.assertRaises(ValueError):
+            self.onboarder(FakeNetwork(), security="")
+
+
+class AccessPointCheckTests(Temp):
+    """What was created is read back, because nmcli chooses the security."""
+
+    def test_a_secured_access_point_is_verified_as_wpa2(self):
+        recorder = Recorder()
+        network = nm_module.Nmcli(runner=recorder)
+        self.assertEqual(
+            network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue"),
+            "wpa-psk")
+        self.assertIn(["nmcli", "-t", "-f",
+                       "802-11-wireless-security.key-mgmt",
+                       "connection", "show", "id", "debra-setup"], recorder.calls)
+
+    def test_an_access_point_that_came_up_open_is_taken_down(self):
+        recorder = Recorder(key_mgmt="")
+        network = nm_module.Nmcli(runner=recorder)
+        with self.assertRaises(nm_module.NmError) as caught:
+            network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
+        self.assertIn("could not be secured", str(caught.exception))
+        self.assertIn(["nmcli", "connection", "delete", "debra-setup"], recorder.calls,
+                      "an unsecured access point must not be left running")
+
+    def test_wep_is_not_accepted_in_place_of_wpa2(self):
+        recorder = Recorder(key_mgmt="wep-key")
+        network = nm_module.Nmcli(runner=recorder)
+        with self.assertRaises(nm_module.NmError):
+            network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
+
+    def test_an_open_access_point_that_came_up_secured_is_refused_too(self):
+        # Otherwise a development build silently stops being the bypass it
+        # says it is, and every test of that path passes against a WPA2 one.
+        recorder = Recorder(key_mgmt="wpa-psk")
+        network = nm_module.Nmcli(runner=recorder)
+        with self.assertRaises(nm_module.NmError):
+            network.start_hotspot("Debra-Setup-demo1", "wlan0", None)
+        self.assertIn(["nmcli", "connection", "delete", "debra-setup"], recorder.calls)
 
 
 class CountryTests(Temp):
@@ -791,11 +876,14 @@ class Recorder:
     join is now defined by NetworkManager naming *that* profile as the active
     connection. A double that answers every query with IP fields is exactly the
     bypass the review found: it made an unknown profile look like success.
+
+    It also answers the access point's key management, so the setup network can
+    be checked after it is raised rather than assumed to be what was asked for.
     """
 
     def __init__(self, address="192.0.2.40", gateway="192.0.2.1", up_fails=False,
                  active_profile=None, load_fails=False, modify_fails=False,
-                 interface="wlan0", profile_dir=None):
+                 interface="wlan0", profile_dir=None, key_mgmt="wpa-psk"):
         self.calls, self.contents = [], []
         self.address, self.gateway, self.up_fails = address, gateway, up_fails
         self.active_profile = active_profile
@@ -809,11 +897,16 @@ class Recorder:
         self.loaded_id = None
         self.deleted = []
         self.modified = []
+        # What the access point reports after it is created.
+        self.key_mgmt = key_mgmt
 
     def __call__(self, argv, timeout=45):
         self.calls.append(list(argv))
         if argv[1:] == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
             return f"{self.interface}:wifi:connected\n"
+        if argv[1:4] == ["-t", "-f", "802-11-wireless-security.key-mgmt"]:
+            # `nmcli -t` prints the value alone, and nothing for an unset one.
+            return f"{self.key_mgmt}\n" if self.key_mgmt else "\n"
         if argv[1:3] == ["-t", "-f"] and argv[4:6] == ["device", "show"]:
             if argv[3] == "GENERAL.CONNECTION":
                 name = self.active_profile

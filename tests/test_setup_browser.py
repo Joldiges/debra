@@ -488,6 +488,20 @@ window.addEventListener("load", async () => {
       assert(polled, "the page stopped polling while the device was connecting");
       assert(shown("handover"), "a poll replaced the handover screen");
       result.textContent = "PASS: the page keeps polling while the device is connecting";
+    } else if (mode === "open" || mode === "wpa") {
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      if (mode === "open") {
+        assert(shown("open-setup"),
+               "an open setup network is not mentioned on the page");
+        assert(/development/i.test(textOf("open-setup")),
+               "the note does not read as a development warning: "
+               + JSON.stringify(textOf("open-setup")));
+      } else {
+        assert(!shown("open-setup"),
+               "a protected setup network is described as open: "
+               + JSON.stringify(textOf("open-setup")));
+      }
+      result.textContent = "PASS: the page says whether the setup network is open";
     } else {
       throw new Error("unknown case " + JSON.stringify(mode));
     }
@@ -754,6 +768,17 @@ class SetupBrowserTests(unittest.TestCase):
         self.assertTrue(verdict.startswith('<pre id="browser-test-result">PASS:'),
                         (verdict or result.stdout[-2000:]) + "\n" + result.stderr[-1000:])
         return state
+
+    def test_a_development_build_says_the_setup_network_is_open(self):
+        # The dev server runs the open mode: the development bypass means there
+        # is no password to type. A person who is not told that will hunt for
+        # one, so the page has to say it before they try.
+        self.assert_driven("open")
+
+    def test_a_secured_setup_network_is_not_described_as_open(self):
+        # The same page, installed the other way. Without this the "open" line
+        # could be shown always and both tests would still pass.
+        self.assert_driven("wpa", "--setup-security", "wpa")
 
     def test_the_form_shows_the_device_name_and_the_country_list(self):
         state = self.assert_driven("form")

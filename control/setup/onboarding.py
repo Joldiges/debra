@@ -18,7 +18,10 @@ The flow this implements, in the order it actually happens on a fresh card:
    configuration baseline.
 
 Two things are deliberately not here: no reboot is ever used to "apply" Wi-Fi,
-and no passphrase is stored in the setup state.
+and no household passphrase is stored in the setup state. The setup network's
+own password is a separate owner-only file, because the note on the boot
+partition has to keep working across retries and the status API must not
+become a second place to read it from.
 """
 
 from __future__ import annotations
@@ -52,6 +55,15 @@ PORTAL_PORT = 80
 # What NetworkManager's shared mode usually assigns, and the fallback when the
 # access point's own address cannot be read.
 DEFAULT_PORTAL_ADDRESS = "10.42.0.1"
+# How the setup access point is protected:
+#   "wpa"   a random per-device password, delivered on the boot-partition note
+#   "none"  deliberately open, for a development build
+# "none" is a mode a person chooses at install time, never a default a device
+# falls into because something was missing.
+SETUP_SECURITY = ("wpa", "none")
+# Unambiguous when read off a card and typed into a phone: no 0/O, 1/l/I.
+SECRET_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+SECRET_CHARS = 12
 SUBMIT_INTERVAL_S = 5
 MAX_ATTEMPTS = 10
 # After the last allowed attempt the page waits this long instead of refusing
@@ -111,27 +123,48 @@ def hotspot_name(hostname):
     return f"{HOTSPOT_PREFIX}-{suffix}"
 
 
-# Letters and digits only, with the pairs that look alike left out. The
-# password is read off a card and typed on a phone, so `0`/`O` and `1`/`l` are
-# a real source of failed first attempts.
-HOTSPOT_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
-HOTSPOT_PASSWORD_LENGTH = 12
+def setup_secret(secret_path):
+    """The setup network's password: random, kept on the device, stable.
 
+    It used to be derived from the device name, which made `Debra-Setup-345678`
+    hand anyone in range the password - a hash of public information is not a
+    secret, it is the same information in different letters. This one is drawn
+    from the system random source and reaches the person only through the note
+    on the boot partition.
 
-def new_hotspot_password():
-    """A generated password for the setup network.
-
-    It used to be derived from the device name. That was not a secret: the name
-    is broadcast in the setup network's own SSID, so anyone in range could
-    compute the password. Generated is the only version that protects the setup
-    window at all, and it is long enough that `nmcli` cannot fall back to WEP
-    (it does that below eight characters).
-
-    The owner learns it from the boot-partition note, which is the same route
-    the access point's name is learned from.
+    It is kept so that the note stays true: the access point is raised again
+    after a failed join, and a fresh password each time would strand a person
+    holding a note that had already been read.
     """
-    return "".join(secrets.choice(HOTSPOT_ALPHABET)
-                   for _ in range(HOTSPOT_PASSWORD_LENGTH))
+    path = Path(secret_path)
+    try:
+        saved = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        saved = ""
+    except OSError as exc:
+        # Readable is not required for a good password, only for the same one
+        # twice. Say so in the journal and carry on with a fresh one.
+        LOGGER.warning("Setup secret could not be read: %s", exc)
+        saved = ""
+    if saved:
+        return saved
+    secret = "".join(secrets.choice(SECRET_ALPHABET) for _ in range(SECRET_CHARS))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(secret + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileExistsError:
+        # Another process wrote one first: that is the one the note will carry.
+        try:
+            return path.read_text(encoding="utf-8").strip() or secret
+        except OSError:
+            return secret
+    except OSError as exc:
+        LOGGER.warning("Setup secret could not be kept: %s", exc)
+    return secret
 
 
 class Onboarder:
@@ -139,8 +172,14 @@ class Onboarder:
 
     def __init__(self, network, state_path, baseline_dir, hostname=None,
                  clock=time.monotonic, serial_paths=SERIAL_PATHS, root="/",
-                 card_note_path=None, keyfile_dir=None):
+                 card_note_path=None, keyfile_dir=None, security="wpa",
+                 secret_path=None):
+        if security not in SETUP_SECURITY:
+            # A typo in an install argument must not quietly become an open
+            # network: say no at the boundary instead of choosing for someone.
+            raise ValueError(f"security must be one of {', '.join(SETUP_SECURITY)}")
         self.network = network
+        self.security = security
         self.hostname = hostname
         self.state_path = Path(state_path)
         self.baseline_dir = Path(baseline_dir)
@@ -153,6 +192,10 @@ class Onboarder:
         self.card_note_path = Path(card_note_path) if card_note_path else None
         # Where a Wi-Fi profile is staged before NetworkManager loads it.
         self.keyfile_dir = Path(keyfile_dir) if keyfile_dir else None
+        # The setup network's password. Next to the state, owner-only, and
+        # never in the state itself: that file is reported by the API.
+        self.secret_path = (Path(secret_path) if secret_path
+                            else self.state_path.with_name("setup-secret"))
         self._last_submit = 0.0
         self._lock = threading.Lock()
         # Nearby networks, scanned while the radio is free. Kept in memory: it
@@ -207,8 +250,12 @@ class Onboarder:
             "attempts": data["attempts"],
             "baseline": data["baseline"],
             "baseline_error": data.get("baseline_error"),
-            "hotspot": ({**hotspot, "password": data["hotspot_password"]}
-                        if hotspot else None),
+            # No password here. It used to be, because it was derived from the
+            # device name and so was already public; a real secret is read off
+            # the card, and this response is served to anyone who has joined.
+            "hotspot": hotspot,
+            # So the page can say so plainly when the setup network is open.
+            "security": self.security,
             # The address the page is actually served on. A `.local` name here
             # was rejected by the portal's own same-origin check.
             "portal": (f"http://{self._portal_address or DEFAULT_PORTAL_ADDRESS}/"
@@ -265,10 +312,7 @@ class Onboarder:
             # person's phone off it.
             self.refresh_networks(interface)
         name = hotspot_name(hostname)
-        # A new password each time the access point is raised: the note is
-        # rewritten with it, and a password that outlived the window it protects
-        # would be one more thing to keep.
-        password = new_hotspot_password()
+        password = setup_secret(self.secret_path) if self.security == "wpa" else None
         try:
             self.network.start_hotspot(name, interface, password)
         except nm_module.NmError as exc:
@@ -280,7 +324,7 @@ class Onboarder:
         except (AttributeError, nm_module.NmError):
             self._portal_address = None
         data.update(phase=phase, hotspot={"ssid": name, "interface": interface},
-                    hotspot_password=password, last_error=reason)
+                    last_error=reason)
         state_module.write(self.state_path, data)
         self._write_card_note(name, password, hostname)
         return self.status()
@@ -319,13 +363,25 @@ class Onboarder:
         if not hotspot:
             return
         self._write_card_note(hotspot.get("ssid") or hotspot_name(data["hostname"]),
-                              data["hotspot_password"], data["hostname"])
+                              self._hotspot_password(), data["hostname"])
+
+    def _hotspot_password(self):
+        """The setup network's password, or None for a deliberately open build.
+
+        One decision, used both when the access point is raised and when the
+        note is reprinted with the address the page really bound to. Two copies
+        of it could disagree, and a note describing the previous access point
+        is worse than no note.
+        """
+        return setup_secret(self.secret_path) if self.security == "wpa" else None
 
     def _write_card_note(self, ssid, password, hostname):
         """Write the three things needed before any page can be loaded.
 
         Without the password the setup network cannot be joined at all, and a
-        person with no console has no other way to learn it.
+        person with no console has no other way to learn it. A development
+        build has no password to give, and says so rather than leaving the line
+        out, which would read as an incomplete note.
 
         The address is the one the page is served on, not `<hostname>.local`.
         The portal's same-origin check admits only the address it was given, so
@@ -342,9 +398,13 @@ class Onboarder:
                 LOGGER.warning("The setup note is not on a mounted boot partition")
         except OSError:
             pass
+        if password:
+            password_line = f"Password:      {password}\n"
+        else:
+            password_line = "Password:      none (development build)\n"
         text = ("Debra setup\n\n"
                 f"Wi-Fi network: {ssid}\n"
-                f"Password:      {password}\n"
+                f"{password_line}"
                 f"Then open:     http://{address}/\n")
         try:
             self.card_note_path.parent.mkdir(parents=True, exist_ok=True)

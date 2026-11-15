@@ -45,9 +45,9 @@ LOGGER = logging.getLogger("debra.setup")
 MARKER = "# Managed by Debra setup installer\n"
 UNIT_NAME = "debra-setup.service"
 # The unit is a real file beside this installer, not a string in it, so it can be
-# read as a unit. The installer substitutes the four placeholders below.
+# read as a unit. The installer substitutes the five placeholders below.
 TEMPLATE = UNIT_NAME
-PLACEHOLDERS = ("@PYTHON@", "@RUNNER@", "@STATE@", "@CARD_NOTE@")
+PLACEHOLDERS = ("@PYTHON@", "@RUNNER@", "@STATE@", "@CARD_NOTE@", "@SECURITY@")
 
 # Relative to the install root. Nothing here can leave it: `under()` refuses an
 # absolute path, a `..` component, and anything that resolves outside the root.
@@ -162,10 +162,11 @@ def boot_note(root):
     return BOOT_NOTES[0]
 
 
-def unit_text(template, python, runner, state, note):
+def unit_text(template, python, runner, state, note, security="wpa"):
     """Render the reviewed unit template with systemd-quoted values."""
     text = template
-    for placeholder, value in zip(PLACEHOLDERS, (python, runner, state, note)):
+    for placeholder, value in zip(PLACEHOLDERS,
+                                  (python, runner, state, note, security)):
         text = text.replace(placeholder, quoted(value))
     left = [placeholder for placeholder in PLACEHOLDERS if placeholder in text]
     if left:
@@ -175,8 +176,11 @@ def unit_text(template, python, runner, state, note):
     return text
 
 
-def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note=None):
+def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note=None,
+            security="wpa"):
     """Prepare the release, the unit and the paths. Returns what was written."""
+    if security not in onboarding.SETUP_SECURITY:
+        raise ValueError(f"security must be one of {', '.join(onboarding.SETUP_SECURITY)}")
     python = python or sys.executable
     if not Path(python).is_absolute():
         raise ValueError("The interpreter path must be absolute")
@@ -233,13 +237,13 @@ def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note
 
     text = unit_text(payload[TEMPLATE].decode("utf-8"), target(python),
                      target(lib) / "releases" / release_id / "install.py",
-                     target(var), target(note))
+                     target(var), target(note), security)
     directory(root, unit.parent, private=False)
     previous = None
     if unit_path.exists() and unit_path.read_text(encoding="utf-8") == text:
         return {"release": release_id, "release_path": str(release),
                 "unit": str(unit_path), "state": str(state_dir),
-                "card_note": str(target(note)),
+                "card_note": str(target(note)), "security": security,
                 "previous_unit": None, "changed": False}
     if unit_path.exists():
         snapshots = directory(root, lib / "previous-units", private=True)
@@ -266,7 +270,7 @@ def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note
         raise
     return {"release": release_id, "release_path": str(release),
             "unit": str(unit_path), "state": str(state_dir),
-            "card_note": str(target(note)),
+            "card_note": str(target(note)), "security": security,
             "previous_unit": str(previous) if previous else None, "changed": True}
 
 
@@ -352,7 +356,7 @@ def hotspot_address(network, status):
 
 def serve(state_dir, card_note=None, network=None, address=None,
           capture_root="/", uplink_wait=UPLINK_WAIT_S, poll=PORTAL_POLL_S,
-          grace=BASELINE_GRACE_S):
+          grace=BASELINE_GRACE_S, security="wpa"):
     """One boot of the setup service. Returns the process exit code.
 
     Online: nothing to do, and no page is started. Otherwise the access point is
@@ -370,7 +374,11 @@ def serve(state_dir, card_note=None, network=None, address=None,
     # not one NetworkManager will load again.
     onboarder = onboarding.Onboarder(
         network, state_path, state_dir / "baseline", root=capture_root,
-        card_note_path=card_note)
+        card_note_path=card_note, security=security)
+    if security == "none":
+        # Deliberately open, and said out loud every boot rather than once at
+        # install time: the journal is where an open setup network is noticed.
+        LOGGER.warning("setup network is OPEN: installed with --setup-security none")
 
     wait_for_uplink(network, uplink_wait)
     status = onboarder.resume()
@@ -467,12 +475,17 @@ def main(argv=None):
                         help="--serve: the boot-partition note to write")
     parser.add_argument("--capture-root", type=Path, default=Path("/"),
                         help="--serve: root the baseline reads from")
+    parser.add_argument("--setup-security", choices=list(onboarding.SETUP_SECURITY),
+                        default="wpa",
+                        help="wpa: a random per-device password on the card note (default); "
+                             "none: open setup network, for a development build")
     args = parser.parse_args(argv)
 
     if args.serve:
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
         try:
-            return serve(args.state_dir, args.card_note, capture_root=args.capture_root)
+            return serve(args.state_dir, args.card_note, capture_root=args.capture_root,
+                         security=args.setup_security)
         except nm_module.NmError as exc:
             # Already classified by the adapter, so it is safe and useful.
             LOGGER.error("The setup service stopped: %s", exc)
@@ -489,12 +502,15 @@ def main(argv=None):
         if args.restore:
             result = restore(args.root, args.restore)
         else:
-            result = install(args.root, args.source, args.python)
+            result = install(args.root, args.source, args.python,
+                             security=args.setup_security)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     for name, value in result.items():
         print(f"{name}: {value}")
     print("Files prepared; no service started and no network setting changed.")
+    if result.get("security") == "none":
+        print("WARNING: the setup network will be OPEN. Development build only.")
     if args.restore:
         print("Next: systemctl daemon-reload")
         print("Then: systemctl restart debra-setup.service")

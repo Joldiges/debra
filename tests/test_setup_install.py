@@ -348,9 +348,26 @@ class UnitTests(Fixture):
         runner = str(Path("/") / LIB / "releases" / result["release"] / "install.py")
         self.assertEqual(argv, ["/usr/bin/python3", "-B", runner, "--serve",
                                 "--state-dir", "/var/lib/debra/setup",
-                                "--card-note", "/boot/firmware/debra-setup.txt"])
+                                "--card-note", "/boot/firmware/debra-setup.txt",
+                                "--setup-security", "wpa"])
         # The unit starts the release that was just published, not a copy of it.
         self.assertTrue((Path(result["release_path"]) / "install.py").is_file())
+
+    def test_a_development_build_installs_the_open_mode_explicitly(self):
+        # `none` is the development bypass. It has to reach the running unit as
+        # a value, so an open setup network is a written choice in the unit and
+        # never what happens when a flag was forgotten.
+        result = self.install(security="none")
+        self.assertEqual(result["security"], "none")
+        sections, _ = parse_unit(self.unit.read_text())
+        argv = shlex.split(sections["Service"]["ExecStart"])
+        self.assertEqual(argv[-2:], ["--setup-security", "none"])
+
+    def test_an_unknown_setup_security_is_refused_before_anything_is_written(self):
+        # "off" is a plausible typo for a person and must not mean "open".
+        with self.assertRaises(ValueError):
+            self.install(security="off")
+        self.assertFalse(self.unit.exists(), "a refused mode writes no unit")
 
     def test_the_unit_carries_no_credential_and_no_reboot(self):
         self.install()

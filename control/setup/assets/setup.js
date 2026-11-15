@@ -98,6 +98,14 @@ function showCountryField(needsCountry) {
 
 function render() {
   el("device-name").textContent = status.hostname || "your Debra";
+  // A development build raises the setup network with no password. Say so,
+  // rather than leaving a person looking for a password that does not exist.
+  const openSetup = status.security === "none";
+  el("open-setup").classList.toggle("hidden", !openSetup);
+  if (openSetup) {
+    el("open-setup").textContent =
+      "This is a development build: the setup network has no password.";
+  }
   const host = status.hostname || "debra";
   el("device-url").textContent = `http://${host}.local:8787/`;
   el("device-name-again").textContent = host;

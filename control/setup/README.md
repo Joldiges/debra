@@ -80,12 +80,20 @@ none of them make it a secure portal:
   arrived from, and there is no firewall rule here. What actually keeps the page
   off the household network is that the address exists only while the access
   point does.
-- The access point is WPA2 with a **generated** password (twelve characters from
-  an alphabet without look-alike pairs), stored in the setup state and written
-  to the boot-partition note. It is not derived from anything broadcast, so a
-  neighbour who can see the setup network's name cannot compute it. It protects
-  the setup window, not the household: anyone who can read the card, or who is
-  told the password, can also submit the form.
+- The access point is WPA2 with a random per-device password that is written
+  only to the boot-partition note. It is kept in `/var/lib/debra/setup/setup-secret`
+  (`0600`) so the note stays true when the access point is raised again, and it
+  is deliberately absent from the status API, which anything that has joined can
+  read. Anyone who can join the setup network can also submit the form; the
+  password protects the setup window, not the household. `nmcli` decides the
+  security itself, so the access point is read back after it is raised and taken
+  down if it is not the WPA2 (or, in the development mode, the open) one that
+  was asked for.
+- **Development mode:** `--setup-security none` (install) raises the setup
+  network open, with no password at all. The page and the card note both say so.
+  It exists because typing a card password on every development boot is friction
+  with no corresponding risk on a desk; the installer warns, the unit records the
+  choice, and `wpa` remains the default. Never ship an image installed that way.
 - The service shuts the page down as soon as the device is online.
 
 Port 80 rather than 8080 is the same kind of choice: the journey promises
@@ -141,8 +149,9 @@ sudo python3 -B control/setup/install.py --python "$(command -v python3)"
 ```
 
 It prints the release id and path, the unit, the state directory, the card-note
-path, the retained previous unit (when upgrading) and `changed`. It prepares
-files only. To make the service run at boot, after reviewing the unit:
+path, the setup security, the retained previous unit (when upgrading) and
+`changed`. It prepares files only. To make the service run at boot, after
+reviewing the unit:
 
 ```sh
 sudo systemctl daemon-reload
@@ -153,13 +162,19 @@ sudo systemctl enable --now debra-setup.service
 still names the device paths (`/usr/local/lib/debra/setup/...`), so it is only
 useful for inspection or imaging. `--restore <unit>` is the rollback below.
 
+`--setup-security none` installs the development bypass: the setup access point
+comes up open. It is the only way to get that mode, it is written into the unit
+so it cannot appear by accident, and the installer prints a warning. Omitting it
+gives `wpa`, the random per-device password described above.
+
 ## What it writes
 
 | Path on device | Mode | Purpose |
 | --- | --- | --- |
 | `/usr/local/lib/debra/setup/releases/<sha256>/` | `0700` | Fixed payload, content-addressed; old releases retained |
 | `/usr/local/lib/debra/setup/previous-units/` | `0700` | Previous generated units, retained for rollback |
-| `/var/lib/debra/setup/setup.json` | `0600` | The setup state. No household passphrase; it does hold the generated setup-network password, so this file is a credential |
+| `/var/lib/debra/setup/setup.json` | `0600` | The setup state; no passphrase |
+| `/var/lib/debra/setup/setup-secret` | `0600` | The setup-network password, so a re-raised access point matches the note |
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; it is the only copy of that passphrase |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |

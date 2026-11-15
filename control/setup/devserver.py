@@ -45,6 +45,11 @@ def main():
                                  "scan-fails"])
     parser.add_argument("--state-dir", type=Path, default=None,
                         help="keep the state instead of using a temporary directory")
+    parser.add_argument("--setup-security", choices=list(onboarding.SETUP_SECURITY),
+                        default="none",
+                        help="default here is none: this server is a development "
+                             "bypass, so there is no password to type. Use wpa to "
+                             "exercise the real first-boot path")
     args = parser.parse_args()
 
     directory = args.state_dir or Path(tempfile.mkdtemp(prefix="debra-setup-", dir="/tmp/opencode"))
@@ -69,12 +74,11 @@ def main():
     # A fake root, so the success path cannot copy the real NetworkManager
     # keyfiles of whatever machine this is running on.
     fake_root = directory / "fake-root"
-    keyfiles = directory / "keyfiles"
-    for path in (fake_root, keyfiles):
-        path.mkdir(parents=True, exist_ok=True)
+    fake_root.mkdir(parents=True, exist_ok=True)
     onboarder = onboarding.Onboarder(
         network, state_path, directory / "baseline", root=fake_root,
-        card_note_path=directory / "debra-setup.txt", keyfile_dir=keyfiles)
+        card_note_path=directory / "debra-setup.txt",
+        security=args.setup_security)
     if data["hotspot"]:
         # The state was preset rather than reached through start_hotspot(), so
         # do what a boot does before it raises the access point: look around
@@ -85,8 +89,12 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     print(f"setup page: http://127.0.0.1:{args.port}/  (state in {directory})", flush=True)
-    print(f"card note:  {directory / 'debra-setup.txt'}  "
-          f"(the setup-network password a person needs)", flush=True)
+    if args.setup_security == "none":
+        print("card note:  not needed - this development build raises an open "
+              "setup network", flush=True)
+    else:
+        print(f"card note:  {directory / 'debra-setup.txt'}  "
+              f"(the setup-network password a person needs)", flush=True)
     try:
         thread.join()
     except KeyboardInterrupt:
