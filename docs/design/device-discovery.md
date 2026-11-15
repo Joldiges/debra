@@ -1,11 +1,15 @@
 # Device discovery and a household overview
 
-Status: **proposal, unimplemented.** Raised by James on 2026-11-15: the device
-page should be able to find other Debra devices so he can switch between them
-without knowing hostnames, and eventually apply settings to all of them.
+Status: **partly implemented, 2026-11-15.** Raised by James on 2026-11-15: the
+device page should be able to find other Debra devices so he can switch between
+them without knowing hostnames, and eventually apply settings to all of them.
 
-Nothing here is approved work. It records the shape, the costs, and the parts
-that would be unsafe to build first.
+What exists: the lab device publishes `_debra._tcp` from a user unit, and the hub
+browses for it, validates each announcement and lists it as discovered
+(`control/web/discovery.py`, `control/web/server.py`). What does not exist: any
+household overview, any "apply to all", and any use of the record in TXT beyond a
+display name and label. The rest of this page is still a proposal; nothing here
+is approved work.
 
 ## What is actually being asked for
 
@@ -89,7 +93,9 @@ much less blast radius.
 ## Implementation sketch
 
 - Device side: publish `_debra._tcp` with TXT records for id, model, release,
-  protocol, port. Reuse the existing metadata file; no new daemon.
+  protocol, port. Reuse the existing metadata file; no new daemon. **As built**,
+  the advertisement carries only `name` and `label`, and the port is the service
+  port; model, release and protocol are not published yet.
 - Device page: a "Devices" section that lists advertisements, marks the current
   device, and shows board/release so a mixed fleet is visible. Selecting a peer
   switches the tab's key and re-renders.

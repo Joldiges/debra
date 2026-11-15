@@ -168,8 +168,11 @@ and clear, and why the LEDs lost their place to them.
 
 ## What still blocks a real case
 
-The HAT's component **positions** are still estimates — the mics are known to be
-at opposite ends, but not their coordinates — so a hole cannot be cut for
-anything yet. Nothing here has been printed or fit-tested. See
+The HAT's component **positions in X and Y are sourced** — they come from Seeed's
+published Eagle board file, which is why the DWEII case cuts two microphone ports
+at those coordinates. What remains estimated is **every component height**, so a
+pocket or an internal clearance cannot be trusted from the model alone, and the
+source describes a board revision nobody has compared with the physical HAT.
+Nothing here has been printed or fit-tested. See
 [the enclosure lane](enclosures.md) for the rest.
 
