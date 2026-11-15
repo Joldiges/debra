@@ -152,7 +152,12 @@ class AssetTests(unittest.TestCase):
     def pages(self):
         for folder in (ROOT / "docs", ROOT / "models"):
             for page in sorted(folder.rglob("*.md")):
-                if ".local" in page.parts:
+                # Only a `.local` INSIDE the repository is private. Matching the
+                # absolute path also swallowed every page when the checkout
+                # itself sits under a directory called `.local` — which is
+                # exactly where tools/taskchain.py puts worker worktrees — and
+                # the "0 references" guard below was the only thing that noticed.
+                if ".local" in page.relative_to(ROOT).parts:
                     continue
                 yield page
 

@@ -2,8 +2,9 @@
 
 Debra is working toward an affordable Home Assistant voice and music device a
 beginner can set up from a browser. One working lab device, a tested browser-control
-prototype, CAD models and research exist; no appliance image, onboarding, updates
-screen or recovery does. Unchecked claims say unknown, per the [evidence labels](../evidence.md),
+prototype, offline-tested setup code, CAD models and research exist; no appliance
+image, no onboarding that has ever run on a device, no updates
+screen and no recovery do. Unchecked claims say unknown, per the [evidence labels](../evidence.md),
 as of 2026-11-15. SendSpin is the initial music path, Snapcast the alternative, and
 full original Pi Zero W support is still an unproven goal.
 
@@ -34,14 +35,20 @@ These run on a Fedora development computer, not on the Pi.
 
 - The browser slice in `control/web/` is a standard-library service and local page
   for status, selected-sink volume and mute ([README](../../control/web/README.md)):
-  79 tests passed in `tests/test_web.py` on 2026-11-15; the 12 Chromium scenarios are opt-in, skipped in the ordinary run below.
+  86 tests in `tests/test_web.py` on 2026-11-15; the Chromium scenarios are opt-in
+  and skip in an ordinary run (13 in `test_web_browser.py` and 16 in
+  `test_setup_browser.py`, 29 skipped in total).
 - Its installer, `control/web/install.py`, prepares files only: five runtime files
   in a content-addressed release, an owner-only key and a systemd user unit, with
   previous units kept for rollback. No packages, sudo, audio writes or service starts.
 - Discovery shares one mDNS parser (`control/web/discovery.py`, `tools/discover.py`)
-  and lists announced devices (12 tests). The activity table has 78 tests and its
-  notices checklist 22; the task helper and research runner 15 and 9
+  and lists announced devices (15 tests). The activity table has 98 tests and its
+  notices checklist 24; the task helper and research runner 15 and 9
   ([unattended runner](scheduled-runner.md)).
+- The first-boot setup service in `control/setup/` is offline-tested only
+  ([README](../../control/setup/README.md)): 136 tests for naming, onboarding and
+  the baseline, and 28 for its installer. This code has never run on a device: it
+  has raised no radio, joined no network, applied no name or captured a baseline.
 - The activity TUI has a **Notices** tab: one checklist of everything worth not
   missing (blockers, confirmations, failed research tasks, a turn running too
   long), ticked off with `x` and kept as a dimmed "checked off" count so a
@@ -58,12 +65,14 @@ the release deployed to the lab device predates it ([roadmap](../roadmap.md#brow
 ## Design and models
 `models/` holds parametric SolidCraft sources with renders: component envelopes
 (Pi 5, three Pi Zero variants, the ReSpeaker HAT, three DWEII modules and
-ten driver candidates), the v17 STEP reference, four CAD-only assemblies and printable part designs
+ten driver candidates), the v17 STEP reference, CAD-only assemblies and printable part designs
 ([models index](../../models/README.md)). Nothing is sliced, printed or fit-tested;
 three rebuilt parts reproduce volume and bounding box within 0.1%. Two claims were
 withdrawn as never checked: overlap is a mated socket, not a collision test, and
-the upright understates connector depth. The v17 body has no four-screw square
-speaker mount, so a photograph is the outstanding evidence.
+the upright understates connector depth. The v17 body shows no four-screw square
+speaker mount in the STEP, but the wider search that tested that is **inconclusive**
+rather than a finished negative, and James reports the original has one; a
+photograph is still the evidence that would settle it.
 
 ## Research and comparisons
 `docs/research/`, `docs/notes/` and `docs/comparisons/` hold sourced comparisons,
@@ -76,8 +85,10 @@ comparison tables inherit the findings and declare themselves not buying guidanc
 ## What does not exist
 - No appliance image or image build: nothing here turns a blank card into a
   working Debra device.
-- No onboarding: no Wi-Fi portal, no hardware-derived `debra-<id>` helper, no
-  browser enrollment or access revocation.
+- No onboarding that has run on a device: the setup portal, the hardware-derived
+  `debra-<id>` name and the first baseline exist as offline-tested code, but no
+  radio has been raised, no network joined and no name applied by them. There is
+  no captive portal and no browser enrollment or access revocation.
 - No updates screen and no per-component update policy.
 - No recovery implementation: no on-target capture/restore tool and no verified
   device restore; web rollback is fixture-tested only, imaging deferred
@@ -114,10 +125,10 @@ written here. The last needs an installed Chromium
 ([web README](../../control/web/README.md)).
 
 ```sh
-python3 -B -m unittest discover -s tests -v          # the authority: passes, 12 skipped
+python3 -B -m unittest discover -s tests -v          # the authority: passes, browser modules skip
 python3 -B -m unittest tests.test_docs -v            # 11 documentation checks
 bash -n backups/backup.sh backups/restore.sh         # syntax only
-DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p test_web_browser.py -v
+DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py' -v
 ```
 
 Device claims rest on the [lab result](../testing/results/2026-11-15-lab-pi5-lva-sendspin.md), the

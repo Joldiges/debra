@@ -47,14 +47,15 @@ evidence. Do not maintain competing "human" and "AI" versions.
 
 ## Recent research (unreviewed)
 
-These notes came out of roadmap packets in November 2026. They are evidence, not
-decisions. A note marked "changes requested" has an independent review that
-found claims stronger than their sources; read the review before using it.
+These notes came out of roadmap packets and the [research backlog](research-backlog.md)
+in November 2026. They are evidence, not decisions. A note marked "changes
+requested" has an independent review that found claims stronger than their
+sources; read the review before using it.
 
 | Note | Packet | Status |
 | --- | --- | --- |
 | [Independent review of four research notes](notes/2026-11-15-research-notes-review.md) | review | 28 findings. Read this before the four rows below it |
-| [Complete alternatives comparison](notes/2026-11-15-complete-alternatives-comparison.md) | R02 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-complete-alternatives-comparison-revision.md) addresses them but incorrectly says the 2-Mics v2 lacks a speaker amplifier; see the corrected [parts inventory](notes/2026-11-15-parts-inventory.md) |
+| [Complete alternatives comparison](notes/2026-11-15-complete-alternatives-comparison.md) | R02 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-complete-alternatives-comparison-revision.md) addresses them. Its earlier claim that the 2-Mics v2 lacks a speaker amplifier was wrong and was corrected on 2026-11-15; see the corrected [parts inventory](notes/2026-11-15-parts-inventory.md) |
 | [Alternative board screen](notes/2026-11-15-alternative-board-screen.md) | R07 | Revision 1 had 6 findings; [revision 2](notes/2026-11-15-alternative-board-screen-revision.md) demotes the unsupported exclusions |
 | [Upstream reuse audit](notes/2026-11-15-upstream-reuse-audit.md) | R04 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-upstream-reuse-audit-revision.md) separates the evidence from the inference |
 | [Wi-Fi onboarding options](notes/2026-11-15-wifi-onboarding-options.md) | N01 | Revision 1 had 8 findings; [revision 2](notes/2026-11-15-wifi-onboarding-options-revision.md) redesigns the flow so one radio can work |
@@ -64,7 +65,7 @@ found claims stronger than their sources; read the review before using it.
 | [License and provenance proposal](notes/2026-11-15-license-and-provenance-proposal.md) | F04 | MIT proposed for Debra's own work; nothing applied |
 | [Agent permission scoping](notes/2026-11-15-agent-permission-scoping.md) | F06 | Proposal only; no configuration changed |
 | [F05 live permission probes](notes/2026-11-15-f05-live-permission-probes.md) | F05 | Executed: real refusals for out-of-scope edit, new-file write, private and external reads; `grep` disclosed a read-denied file, so search is now denied. Not acceptance |
-| [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The 31.10 mm X span remains useful; the linked bay inventory withdraws the rectangular pocket, continuous-wall and blind-pilot interpretations |
+| [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The 31.10 mm X span remains useful; the [bay inventory](notes/2026-11-15-rpispeaker-v17-bay-inventory.md) withdraws the rectangular pocket, continuous-wall and blind-pilot interpretations |
 | [Optional network services](notes/2026-11-15-optional-network-services.md) | optional extras | Desk study only; NTP client and device health proposals, household-service exclusions; no devices contacted |
 | [Optional radio and presence](notes/2026-11-15-optional-radio-and-presence.md) | optional extras | Desk study only; separate ESP32 BLE proxy and separate home-radio infrastructure candidates; no devices contacted |
 | [Optional sensors and front panel](notes/2026-11-15-optional-sensors-and-front-panel.md) | optional extras | Desk study only; SHT40/BME280 candidates and nominal, not physical, fit comparisons; no devices contacted |
@@ -73,12 +74,40 @@ found claims stronger than their sources; read the review before using it.
 | [One front panel for v17](notes/2026-11-15-v17-one-front-panel.md) | V17 | The lid is the single front panel and the cover is retired; the cover's 32 mm speaker pitch cannot fit the 30.50 mm-wide lid plate. No geometry rebuilt, nothing measured or printed |
 | [Three microphone paths for a Pi Zero](notes/2026-11-15-pi-zero-microphone-paths.md) | ARMv6 | Desk research on 32-bit Raspberry Pi OS: which kernel symbols exist for a WM8960 HAT, a USB microphone and a bare I2S microphone. Nothing installed or measured |
 | [Case fastening survey](notes/2026-11-15-case-fastening-survey.md) | enclosures | Manufacturer data for heat-set inserts, thread-forming screws and snap fits. Insert hole size follows the insert, not the thread; no PLA or PETG figures are published. Nothing bought or tested |
+| [v17 bay inventory](notes/2026-11-15-rpispeaker-v17-bay-inventory.md) | V17 | The measured second bay, the two threaded through holes and the stepped opening. Its banner withdraws the old rectangular-pocket reading and says the asserted "no four-screw square mount" is **not established** |
+| [v17 square-pattern search](notes/2026-11-15-v17-square-pattern-search.md) | V17 | **Verdict: inconclusive.** A wider headless search of the same STEP found no four equal-radius square and four near-square wall candidates, none demonstrated. James reports the original has one, so the mount stays unresolved. This note supersedes the definite negative that several earlier notes and pages still carry, including the bay inventory's own body |
+| [v17 body extraction](notes/2026-11-15-rpispeaker-v17-extraction.md) | V17 | What the STEP does and does not contain, and what the reconstruction cannot reproduce |
+| [v17 cover design](notes/2026-11-15-v17-cover-design.md) | V17 | The cover that carries the four-screw pattern; its 32 mm pitch is an assumption, and it is now retired as a separate front panel |
+| [v17 lid and body fit](notes/2026-11-15-v17-lid-body-fit.md) | V17 | The lid checked against the reconstructed body; a composed assembly, nothing printed |
+| [ARMv6 audio stack](notes/2026-11-15-armv6-audio-stack.md) | ARMv6 | Packaged PipeWire/ALSA availability on 32-bit Raspberry Pi OS; nothing installed |
+| [First-boot identity](notes/2026-11-15-firstboot-identity.md) | N02 | How a stable `debra-<id>` would be derived and what breaks when the board changes |
+| [Sendspin client requirements](notes/2026-11-15-sendspin-client-requirements.md) | R03 | What the pinned 9.1.0 client actually needs, and which controls it does not expose |
+| [ReSpeaker Trixie driver](notes/2026-11-15-respeaker-trixie-driver.md) | ARMv6 | Kernel-symbol evidence for the overlay on the 6.12/Trixie combination |
+| [Device health to Home Assistant](notes/2026-11-15-device-health-to-home-assistant.md) | optional extras | Desk study on publishing health without inventing a new backend |
 
-Two design specifications are also new and unreviewed:
+Three design specifications are also new and unreviewed:
 [RPiSpeaker v17 speaker mount options](design/rpispeaker-v17-speaker-mount-options.md)
 (which arrangements the measured body permits, and the photo that would settle
-the missing four-screw mount) and [LED profiles](design/led-profiles.md) (three
+the missing four-screw mount), [v17 fastening options](design/rpispeaker-v17-fastening-options.md)
+(inserts, clamps and snap fits against the measured body) and [LED profiles](design/led-profiles.md) (three
 profiles, the event vocabulary, and cosmetic versus actual microphone mute).
+
+## Working records, audits and handoffs
+
+These are working evidence, not navigation for a beginner. They are linked here
+so a claim, an item id or a review can be resolved instead of being remembered.
+
+| Record | What it holds |
+| --- | --- |
+| [Repo work harvest](notes/2026-11-15-repo-work-harvest.md) and [harvest 2](notes/2026-11-15-repo-work-harvest-2.md) | The audits' findings, with the item ids (`A1`, `B16`, `C1`…) that [work queue](work-queue.md) rows cite. Harvest items are not roadmap packets |
+| [Doc-code drift audit](notes/2026-11-15-doc-code-drift-audit.md) | Web controls and tooling guides against their code at `84411f8` |
+| [Evidence claim audit](notes/2026-11-15-evidence-claim-audit.md) | Claims checked against the sources they cite |
+| [Test coverage audit](notes/2026-11-15-test-coverage-audit.md) | What the offline tests do and do not reach |
+| [Web acceptance criteria review](notes/2026-11-15-web-acceptance-criteria-review.md) and [rewrite](notes/2026-11-15-web-acceptance-criteria-rewrite.md) | Why the WEB acceptance criteria were rewritten, and the rewritten text |
+| [Browser code r2 repair](notes/2026-11-15-browser-code-r2-repair.md) and [browser docs handoff](notes/2026-11-15-browser-docs-handoff.md) | Session handoffs for the web candidate |
+| [Research readiness handoff](notes/2026-11-14-research-readiness-handoff.md), [task-chain dispatch](notes/2026-11-14-task-chain-dispatch.md) and [review repairs](notes/2026-11-14-task-chain-review-repairs.md) | Earlier session handoffs for dispatch and review |
+| [Lab Pi 5 preparation plan](guides/pi5-lab-preparation.md) | The 2026-11-15 plan for the lab Pi. It was **overtaken**: the device was built without the restore gate it asks for, and nothing in it was replayed from a fresh card |
+| [Historical checklist](outline.md) | Pre-repository checklist; the script it names is absent from this checkout |
 
 ## Where information belongs
 
@@ -91,12 +120,12 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/research/` | Task-specific, source-linked investigations and comparisons | Preliminary synthesis exists; full R01–R04/R07 packets remain open |
 | `docs/design/` | Requirements and reviewed decisions, with status made explicit | Enclosure requirements exist; architecture decisions remain planned under F02 |
 | `docs/comparisons/` | Curated hardware/software comparisons with evidence and scope | Device table, music-playback detail and a numbered source register exist; R05's "choose your path" guide remains open |
-| `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Getting-started, lab backup and runner guides exist; complete prepared-unit walkthrough remains R06 |
-| `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | AI-readiness result exists; device acceptance strategy remains T01 |
+| `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Getting-started, current status, lab backup, runner and web quickstart guides exist; complete prepared-unit walkthrough remains R06 |
+| `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | AI-readiness, F05 source feasibility and four lab-Pi 5 result records exist; device acceptance strategy remains T01 |
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
 | `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
 | `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Original README research preserved; use only for historical investigation |
-| `models/` | SolidCraft part and assembly sources and v17 reference, with `README.md` and renders | Component envelopes, four layout/reference assemblies and printable part designs include the tray, tub-and-lid case, carriers and v17 lid; none printed or fit-tested. The compact case is an earlier concept, not an accepted final design; `RPiSpeaker_v17` reconstruction remains unfinished |
+| `models/` | SolidCraft part and assembly sources and v17 reference, with `README.md` and renders | Component envelopes, CAD-only assemblies and printable part designs include the tray, tub-and-lid case, carriers and v17 body, cover and lid; none printed or fit-tested. The compact case is an earlier concept, not an accepted final design; `RPiSpeaker_v17` reconstruction remains unfinished |
 | `.local/` | Private operational records, raw logs, credentials, recovery payloads, and large local artifacts | Ignored; not shared project memory or an independent backup |
 
 Long reports belong with their subject, not in a second `verbose/` tree.

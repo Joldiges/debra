@@ -1,9 +1,11 @@
 # Task chains: pick work, claim it, hand it back
 
 **Worker entrypoint for “work on any task chain” or “work on this taskchain.”**
-The [roadmap](roadmap.md) remains the canonical 63-packet backlog and acceptance
-criteria. This dashboard groups it into **19 streams**, not 19 competing TODOs.
-The [machine-readable catalog](work/chains.json) assigns every packet once.
+The [roadmap](roadmap.md) remains the canonical backlog and acceptance criteria.
+This dashboard groups **65** of its packets into **19 streams**, not 19 competing
+TODOs; the ten browser packets (`WEB01`–`WEB10`) are not in the registry yet.
+The [machine-readable catalog](work/chains.json) assigns every registered packet
+once.
 
 ## Quick prompts
 
@@ -35,7 +37,8 @@ Workers never mark their own packet done or choose new architecture.
   not an approved production lower-cost editing role.
 - Future implementation, physical tests, architecture, and curated shared
   conclusions require new coordinator cards and the roadmap prerequisites.
-  All 63 packets are mapped below; only the nine starters are self-selectable.
+  All 65 registered packets are mapped below; the ten browser packets are not in
+  the registry, and only the nine starters are self-selectable.
 - A worker without permission to run the dispatcher asks its trusted
   coordinator to execute the exact startup/status/submission operations.
   Do not enable shell or infrastructure access to bypass a denied tool.

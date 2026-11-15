@@ -29,6 +29,11 @@ could disagree.
 A worker owns its files exclusively. Two workers never edit one file. Workers do
 not commit, push, or approve their own work.
 
+Item ids such as `A1`, `B16` or `C1` are [harvest](notes/2026-11-15-repo-work-harvest-2.md)
+findings, not roadmap packets; most rows cite the timestamps or commits where the
+item was raised, and a row that names an audit says which one. Roadmap packets
+(`N02`, `D02`, `WEB03`) keep their own ids.
+
 ## Running
 
 | Packet | Item ids | Files | Notes |
@@ -78,6 +83,7 @@ not commit, push, or approve their own work.
 | `install()` does not validate the device list | B13 | only `main()` does, so a programmatic caller can install a list the server then refuses at startup |
 | Captive-portal probes may never arrive | N02 | the portal answers Android/Apple/Windows/Firefox probe paths with a `302`, but whether a phone reaches them depends on the setup network's DNS, which Debra does not configure. The `getent`/`curl` check is in `control/setup/README.md` |
 | A real NetworkManager has never loaded the Wi-Fi profile | N02 | the profile is written into `/etc/NetworkManager/system-connections` with `autoconnect=false` and promoted after a verified join. That the keyfile plugin reads it, that it survives a reboot, and that the promotion takes effect are all unproven |
+| The web unit has no start limit | WEB03 | `control/web/install.py` writes `Restart=on-failure` with `RestartSec=3` and no `StartLimit*`, so a malformed `hardware.json` — which the server refuses — becomes a restart loop whose only trace is a journal line. A candidate fix (`StartLimitIntervalSec=300`/`StartLimitBurst=4`, with the test asserting both lines sit in `[Unit]`, not anywhere in the file) is on branch `web/unit-start-limit`, now rebased onto `2faabf6`; the `control/web` owner should port it once the `code-r7` work settles. Run inside a taskchain worktree on that branch, the only failure is the `test_docs` image check that the front-door commit fixes |
 | The radio handover has never run | N02 | stop the access point, associate, verify, and restore the access point on failure is only exercised against the fake. No `nmcli`, `hostnamectl` or `raspi-config` call has been made by Debra |
 | No baseline restore demo | N02 | a baseline is captured and can be inspected, but nothing restores from one, so "recovery" is untested in the direction that matters |
 
@@ -107,7 +113,8 @@ not commit, push, or approve their own work.
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 47 tests) that has
+first baseline now have an implementation (`control/setup/`, 136 onboarding tests
+and 28 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist.
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,

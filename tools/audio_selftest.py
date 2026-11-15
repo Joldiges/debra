@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import time
+import traceback
 import wave
 
 CARD = sys.argv[1] if len(sys.argv) > 1 else "seeed2micvoicec"
@@ -53,7 +54,8 @@ def read_wav(path):
 
 
 def dbfs(v):
-    return 20 * math.log10(v / 32768.0) if v > 0 else float("-inf")
+    # A dead capture is a real result, not an infinity that breaks JSON.
+    return 20 * math.log10(v / 32768.0) if v > 0 else -120.0
 
 
 def metrics(x):
@@ -122,6 +124,7 @@ def main():
               "steps": {}, "verdict": {}}
     if result["card_index"] is None:
         result["verdict"]["card_present"] = False
+        result["verdict"]["run_complete"] = False
         print(json.dumps(result, indent=2))
         return 1
     result["verdict"]["card_present"] = True
@@ -131,56 +134,68 @@ def main():
     result["steps"]["mixer_store"] = {"rc": st.returncode, "file": STATE,
                                       "stderr": st.stderr.strip()}
     before = run(["amixer", "-c", idx, "scontents"]).stdout
+    try:
+        # Bounded, explicit mixer settings: expose why each is needed.
+        applied = []
+        for ctl, val in (("PGA", "24"), ("AGC", "off"), ("PCM", "127"),
+                         ("HP DAC", "118"), ("HP", "5"),
+                         ("Left HP Mixer DACL1", "on"), ("Right HP Mixer DACR1", "on")):
+            r = amixer("sset", ctl, val)
+            applied.append({"control": ctl, "value": val, "rc": r.returncode})
+        result["steps"]["mixer_applied"] = applied
+        result["steps"]["mixer_before"] = before
 
-    # Bounded, explicit mixer settings: expose why each is needed.
-    applied = []
-    for ctl, val in (("PGA", "24"), ("AGC", "off"), ("PCM", "127"),
-                     ("HP DAC", "118"), ("HP", "5"),
-                     ("Left HP Mixer DACL1", "on"), ("Right HP Mixer DACR1", "on")):
-        r = amixer("sset", ctl, val)
-        applied.append({"control": ctl, "value": val, "rc": r.returncode})
-    result["steps"]["mixer_applied"] = applied
-    result["steps"]["mixer_before"] = before
+        write_tone(os.path.join(WORK, "tone1k.wav"))
 
-    write_tone(os.path.join(WORK, "tone1k.wav"))
+        silence = os.path.join(WORK, "silence.wav")
+        r = record(silence, 3)
+        result["steps"]["silence_capture"] = {"rc": r.returncode, "stderr": r.stderr.strip()}
+        sil = read_wav(silence)
+        result["steps"]["silence_metrics"] = {"left": metrics(sil["left"]),
+                                              "right": metrics(sil["right"]),
+                                              "frames": sil["frames"]}
 
-    silence = os.path.join(WORK, "silence.wav")
-    r = record(silence, 3)
-    result["steps"]["silence_capture"] = {"rc": r.returncode, "stderr": r.stderr.strip()}
-    sil = read_wav(silence)
-    result["steps"]["silence_metrics"] = {"left": metrics(sil["left"]),
-                                          "right": metrics(sil["right"]),
-                                          "frames": sil["frames"]}
-
-    loop = os.path.join(WORK, "loop.wav")
-    proc = subprocess.Popen(["arecord", "-D", DEV, "-f", "S16_LE", "-r", str(RATE),
-                             "-c", str(CH), "-d", "5", "-t", "wav", loop],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    time.sleep(1.0)
-    play = run(["aplay", "-D", DEV, os.path.join(WORK, "tone1k.wav")], timeout=20)
-    _, err = proc.communicate(timeout=30)
-    result["steps"]["playback"] = {"rc": play.returncode, "stdout": play.stdout.strip(),
-                                   "stderr": play.stderr.strip(), "capture_stderr": err.strip()}
-    lp = read_wav(loop)
-    pre_l = segment(lp["left"], 0.0, 0.9)
-    pre_r = segment(lp["right"], 0.0, 0.9)
-    tone_l = segment(lp["left"], 1.2, 3.8)
-    tone_r = segment(lp["right"], 1.2, 3.8)
-    post_l = segment(lp["left"], 4.2, 4.9)
-    result["steps"]["loop_metrics"] = {
-        "pre_tone_left": metrics(pre_l), "pre_tone_right": metrics(pre_r),
-        "during_tone_left": metrics(tone_l), "during_tone_right": metrics(tone_r),
-        "after_tone_left": metrics(post_l),
-        "tone_amplitude_dbfs_left": round(dbfs(tone_amplitude(tone_l)), 1),
-        "tone_amplitude_dbfs_right": round(dbfs(tone_amplitude(tone_r)), 1),
-        "pre_tone_amplitude_dbfs_left": round(dbfs(tone_amplitude(pre_l)), 1),
-        "after_tone_amplitude_dbfs_left": round(dbfs(tone_amplitude(post_l)), 1),
-    }
-
-    rst = run([ALSACTL, "-f", STATE, "restore", idx])
-    result["steps"]["mixer_restore"] = {"rc": rst.returncode, "stderr": rst.stderr.strip()}
+        loop = os.path.join(WORK, "loop.wav")
+        proc = subprocess.Popen(["arecord", "-D", DEV, "-f", "S16_LE", "-r", str(RATE),
+                                 "-c", str(CH), "-d", "5", "-t", "wav", loop],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(1.0)
+        play = run(["aplay", "-D", DEV, os.path.join(WORK, "tone1k.wav")], timeout=20)
+        _, err = proc.communicate(timeout=30)
+        result["steps"]["playback"] = {"rc": play.returncode, "stdout": play.stdout.strip(),
+                                       "stderr": play.stderr.strip(), "capture_stderr": err.strip()}
+        lp = read_wav(loop)
+        pre_l = segment(lp["left"], 0.0, 0.9)
+        pre_r = segment(lp["right"], 0.0, 0.9)
+        tone_l = segment(lp["left"], 1.2, 3.8)
+        tone_r = segment(lp["right"], 1.2, 3.8)
+        post_l = segment(lp["left"], 4.2, 4.9)
+        result["steps"]["loop_metrics"] = {
+            "pre_tone_left": metrics(pre_l), "pre_tone_right": metrics(pre_r),
+            "during_tone_left": metrics(tone_l), "during_tone_right": metrics(tone_r),
+            "after_tone_left": metrics(post_l),
+            "tone_amplitude_dbfs_left": round(dbfs(tone_amplitude(tone_l)), 1),
+            "tone_amplitude_dbfs_right": round(dbfs(tone_amplitude(tone_r)), 1),
+            "pre_tone_amplitude_dbfs_left": round(dbfs(tone_amplitude(pre_l)), 1),
+            "after_tone_amplitude_dbfs_left": round(dbfs(tone_amplitude(post_l)), 1),
+        }
+    except Exception as error:
+        # A broken capture path must not leave the codec at the test settings,
+        # so the mixer is restored below whatever happened. Keep the traceback:
+        # the stream is the evidence, and the point of failure is the hint.
+        result["error"] = f"{type(error).__name__}: {error}"
+        result["traceback"] = traceback.format_exc()
+    finally:
+        rst = run([ALSACTL, "-f", STATE, "restore", idx])
+        result["steps"]["mixer_restore"] = {"rc": rst.returncode, "stderr": rst.stderr.strip()}
     result["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
+    if "loop_metrics" not in result["steps"]:
+        result["verdict"]["run_complete"] = False
+        print(json.dumps(result, indent=2))
+        return 1
+
+    result["verdict"]["run_complete"] = True
     m = result["steps"]["loop_metrics"]
     sig = m["tone_amplitude_dbfs_left"]
     floor = m["pre_tone_amplitude_dbfs_left"]

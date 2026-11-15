@@ -8,10 +8,10 @@ author: OpenCode coordinator
 author_model: openrouter/deepseek/deepseek-v4.1-flash-1017
 author_variant: high
 sources:
-  - James's message 2026-11-15 pointing at /home/james/onedrive/Projects/Voice_Assistant/RPiSpeaker/models/Fusion360 (his words: "this should give some indication on quality wanted")
+  - "James's message 2026-11-15 pointing at /home/james/onedrive/Projects/Voice_Assistant/RPiSpeaker/models/Fusion360 (his words: \"this should give some indication on quality wanted\")"
   - RPiSpeaker_v17.step, FILE_NAME time_stamp 2026-11-01T21:16:21-05:00, AUTOMOTIVE_DESIGN, Autodesk Translation Framework v15.17.0.0
   - RPiSpeaker_v17.f3d, Previews/small.png and Breps blob, file date 2025-05-18
-  - Geometry read with a local STEP parser and rendered in SolidCraft; see the note's Method section
+  - "Geometry read with a local STEP parser and rendered in SolidCraft; see the note's Method section"
 supersedes: []
 ---
 

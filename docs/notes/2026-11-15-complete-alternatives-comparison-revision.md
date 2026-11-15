@@ -12,30 +12,30 @@ sources:
   - docs/notes/2026-11-15-research-notes-review.md (findings R02-1 to R02-7; read 2026-11-15)
   - docs/notes/2026-11-15-parts-inventory.md (R01; US prices dated 2026-11-15, reused with that date)
   - docs/evidence.md; docs/templates/learning-note.md; docs/project-brief.md; docs/comparisons/devices.md; docs/comparisons/music-playback.md; docs/comparisons/sources.md (read 2026-11-15)
-  - https://www.home-assistant.io/voice-pe/ (re-read 2026-11-15: $69 / 59 EUR recommended MSRP; speaker described as audio feedback; stereo 3.5 mm jack)
-  - https://support.nabucasa.com/hc/en-us/articles/25918770371229 (re-read 2026-11-15; page states last updated 2026-02-09: USB-C cable and PSU not in box, HA server required, not standalone)
-  - https://ameridroid.com/products/home-assistant-voice-preview-edition.js (product JSON re-read 2026-11-15: $58.95, variant available true, SKU U0231)
-  - https://cloudfree.shop/products/home-assistant-voice-preview-edition.js (product JSON re-read 2026-11-15: $58.95, available false)
-  - https://www.seeedstudio.com/Home-Assistant-Voice-p-6998.html (fetched 2026-11-15; price/stock are client-rendered and were not readable — R02's $59.00 and 2-per-account record reused)
-  - https://github.com/esphome/home-assistant-voice-pe/releases/tag/25.12.0 (2026-11-15: published 2025-12-17, "Add support for Sendspin multi-room audio protocol (public preview, works with Music Assistant)")
-  - https://community.home-assistant.io/t/ha-voice-preview-edition-slow-to-play-audio/819069 (2026-11-15: thread from 2024-12-30; 20+ s and 20–50 s reports, fast STT/TTS, one of two units affected)
-  - https://github.com/esphome/home-assistant-voice-pe/issues/257 (2026-11-15: "Some devices slow to play audio", opened 2024-12-31, state open)
-  - https://github.com/music-assistant/support/issues/6643 (2026-11-15: closed 2026-10-14; reporter's closing comment names the access point and a busy 2.4 GHz channel)
+  - "https://www.home-assistant.io/voice-pe/ (re-read 2026-11-15: $69 / 59 EUR recommended MSRP; speaker described as audio feedback; stereo 3.5 mm jack)"
+  - "https://support.nabucasa.com/hc/en-us/articles/25918770371229 (re-read 2026-11-15; page states last updated 2026-02-09: USB-C cable and PSU not in box, HA server required, not standalone)"
+  - "https://ameridroid.com/products/home-assistant-voice-preview-edition.js (product JSON re-read 2026-11-15: $58.95, variant available true, SKU U0231)"
+  - "https://cloudfree.shop/products/home-assistant-voice-preview-edition.js (product JSON re-read 2026-11-15: $58.95, available false)"
+  - "https://www.seeedstudio.com/Home-Assistant-Voice-p-6998.html (fetched 2026-11-15; price/stock are client-rendered and were not readable — R02's $59.00 and 2-per-account record reused)"
+  - "https://github.com/esphome/home-assistant-voice-pe/releases/tag/25.12.0 (2026-11-15: published 2025-12-17, \"Add support for Sendspin multi-room audio protocol (public preview, works with Music Assistant)\")"
+  - "https://community.home-assistant.io/t/ha-voice-preview-edition-slow-to-play-audio/819069 (2026-11-15: thread from 2024-12-30; 20+ s and 20–50 s reports, fast STT/TTS, one of two units affected)"
+  - "https://github.com/esphome/home-assistant-voice-pe/issues/257 (2026-11-15: \"Some devices slow to play audio\", opened 2024-12-31, state open)"
+  - "https://github.com/music-assistant/support/issues/6643 (2026-11-15: closed 2026-10-14; reporter's closing comment names the access point and a busy 2.4 GHz channel)"
   - https://github.com/music-assistant/support/issues/4921 (R02 record, 2026-02-08, reused as reported evidence)
-  - https://www.music-assistant.io/player-support/sendspin/ (2026-11-15: "Sendspin is still in technical preview")
-  - https://www.music-assistant.io/player-support/google-cast/ (2026-11-15: full support for Cast devices including Google Nest speakers; Sendspin on Cast "experimental and off by default")
+  - "https://www.music-assistant.io/player-support/sendspin/ (2026-11-15: \"Sendspin is still in technical preview\")"
+  - "https://www.music-assistant.io/player-support/google-cast/ (2026-11-15: full support for Cast devices including Google Nest speakers; Sendspin on Cast \"experimental and off by default\")"
   - https://www.music-assistant.io/player-support/airplay/ (2026-11-15, provider index; AirPlay path)
   - https://www.music-assistant.io/player-support/alexa/ (R02 record 2026-11-15; experimental self-hosted Alexa skill)
   - https://www.home-assistant.io/integrations/alexa_devices/ (R02 record 2026-11-15; cloud polling, MFA, no music)
-  - https://shop.m5stack.com/products/atom-echo-smart-speaker-dev-kit.js (product JSON 2026-11-15: C008-C, $13.50, available true)
-  - https://shop.m5stack.com/products/atom-echos3r-smart-speaker-dev-kit.js (product JSON 2026-11-15: C126-ECHO, $14.50, available false)
-  - https://docs.m5stack.com/en/homeassistant/applications/voice_assistant/atom_echos3r (2026-11-15: "ESPHome version 2026.1.0 or later"; factory YAML imported with ref main; wake word plus announcements, no music)
-  - https://raw.githubusercontent.com/m5stack/esphome-yaml/main/common/atom-voices3r-satellite-base.yaml (2026-11-15: project version 2026.10.0, min_version 2026.10.0, external component github://n-IA-hane/esphome-audio-stack@v2026.11.0, sendspin media source codecs FLAC/PCM)
-  - https://futureproofhomes.net/products/satellite1-smart-speaker.js (product JSON 2026-11-15: $132.99 EU/UK, $134.99 US, all six variants available)
-  - https://docs.futureproofhomes.net/satellite1-streaming-music/ (2026-11-15: multi-room synchronised music via Music Assistant; page banner says docs reflect Sat1 v0.2.2-beta.0)
-  - https://www.apple.com/shop/buy-homepod/homepod-mini (2026-11-15: $149.00)
-  - https://www.home-assistant.io/green/ (2026-11-15: $199 / 179 EUR)
-  - https://www.nabucasa.com/link/ (2026-11-15: USD $6.50 monthly, $65.00 annual, tax not included)
+  - "https://shop.m5stack.com/products/atom-echo-smart-speaker-dev-kit.js (product JSON 2026-11-15: C008-C, $13.50, available true)"
+  - "https://shop.m5stack.com/products/atom-echos3r-smart-speaker-dev-kit.js (product JSON 2026-11-15: C126-ECHO, $14.50, available false)"
+  - "https://docs.m5stack.com/en/homeassistant/applications/voice_assistant/atom_echos3r (2026-11-15: \"ESPHome version 2026.1.0 or later\"; factory YAML imported with ref main; wake word plus announcements, no music)"
+  - "https://raw.githubusercontent.com/m5stack/esphome-yaml/main/common/atom-voices3r-satellite-base.yaml (2026-11-15: project version 2026.10.0, min_version 2026.10.0, external component github://n-IA-hane/esphome-audio-stack@v2026.11.0, sendspin media source codecs FLAC/PCM)"
+  - "https://futureproofhomes.net/products/satellite1-smart-speaker.js (product JSON 2026-11-15: $132.99 EU/UK, $134.99 US, all six variants available)"
+  - "https://docs.futureproofhomes.net/satellite1-streaming-music/ (2026-11-15: multi-room synchronised music via Music Assistant; page banner says docs reflect Sat1 v0.2.2-beta.0)"
+  - "https://www.apple.com/shop/buy-homepod/homepod-mini (2026-11-15: $149.00)"
+  - "https://www.home-assistant.io/green/ (2026-11-15: $199 / 179 EUR)"
+  - "https://www.nabucasa.com/link/ (2026-11-15: USD $6.50 monthly, $65.00 annual, tax not included)"
   - https://heywillow.io/ (R02 record 2026-11-15; site content dated 2023)
   - https://github.com/HeyWillow/willow (R02 record 2026-11-15)
   - https://www.engadget.com/2197748/google-has-discontinued-the-nest-home-mini-and-nest-audio (2026-06-18, secondary reporting)

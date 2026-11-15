@@ -54,7 +54,9 @@ There is no standing Haiku default or automatic model-upgrade ladder.
 their exact reset timestamps/time zones. James's approximate OpenAI weekly
 reset report (“early Saturday”) is not a verified schedule. Empty OpenAI cost
 fields in the local catalog do not mean unlimited usage. No automatic quota
-monitor, enforced per-run spending cap, or unattended runner is established.
+monitor or enforced per-run spending cap is established; the queued research
+runner (`tools/scheduled_runner.py`, see the [unattended runner](guides/scheduled-runner.md))
+exists, but it reports to a git-ignored queue and is not a quota meter either.
 Do not treat an unrelated OpenCode usage-limits endpoint as an account quota
 meter without verifying what it measures.
 

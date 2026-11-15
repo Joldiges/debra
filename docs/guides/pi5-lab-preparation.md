@@ -1,5 +1,13 @@
 # Prepare the first Pi 5 lab device
 
+> **Overtaken, 2026-11-15.** This plan was not followed as written: the lab Pi 5
+> was built by hand from a stock card and corrected in place, and the recovery
+> gate it asks for first (backup *and* a demonstrated restore) was never
+> demonstrated. The [result record](../testing/results/2026-11-15-lab-pi5-lva-sendspin.md)
+> and [device backup](../guides/device-backup.md) describe what actually
+> happened. Keep this page as the plan and its hazards, not as a replay
+> sequence: nothing in it has been run from a fresh card.
+
 **Preparation plan, 2026-11-15 UTC; not yet device-tested.** James prioritized
 a Raspberry Pi 5 with a ReSpeaker 2-Mics Pi HAT v2 for development. The first
 milestone is **stock OS, reliable SSH access, and demonstrated recovery**—not

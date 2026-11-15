@@ -1,8 +1,9 @@
 # RPiSpeaker v17 speaker mount options
 
 The supplied v17 body has a recessed speaker side and two threaded through
-holes, but no square four-screw speaker pattern or dedicated four-screw lid
-bosses. A 44 x 28 x
+holes, but no square four-screw speaker pattern was found in it and there are no
+dedicated four-screw lid bosses; the wider [search](../notes/2026-11-15-v17-square-pattern-search.md)
+is inconclusive, so treat the pattern as unresolved rather than absent. A 44 x 28 x
 15 mm DWEII 671 housing cannot fit wholly within the lower speaker-side footprint;
 seated on the raised surfaces it would project 8 mm beyond the front reference
 plane and need a separate retainer. A 40 mm square driver cannot fit wholly inside
@@ -82,7 +83,7 @@ new support or changed body and the actual driver dimensions.
 | Centred outside footprint | Centred between X = 17.15 and 48.25, the square spans X = 12.70 to 52.70; the body envelope ends at X = 49.00, so it overhangs by 3.70 |
 | Existing front face | At Y = 15.50 the face covers X = -17.15 to 17.15 only. In that centred example, just 4.45 of the 40 mm width lies over that face; the remaining 35.55 does not |
 | Raised surface below reference plane | The raised surface is 7 below Y = 15.50. If a screw head starts 5-8 above that plane, it must span 12-15 to reach that surface, before engagement; the actual driver flange thickness is unknown |
-| Existing fasteners | No square four-screw pattern exists in the body; the two second-bay holes are threaded through holes with front Ø4.50 countersinks at Y = 8.50 |
+| Existing fasteners | No square four-screw pattern was found in the body, and the wider [search](../notes/2026-11-15-v17-square-pattern-search.md) is inconclusive rather than a finished negative; the two second-bay holes are threaded through holes with front Ø4.50 countersinks at Y = 8.50 |
 
 The overhang example is not a proof that every possible shifted placement or
 every possible four-hole pattern misses material. The actual frame shape and

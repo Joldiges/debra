@@ -34,7 +34,8 @@ or Linux troubleshooting. Wi-Fi onboarding and a stable address such as
 | Area | Evidence / limits |
 | --- | --- |
 | Voice and music | One [Pi 5 + ReSpeaker 2-Mics v2](docs/testing/results/2026-11-15-lab-pi5-lva-sendspin.md) ran wake → HA → spoken reply and Sendspin music. Not a supported hardware matrix or endurance result. |
-| Browser prototype | [Selected-output volume/mute and status](control/web/README.md), with offline and synthetic Chromium tests. **Not yet deployment-verified.** Slider movement previews; Apply changes volume. No startup/poll/test sounds. Trusted-LAN HTTP only. |
+| Browser prototype | [Selected-output volume/mute and status](control/web/README.md), with offline and synthetic Chromium tests. An **earlier** version is deployed on the lab Pi; the current candidate is not deployed and is not approved. Slider movement previews; Apply changes volume. No startup/poll/test sounds. Trusted-LAN HTTP only. |
+| First-boot setup | [Device name, Wi-Fi onboarding and first baseline](control/setup/README.md), with offline tests and an installer. **This code has never run on a device**: it has raised no radio, joined no network, applied no name and captured no baseline, and there is no captive portal or access revocation. |
 | Hardware/reference | [Sourced device comparisons](docs/comparisons/devices.md) and [music-path explanations](docs/comparisons/music-playback.md), not blanket compatibility or buying promises. |
 | Recovery | [Private file archives verified by extraction](docs/guides/device-backup.md); actual device restoration remains unproven. On-target file recovery is the current scope, not mandatory whole-SD imaging. |
 | Printable parts | [Editable CAD and renders](models/README.md). Nothing printed or fit-tested; original `RPiSpeaker_v17` reconstruction remains unfinished. |
@@ -46,16 +47,21 @@ a permanent hardware lock-in. Other boards remain investigations.
 ### Next milestones / TODO
 
 - Verify the browser slice and isolated rollback on its named, authorized target.
-- Add device identity/Wi-Fi onboarding, hardware/component settings and honest
-  installed/enabled/configured/running/connected/working states.
+- Run the setup service on a device, then add hardware/component settings and honest
+  installed/enabled/configured/running/connected/working states. Identity, Wi-Fi
+  onboarding and the first baseline are written but have never touched a radio.
 - Integrate selectable music duck/pause/resume, reply interruption and three-LED
   profiles without overwriting user volume or paused state.
 - Demonstrate on-target file capture/restore and pinned/manual component updates.
 - Continue Zero W engineering and reconstruct the original enclosure around the
   retained square speaker, with desktop/wall use and an accessible topper.
 
-The [roadmap](docs/roadmap.md) owns dependencies and acceptance. An approximately
-$40 reused-parts route is a target, not a current complete-kit price.
+The [roadmap](docs/roadmap.md) owns dependencies and acceptance. The parts
+inventory gives $59.90 for a complete new-parts build and $16.40 reused-parts
+marginal cost, with $31.35 as the cheapest route that lands under $40 and $37.15
+as the cheapest one on a board anyone expects to work (that board is out of
+stock at the US sellers checked); those are dated estimates, not a current
+complete-kit price.
 
 ## Use or contribute
 
@@ -63,6 +69,7 @@ $40 reused-parts route is a target, not a current complete-kit price.
 | --- | --- |
 | [Getting started](docs/guides/getting-started.md) | Current options, component diagram, existing-device and builder instructions |
 | [Browser prototype guide](control/web/README.md) | Scoped installation, authentication, upgrade verification and rollback; developer access still required |
+| [First-boot setup service](control/setup/README.md) | What the setup portal, identity and baseline code does, and exactly what is unproven |
 | [Documentation map](docs/README.md) | Comparisons, research, guides, evidence and dated handoffs |
 | [Project brief](docs/project-brief.md) / [roadmap](docs/roadmap.md) | Product requirements and bounded next work |
 | [Development guide](docs/development.md) / [AI workflow](docs/ai-workflow.md) | Reuse-first work, private storage, ownership and separate review |

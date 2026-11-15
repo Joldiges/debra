@@ -15,12 +15,14 @@ source. The `assets/` folders hold the views shown in each README.
 
 **Current direction, 2026-11-15:** reconstruct James's `RPiSpeaker_v17` with
 forward speaker/microphones, desktop/wall use and an accessible topper. He asked
-for his square speaker and its four screws to be retained, but **the v17 STEP body
-contains no four-screw square mount**: its speaker-side lower footprint is
+for his square speaker and its four screws to be retained. **No four-screw square
+mount was found in the v17 STEP body**, whose speaker-side lower footprint is
 31.10 × 28.125 mm, with two threaded through holes 36.5 mm apart and a central
-Ø10 hole. A separate part that was never exported or a different revision could
-account for the remembered mount, but neither is established. See
-[the extraction](components/rpispeaker-v17/README.md) and
+Ø10 hole. That is not a finished negative: the [wider pattern search](../docs/notes/2026-11-15-v17-square-pattern-search.md)
+that tested it is **inconclusive**, and a separate part that was never exported,
+a different revision, or a pattern the search could not resolve could account for
+the mount James remembers. A photograph is still the evidence that would settle
+it. See [the extraction](components/rpispeaker-v17/README.md) and
 [the correction](../docs/notes/2026-11-15-audio-and-enclosure-corrections.md).
 The [bay inventory](../docs/notes/2026-11-15-rpispeaker-v17-bay-inventory.md)
 supersedes the earlier rectangular 31.10 × 66 × 7 pocket and blind-pilot claims.
@@ -41,6 +43,7 @@ reference material, consult its README for provenance and limitations.
 | [respeaker-2mic-hat](components/respeaker-2mic-hat/README.md) | ReSpeaker 2-Mics Pi HAT v2.0: board, socket underneath, jack, JST speaker, 2 mics, 3 LEDs, button | Board and holes from the HAT form factor; **component X/Y from Seeed's published Eagle board file**, but **every height is an estimate** |
 | [dweii-speakers](components/dweii-speakers/README.md) | The three DWEII modules from the archived research notes, as rectangular housings with a grille recess: 44 × 28 × 15 (701715519671), 44 × 28 × 15 (701715519664, inherited from the 671 family) and 100 × 45 × 21 (701715520462) | **Seller claims, not measurements**; all three are modelled, and they are not interchangeable — the 100 × 45 × 21 module fits no case in this repository |
 | [speaker-candidates](components/speaker-candidates/README.md) | Ten driver envelopes (Adafruit, Visaton, Dayton) with bolt circles where published | Vendor dimensions only, **not measured**; two drivers have no fastener holes at all. Modelled as cylinders, so **not usable for cutting a pocket** |
+| [rpispeaker-v17](components/rpispeaker-v17/README.md) | Read-only reference extraction of the original STEP body, with no `.sc` source in this repository | **Documentation, not geometry**: what the STEP contains and what it cannot settle |
 
 ## Assemblies
 
@@ -68,6 +71,7 @@ something you could slice.
 | [rpispeaker-v17-body](parts/rpispeaker-v17-body/README.md) | Editable, measurement-based reconstruction of the original v17 body | **Incomplete reconstruction**: simplified Pi bay and unmodelled threads; not identical to the STEP, not printed or fit-tested |
 | [rpispeaker-v17-cover](parts/rpispeaker-v17-cover/README.md) | Retired bridge cover that carried an assumed 32 mm square four-screw speaker pattern over the second bay | **Superseded 2026-11-15, do not build.** The lid is the single front panel; the two intersected by **785.08 mm³**, and the cover's 32 mm pitch cannot fit the 30.50 mm-wide lid plate. Kept because its measurements are evidence: `SQ_PITCH` and the speaker's height were assumptions, and two of its holes sat 2 mm above the Pi-side divider |
 | [rpispeaker-v17-lid](parts/rpispeaker-v17-lid/README.md) | The single front panel for the original v17 second bay: Ø28 driver in an external sleeve protruding 10 mm, 100% open aperture | **Provisional**: the body's threaded through holes open through Ø4.50 front countersinks; front fastening needs no body modification but lid clearance, screw fit and engagement are untested; no retainer, cable route unresolved, and the speaker's own dimensions and mounting are still unmeasured |
+| [zero-square-demo](parts/zero-square-demo/README.md) | The bay and lid concept for the Pi Zero + ReSpeaker + DWEII 671 demo, with microphone and LED openings | **Unreviewed CAD-only**: speaker and arms unmeasured, no retention or port access, not printed or fit-tested |
 
 ## Not modelled yet
 
