@@ -47,6 +47,23 @@ back wall. The front pair sit in the free space beside the module because the
 boards are 65 mm wide in a 66.2 mm cavity, leaving no room for a boss at the back
 corners.*
 
+## With the device inside
+
+![The same tub with the lid off and the device in it: the speaker module against the front grille, the Pi and HAT behind it, and the four bosses around them](assets/loaded.png)
+
+*Loaded, lid off. The speaker module stands against the front wall with the
+grille opening behind it; the Pi and the HAT lie behind the module; the two front
+bosses sit in the free margin beside the speaker and the two rear ones are
+thickened into the back wall. This is what the case is for.*
+
+![The finished device with the lid on: a plain box with a round grille on the front and a slot in the left side](../../assemblies/debra-compact/assets/iso.png)
+
+*Closed. The same object with the lid on — see the
+[product assembly](../../assemblies/debra-compact/README.md) for the other views.*
+
+`loaded.png` is shot from the assembly, because this design holds the case only
+and has no components to put in it.
+
 ## The layout it holds
 
 Front to back, in the case's own frame (Y = 0 at the module's front face):
@@ -142,4 +159,17 @@ screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850
              camera: { target: [0,24,8], yaw: 0.62, pitch: 0.72, distance: 215 },
              path: ".../assets/open.png" })
 timeline.edit({ feature: 13, set: { corner: [0, "INT_D/2", "INT_H + LID_T/2"] } })
+```
+
+`loaded.png` cannot be shot here: it comes from
+[the product assembly](../../assemblies/debra-compact/README.md), where the lid is
+a body that can be hidden:
+
+```
+// in debra-compact.sc
+browser.visibility({ items: ["Lid"], visible: false })
+screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
+             camera: { target: [0,25,10], yaw: 0.7, pitch: 0.8, distance: 215 },
+             path: ".../assets/loaded.png" })
+browser.visibility({ items: ["Lid"], visible: true })
 ```

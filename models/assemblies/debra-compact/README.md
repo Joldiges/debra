@@ -29,6 +29,16 @@ microphone ports.*
 *Front. The module is 44 mm wide in a 71 mm case, so a third of the face is blank
 baffle. That is deliberate — the screw bosses live in that margin.*
 
+## With the case open
+
+![The tub with the lid off and the device inside: the speaker module against the front grille, the Pi and HAT behind it, four screw bosses around them](assets/tub-loaded.png)
+
+*Lid off, seen from behind. The speaker module is the tall block at the far side,
+standing against the front wall; the Pi and HAT lie in front of it, with the HAT's
+connectors facing the gap. The four bosses are the lid's screws.*
+
+## Without the case
+
 ![The internals without the case: the speaker module standing at one end, the Pi PCB below, the ReSpeaker HAT above it with its Grove, JST and jack connectors, and the 2 by 20 socket in the gap](assets/inside.png)
 
 *Without the case. Front right: the DWEII module, standing on its 15 mm edge, 28 mm
@@ -94,6 +104,12 @@ from the model, not assumed:
 screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
              camera: { target: [0,25,15], yaw: 0.72, pitch: 0.33, distance: 235 },
              path: ".../assets/iso.png" })
+// case open: hide the lid body, shoot, show it again
+browser.visibility({ items: ["Lid"], visible: false })
+screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
+             camera: { target: [0,25,10], yaw: 2.45, pitch: 0.62, distance: 215 },
+             path: ".../assets/tub-loaded.png" })
+browser.visibility({ items: ["Lid"], visible: true })
 // internals: delete the Case component, shoot, then insert it again
 component.delete({ component: "Case" })
 screenshot({ source: "model", grid: false, axes: false, width: 1300, height: 850,
