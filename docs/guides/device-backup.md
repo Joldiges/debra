@@ -95,20 +95,40 @@ loses silently.
 An image needs the card out of the Pi and a card reader on the host. That is the
 only step here that needs James, which is why the tar was taken first.
 
+## What has been verified
+
+The archive was unpacked and the critical files compared with the live device by
+SHA-256. All six match exactly:
+
+| File | What it holds |
+| --- | --- |
+| `etc/systemd/journald.conf.d/50-debra-persistent.conf` | the persistent journal |
+| `etc/systemd/system.conf.d/50-debra-watchdog.conf` | the 60 s hardware watchdog |
+| `etc/sysctl.d/60-debra-watchdog.conf` | `hung_task_panic` |
+| `etc/ssh/sshd_config.d/40-debra-password.conf` | the password-login drop-in |
+| `home/debra/.local/bin/debra-health` | the audio-path health check |
+| `var/lib/alsa/asound.state` | **the stored mixer state** — `Line DAC` 106, `Line` 3 |
+
+The mixer state is the one that matters most: without it the device boots silent
+with every service green, which is the fault that took a whole session to find.
+
+Extraction also read the entire 5.7 GB stream to completion without a checksum
+error, so the archive is not truncated.
+
 ## What is still unproven
 
-- **No restore has been performed.** Until the archive is unpacked somewhere and
-  the result compared with the device, it is a file, not a backup.
+- **No full restore has been performed.** Files are proven extractable and
+  identical; a fresh card booting from them is not.
 - **The archive was taken from a running system**, so a few files (logs, the
-  journal, anything being written) may be inconsistent.
+  journal, anything being written) may be inconsistent. The six files above are
+  not written by anything at runtime, which is why they were the ones checked.
 - **It has not been copied off this machine.** A backup on the same disk as the
   work is not a backup of the work.
 
 ## Next actions
 
-1. Verify the archive: `zstd -t`, then unpack a few known paths into a scratch
-   directory and diff them against the device.
-2. Copy the archives to a second location that is not this machine.
-3. Image the card when the Pi is next powered down and a reader is available.
-4. **Then** test a restore end to end on a spare card. A backup that has never
-   been restored is a hypothesis.
+1. Copy both archives to a second location that is not this machine.
+2. Image the card when the Pi is next powered down and a reader is available —
+   the image covers the bootloader and partition table, which the tar does not.
+3. Test a restore end to end on a spare card. A backup that has never been
+   restored is still a hypothesis.
