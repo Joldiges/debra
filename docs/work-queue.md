@@ -58,16 +58,20 @@ not commit, push, or approve their own work.
 | Item | Reviewer | Outcome |
 |---|---|---|
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
-| Discovery contract `f2b5c72` | `gpt-6.1-terra#flex-high` (r1), re-running on `gpt-6.1-sol#flex-high` | changes requested in r1; fixes applied; sol re-review in flight; verdict goes to `.local/reviews/discovery-r2-20261115/` |
-| Activity TUI `4f8166a` | `gpt-6.1-terra#flex-high` (r2), re-running on `gpt-6.1-sol#flex-high` | changes requested in r2; fixes applied; sol re-review in flight; verdict goes to `.local/reviews/tui-r3-20261115/` |
+| Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
+
+## Accepted
+
+| Item | Reviewer | Verdict |
+|---|---|---|
+| Discovery contract, r2 (`5ff7ead`) | `openrouter/openai/gpt-6.1-sol#flex-high`, independent | **approve** — all three r1 blockers closed, no new blockers. 242 tests + 12 skipped, 12 browser tests, mutation proved the tests are sensitive. Verdict: `.local/reviews/discovery-r2-20261115/verdict.md` |
+| Activity TUI, r3 (`262daed`) | `openrouter/openai/gpt-6.1-sol#flex-high`, independent | **approve** — all four r2 blockers closed; Needs groups distinguishable at 100, 80 and 60 columns. 78 activity tests, 242 total. Verdict: `.local/reviews/tui-r3-20261115/verdict.md` |
 
 ## Blocked
 
 | Item | Blocker | What would unblock it |
 |---|---|---|
-| The four-screw square speaker mount | A widened search of the STEP is **inconclusive, not negative**: no square was found among the analytic surfaces (262 faces, 776 edges), but irregular slots and non-analytic surfaces still need a topology search | that topology search; failing it, a photo of the assembled original with the cover off, showing what the four screws enter |
-| Any claim that an enclosure fits | nothing has been sliced, printed or fit-tested | printing and measuring a part |
-| The `models/` parts as a product | same | same |
+| The four-screw square speaker mount | A widened search of the STEP is **inconclusive, not negative**: no square was found among the analytic surfaces (262 faces, 776 edges), but irregular slots and non-analytic surfaces still need a topology search | that topology search; failing it, a photo of the assembled original with the cover off, showing what the four screws enter. The [editable reconstruction](../models/parts/rpispeaker-v17-body/README.md) is the working substitute: tweak the mount there instead of waiting |
 | Speaker and board purchase decisions | DWEII listings return HTTP 503; Pi Zero 2 W out of stock at US sellers | re-checked listings, or a different supplier |
 
 ## Open engineering work the harvest did not contain

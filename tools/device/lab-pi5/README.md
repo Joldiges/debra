@@ -1,10 +1,15 @@
 # Lab Pi 5 device build
 
 Scripts recording the bring-up of one Pi 5 + ReSpeaker 2-Mics Pi HAT v2 lab
-device: PipeWire, Linux Voice Assistant, Sendspin and a lab Music Assistant
-server. **Reference material, not a verified fresh-card installer.** Some scripts
-were written after manual bring-up; replaying them has not demonstrated a
-reproducible device.
+device: PipeWire, Linux Voice Assistant and a Sendspin player. **Reference
+material, not a verified fresh-card installer.** Some scripts were written after
+manual bring-up; replaying them has not demonstrated a reproducible device.
+
+**The device is a client, not a server.** Home Assistant and Music Assistant stay
+on the household server. The lab device talks to the household Music Assistant
+that was already there; it does not host one. `40-music-assistant.sh` is an
+optional lab extra for an isolated test source and is not part of Debra — see
+the note below the table.
 
 **These are device scripts.** They run on the Pi as the `debra` user, not on the
 host, and they change system packages, systemd user units and Docker state.
@@ -24,11 +29,33 @@ The “Verified” column describes historical lab use, not fresh-card replay:
 | `12-loopback.sh` | Plays a 1 kHz tone while recording from the HAT; prints capture levels | yes |
 | `20-lva.sh` | Clones linux-voice-assistant at a pinned tag, builds its venv, installs the user unit | yes |
 | `30-sendspin.sh` | Installs the Sendspin CLI, writes its settings, installs the user unit | yes |
-| `40-music-assistant.sh` | Installs Docker and runs the Music Assistant server container on host networking | yes |
+| `40-music-assistant.sh` | **Lab extra, not Debra**: installs Docker and runs an isolated Music Assistant server as a test source. Not enabled at boot | yes, but not part of the device |
 | `50-power-watch.sh` | Records the Pi power/throttle flags on a timer | yes |
 | `51-power-cap.sh` | Caps CPU frequency to 1.5 GHz and pins the `powersave` governor; also keeps the journal across boots (restarts `systemd-journald`) and disables `docker.service`/`docker.socket` startup. It sets no GPU clock. It is mitigation, not a supply fix | yes |
 | `60-watchdog.sh` | Persistent journal, `hung_task_panic`, explicit hardware watchdog | yes, 2026-11-15 |
 | `61-health.sh` | Installs `debra-health` and its 2-minute timer: tests the audio path, not just the service list | yes, 2026-11-15 |
+
+## Why a Music Assistant *server* script is here at all
+
+It is not a device component, and it is not the architecture. A Debra device is a
+client: Home Assistant and Music Assistant stay on the household server, which is
+what the lab device actually used. The script exists because testing a Sendspin
+player needs a Sendspin *source*, and pointing tests at the household instance
+would mean the lab could play on the kitchen speaker and would leave test state in
+the family's library. A throwaway local instance avoids both.
+
+That is the whole reason. Consequences worth keeping straight:
+
+- Nothing in Debra depends on it. Removing the container and Docker from the lab
+  Pi would not change any Debra behaviour.
+- It is not enabled at boot: `51-power-cap.sh` disables `docker.service` and
+  `docker.socket`, so an installed Docker stays stopped after a reboot.
+- It is deliberately crippled for testing: the Chromecast, AirPlay and DLNA
+  providers were removed so the lab server cannot play on household speakers.
+- It costs RAM, disk and attack surface. A Pi Zero 2 W should never run it, and a
+  production Debra image should not include Docker for this purpose.
+- If the household Music Assistant already serves Sendspin players, the extra
+  instance is redundant and should not be installed.
 
 ## Why the audio is configured this way
 

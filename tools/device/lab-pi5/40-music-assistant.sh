@@ -1,5 +1,18 @@
 #!/bin/sh
-# Music Assistant server as the lab's Sendspin source.
+# OPTIONAL LAB EXTRA — NOT PART OF DEBRA, AND NOT A DEVICE-BUILD STEP.
+#
+# A Debra device is a voice/music client: Home Assistant and Music Assistant
+# stay on the household server. This script exists only to give a lab Sendspin
+# player an isolated Music Assistant *source* to test against, so a test never
+# plays through the household instance or its speakers.
+#
+# Do not install it on a Debra device. Do not install it because the file is in
+# this directory. The numeric prefix is historical (it was recorded as step 40 of
+# the 2026-11-15 lab bring-up); it is not a build order.
+#
+# The container is not enabled at boot: 51-power-cap.sh disables
+# docker.service and docker.socket, so an installed Docker does not start again
+# after a reboot. Nothing in Debra depends on it.
 #
 # Docker with host networking is the only supported non-HAOS install: MA
 # discovers and streams to players over mDNS and random TCP/UDP ports.
