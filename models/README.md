@@ -1,14 +1,14 @@
 # Models
 
-Parametric SolidCraft sources for Debra's physical parts, with renders beside
-them. Every folder here holds:
-
-```
-<name>/
-  README.md     what it is, its parameters, what is assumed, what is missing
-  <name>.sc     the editable source; the model is rebuilt from this
-  assets/       renders of that source, shown in the README
-```
+These folders contain printable-part designs, component envelopes, assemblies,
+and reference material, with READMEs and views beside them. Editable designs
+have SolidCraft `.sc` sources, but the filename need not match the folder: the
+Pi 5 envelope uses `pi5-reference.sc`. The
+[v17 component reference](components/rpispeaker-v17/README.md) has no `.sc`
+source: it documents a read-only STEP extraction, and the original STEP and
+Fusion files are not included in the repository. The separate
+[v17 body reconstruction](parts/rpispeaker-v17-body/README.md) has an editable
+source. The `assets/` folders hold the views shown in each README.
 
 **Current direction, 2026-11-15:** reconstruct James's `RPiSpeaker_v17` with
 forward speaker/microphones, desktop/wall use and an accessible topper. He asked
@@ -25,9 +25,9 @@ Earlier compact-box “product” and chosen-speaker labels below are historical
 concepts, not an accepted final design. Nothing here has been printed or
 fit-tested.
 
-A part is only useful if someone can see it and rebuild it. The README states
-which numbers are dimension-sourced and which are assumed, and the renders show
-what the model actually is — including the parts it does not have yet.
+For editable designs, the README describes the model and its assumptions, and
+the renders show what it is — including the parts it does not have yet. For
+reference material, consult its README for provenance and limitations.
 
 ## Components
 
@@ -77,8 +77,8 @@ something you could slice.
 ## Regenerating renders
 
 SolidCraft's `screenshot` command with `source: "model"`, `grid`, `axes`,
-`camera` and `path` writes a PNG straight into a folder. Each README lists the
-exact calls it used, so a render is reproducible rather than a one-off
-screenshot of somebody's viewport. Committed renders are palette-quantised to
-keep them small; re-shoot at 1200–1500 px wide and quantise again if you replace
-one.
+`camera` and `path` writes a PNG straight into a folder. Consult each README
+for its render method. The v17 component reference's views instead come from a
+STEP inspection tool; see its README for the limits on reproducing them.
+Committed renders are palette-quantised to keep them small; re-shoot at
+1200–1500 px wide and quantise again if you replace one.

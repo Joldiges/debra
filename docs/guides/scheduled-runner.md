@@ -30,24 +30,41 @@ control, **not** a permission boundary.
 | `.local/runner/queue.json` | tasks and their status |
 | `.local/runner/config.json` | optional spend cap, default model and agent, timeout |
 | `.local/runner/state.json` | per-day reported cost and per-task outcome |
-| `.local/runner/activity.log` | one JSON line per finished task; `tail -f` this |
-| `.local/runner/runs/<day>-<id>/` | raw event stream, stderr, report and record per task |
+| `.local/runner/activity.log` | JSON lines for task starts and finishes; `tail -f` this |
+| `.local/runner/runs/<day>-<8 hex>/` | raw event stream, stderr, report and record per task |
+| `.local/runner/run.lock` | created by the runner when acquiring its exclusive lock; prevents overlapping runs |
 | `.local/runner/STOP` | if this file exists, every run exits immediately |
-| `.local/runner/prompts/` | prompt files, one per task |
+
+For a normal completed run, `activity.log` has two lines: `start` carries the
+UTC time, task ID, title, run directory and model; `finish` carries the task ID,
+success flag, reported cost, duration and report path. The `finish` line's
+`utc` is the task's **start time**, not its finish time. An interrupted run may
+have a `start` without a `finish`, and a report file is only written if the
+task produces report text.
+
+The run directory starts with the UTC date (`YYYY-MM-DD`); its suffix is the
+first eight hexadecimal characters of a new UUID4, not the task ID. Use the
+`start` line's `run_dir` or the `finish` line's report path to find the
+directory; its name alone does not identify the task.
+
+The runner writes its PID and start time to `run.lock`, removes it on normal
+exit and attempts to reclaim a lock whose owner is no longer alive.
 
 ## Commands
 
 ```sh
 python tools/scheduled_runner.py init
-python tools/scheduled_runner.py add --id ID --title "..." --prompt-file .local/runner/prompts/ID.txt
+python tools/scheduled_runner.py add --id ID --title "..." --prompt-file /path/to/task-prompt.txt
 python tools/scheduled_runner.py status
 python tools/scheduled_runner.py log --lines 10
 python tools/scheduled_runner.py run --once [--dry-run]
 ```
 
-A report is written to `.local/runner/runs/<day>-<id>/<ID>.report.md` and is
-**unreviewed evidence**, not a promoted finding. Promote it the ordinary way:
-review the diff and sources, then add a note or a document under `docs/`.
+Supply an existing prompt file for `--prompt-file`, or pass the text with
+`--prompt`; the runner does not create a prompt-files directory. When a report
+has text, it is written to `.local/runner/runs/<day>-<8 hex>/<ID>.report.md`
+and is **unreviewed evidence**, not a promoted finding. Promote it the ordinary
+way: review the diff and sources, then add a note or a document under `docs/`.
 
 ## Schedule
 
@@ -62,13 +79,13 @@ paths):
 ```sh
 systemctl --user list-timers debra-runner.timer
 systemctl --user status debra-runner.service
-tail -f .local/runner/activity.log                  # finished tasks
+tail -f .local/runner/activity.log                  # task starts and finishes
 tail -f "$(ls -td .local/runner/runs/*/ | head -1)"*.events.jsonl   # the live one
 ```
 
-The event stream is written line by line while a task runs, so the second
+The event stream is written line by line while a task runs, so its `tail`
 command shows what a worker is doing right now rather than only its result.
-`activity.log` gets its line when the task finishes.
+`activity.log` records the start and, on normal completion, the finish.
 
 Stop it without touching the queue:
 
