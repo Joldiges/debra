@@ -30,9 +30,9 @@ That changes the reasoning above in two ways:
    envelopes are cylinders, which is the cone and not the housing. A pocket cut
    to a cylinder does not fit a rectangular module.
 
-The arrangement question is therefore **open again**, and it now reduces to the
-microphone direction below. The first part built this way is the
-[DWEII carrier](../../models/parts/dweii-671-carrier/README.md).
+The arrangement question is therefore **open again**, and it is now bounded by a
+fact rather than a guess: the HAT's microphones are **top-port**, so its
+component side must face open air. See below.
 
 ## How a case is actually built from these models
 
@@ -48,7 +48,9 @@ should, and that is the intended pipeline:
 
 Step 2 is where the envelope earns its keep: the pocket is derived from the
 envelope, not guessed, so correcting a component dimension changes the part. The
-carrier's pocket is `MOD_L + 2*CLEAR` wide for exactly that reason.
+carrier's pocket is `MOD_L + 2*CLEAR` wide for exactly that reason. The first part
+built this way is the
+[DWEII carrier](../../models/parts/dweii-671-carrier/README.md).
 
 ## What was actually wrong
 
@@ -132,18 +134,31 @@ Written down so the next model does not have to relitigate them:
 6. **Nothing decorative that is not also structural** — a grille is a hole
    pattern that stiffens the panel, a plinth is weight and cable room.
 
-## What blocks the next step
+## What used to block this, and no longer does
 
-**One measurement decides whether B is possible: which way the HAT's microphone
-ports face.** This model assumes they face out of the board's front face. If they
-are bottom-port, they face the Pi through the 11 mm gap, and the whole
-arrangement changes — the HAT would have to be the back board, or the gap becomes
-an acoustic duct that has to be designed rather than ignored.
+**The microphones are top-port.** Their ports face out of the HAT's component
+side, Ø0.325 mm, on a 1.1 mm package. This was the open question; it is now
+sourced from the MEMSensing datasheet and the V2.0 schematic —
+[see the research note](../research/2026-11-15-respeaker-microphone.md).
 
-Until that is checked on the real board, every enclosure model here is a
-proportion study. Everything else — the neck, the sealed chamber, the light pipe,
-the base weight — is ordinary design work that follows from it.
+That converts a guess into a rule, and it is a demanding one:
 
-The other blockers are the ones already in
-[the enclosure lane](enclosures.md): the HAT's component positions are estimates,
-and nothing here has been printed or fit-tested.
+- The HAT's component side must face **open air**. Not a case wall, not a lid,
+  not a driver, not another board.
+- The HAT must therefore be the **front** board of the stack, with the Pi behind
+  it. The "HAT behind the Pi" variant is dead.
+- The 11 mm gap to the Pi is **not** an acoustic path, so it does not need to stay
+  open for sound — only for the header and for cooling.
+- Anything over the microphones is directly in the acoustic path. A grille or
+  cloth has to be tested, not assumed transparent.
+
+That is why the upright arrangement puts the HAT in front with its microphones low
+and clear, and why the LEDs lost their place to them.
+
+## What still blocks a real case
+
+The HAT's component **positions** are still estimates — the mics are known to be
+at opposite ends, but not their coordinates — so a hole cannot be cut for
+anything yet. Nothing here has been printed or fit-tested. See
+[the enclosure lane](enclosures.md) for the rest.
+

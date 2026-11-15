@@ -36,7 +36,7 @@ standoffs can hold both boards. The socket is underneath and does not appear.*
 | Board-to-board gap | ~11 mm with a male header on the Pi | see the stack assembly; the gap is assumed |
 | Jack | 12 × 6 × 5 mm body on the +X edge | the opening is Ø6 mm and needs a hole, not a slot |
 | Speaker out | 2-pin JST, 7.4 × 4.5 × 5 mm | **connector type unconfirmed**; see the gaps |
-| Microphones | 2 × 4 × 3 mm on the +Y edge | sound ports must stay unobstructed |
+| Microphones | 2 × 4 × 3 mm on the +Y edge | **part now identified**: MSM321A3729H9BP, 3.76 × 2.95 × 1.1 mm, **top-port Ø0.325 mm** — sound enters through the component side, not the board. Positions are still invented. See [the research note](../../../docs/research/2026-11-15-respeaker-microphone.md) |
 | LEDs | 3 × 5 × 5 mm on the −Y edge | need a diffuser or window, or they are invisible |
 | Button | 6 × 6 × 5 mm on the −X edge | needs a cap or a hole; it is not a power switch |
 

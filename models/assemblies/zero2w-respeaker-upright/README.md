@@ -94,10 +94,14 @@ right.
 - **No enclosure.** No walls, no grille, no back volume, no openings.
 - **No fastener anywhere.** The base has no holes and the boards are not fixed
   to it.
-- **The microphone direction is assumed.** This model treats them as facing out
-  of the board's front face. Whether the real HAT's ports point that way,
-  through the board, or along the edge has not been checked, and it decides
-  whether this arrangement works at all.
+- **The microphone direction is now sourced, and it agrees with this layout.**
+  The HAT uses MSM321A3729H9BP microphones, which are **top-port**: sound enters
+  through the top of the package, out of the HAT's component side. That is the
+  side facing forward here, and it is why the HAT is the front board and the
+  microphones sit low and clear rather than under the driver. See
+  [the research note](../../../docs/research/2026-11-15-respeaker-microphone.md).
+  What is still unknown is where on the board the two ports are, so no hole can
+  be cut for them.
 - **Component positions are inherited estimates** from the two component files.
 - Cable routing is not modelled.
 
