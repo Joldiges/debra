@@ -152,9 +152,44 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
             "previous_unit": str(backup) if backup else None, "changed": True}
 
 
+def restore_unit(home, source):
+    """Replace the service unit with a preserved one, atomically.
+
+    A copy truncates the destination before writing, so an interruption partway
+    through leaves a file that is neither the old unit nor the new one, with no
+    ExecStart line and no way to start. Writing a complete file and renaming it
+    over the unit means the unit is always one of the two versions.
+    """
+    home = Path(home)
+    unit = home / ".config" / "systemd" / "user" / "debra-web.service"
+    source = Path(source)
+    text = source.read_bytes()
+    if b"ExecStart=" not in text:
+        raise ValueError("That file is not a service unit: it has no ExecStart line")
+    directory(unit.parent)
+    fd, name = tempfile.mkstemp(prefix="debra-web.service.", suffix=".restore",
+                                dir=unit.parent)
+    candidate = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        candidate.chmod(0o600)
+        os.replace(candidate, unit)
+    except BaseException:
+        try:
+            candidate.unlink()
+        except OSError:
+            pass
+        raise
+    return unit
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sink", required=True)
+    parser.add_argument("--sink",
+                        help="audio sink name the server should use")
     parser.add_argument("--bind", default="127.0.0.1", help="Explicit IPv4 address; LAN: 0.0.0.0")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--host", action="append", required=True, help="Allowed hostname:port; repeatable")
@@ -162,9 +197,23 @@ def main():
                         help="key: require the device access key (default); none: development bypass")
     parser.add_argument("--devices", type=Path,
                         help="JSON list of known devices for the one-stop card")
+    parser.add_argument("--restore", type=Path, metavar="PREVIOUS_UNIT",
+                        help="atomically restore a unit preserved under "
+                             "previous-units/, then stop")
     args = parser.parse_args()
     if os.getuid() == 0:
         parser.error("Run as the device's ordinary audio-session user, not root")
+    if args.restore:
+        try:
+            unit = restore_unit(Path.home(), args.restore)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
+        print(f"unit: {unit}")
+        print("Unit restored atomically; nothing was started or stopped.")
+        print("Next: systemctl --user daemon-reload")
+        return
+    if not args.sink:
+        parser.error("--sink is required unless --restore is given")
     devices = []
     if args.devices:
         try:

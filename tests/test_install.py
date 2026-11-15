@@ -488,3 +488,48 @@ class InstalledArtifactTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RestoreTests(unittest.TestCase):
+    """The rollback path itself, which the installer now performs.
+
+    A copy truncates the destination before writing, so an interruption partway
+    leaves a unit that is neither version and cannot start. These tests hold the
+    restore to the same standard as the install.
+    """
+
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory(prefix="restore-", dir="/tmp/opencode")
+        self.home = Path(self._temp.name)
+        self.unit = self.home / ".config" / "systemd" / "user" / "debra-web.service"
+        self.unit.parent.mkdir(parents=True)
+        self.unit.write_text("[Service]\nExecStart=/usr/bin/new\n", encoding="utf-8")
+        self.previous = self.home / "previous.service"
+        self.previous.write_text("[Service]\nExecStart=/usr/bin/old\n", encoding="utf-8")
+
+    def tearDown(self):
+        self._temp.cleanup()
+
+    def test_a_restore_replaces_the_unit_with_a_complete_file(self):
+        installer.restore_unit(self.home, self.previous)
+        self.assertEqual(self.unit.read_text(encoding="utf-8"),
+                         "[Service]\nExecStart=/usr/bin/old\n")
+        self.assertEqual(stat.S_IMODE(self.unit.stat().st_mode), 0o600)
+
+    def test_an_interrupted_restore_leaves_the_old_unit_untouched(self):
+        before = self.unit.read_bytes()
+        with patch.object(installer.os, "replace", side_effect=OSError("interrupted")):
+            with self.assertRaises(OSError):
+                installer.restore_unit(self.home, self.previous)
+        # Neither truncated nor half-written: still exactly the old unit.
+        self.assertEqual(self.unit.read_bytes(), before)
+        self.assertEqual(list(self.unit.parent.glob("*.restore")), [],
+                         "a failed restore must not leave a staging file behind")
+
+    def test_a_file_that_is_not_a_unit_is_refused_before_anything_is_replaced(self):
+        before = self.unit.read_bytes()
+        junk = self.home / "junk.service"
+        junk.write_text("not a unit\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            installer.restore_unit(self.home, junk)
+        self.assertEqual(self.unit.read_bytes(), before)

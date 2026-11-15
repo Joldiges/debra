@@ -224,10 +224,16 @@ not an arbitrary newest file. Preserve the current unit privately first. Then:
 
 ```sh
 systemctl --user stop debra-web.service
-cp -- '<previous_unit>' ~/.config/systemd/user/debra-web.service
+python3 control/web/install.py --restore '<previous_unit>'
 systemctl --user daemon-reload
 systemctl --user start debra-web.service
 ```
+
+`--restore` writes a complete file and renames it over the unit, so an
+interruption leaves either the old unit or the new one and never a truncated
+file that cannot start. It refuses a file with no `ExecStart` line and starts
+nothing itself. A `cp` would truncate the destination before writing, which is
+why it is not used here.
 
 The old unit references the retained old release and its own device list, if any.
 Units created by older installers may instead reference a shared `devices.json`;
