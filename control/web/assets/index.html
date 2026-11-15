@@ -25,7 +25,7 @@
     </section>
     <div id="dashboard" hidden>
       <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div><button id="disconnect" class="secondary">Disconnect this tab</button></div>
-      <nav aria-label="Sections"><a href="#audio">Audio</a><a href="#device">Device</a><a href="#health">Health</a><a href="#components">Components</a></nav>
+      <nav aria-label="Sections"><a href="#audio">Audio</a><a href="#setup">Setup</a><a href="#device">Device</a><a href="#health">Health</a><a href="#components">Components</a></nav>
       <section id="audio" class="card">
         <p class="eyebrow">LIVE CONTROL</p><h2>Speaker volume</h2>
         <p>Native device output · shared by speech and music</p>
@@ -34,6 +34,19 @@
         <input id="volume" type="range" min="0" max="100" step="1" disabled>
         <div class="row"><button id="apply" disabled>Apply volume</button><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
         <p class="detail">Moving the slider previews a value; Apply changes it. No test sound plays. Apply links all output channels; mute is separate. Percent is a native control setting, not a loudness or safety measurement.</p>
+      </section>
+      <section id="setup" class="card">
+        <p class="eyebrow">BUILD CHOICES</p><h2>Setup</h2>
+        <p>What this device is built to do. Anything marked <span class="badge planned">Planned</span> is shown so the intended shape is visible and testable, but it cannot change anything yet.</p>
+        <h3>Audio hardware</h3>
+        <p id="setup-hardware-source" class="detail"></p>
+        <div id="setup-hats" class="choices"></div>
+        <p id="setup-hardware-note" class="detail"></p>
+        <h3>Tools and settings</h3>
+        <div id="setup-settings" class="choices"></div>
+        <h3>Updates</h3>
+        <div id="setup-updates" class="choices"></div>
+        <p id="setup-status" class="detail" role="status"></p>
       </section>
       <div class="grid">
         <section id="device" class="card"><p class="eyebrow">IDENTITY</p><h2>Hardware & system</h2><dl id="device-values"></dl><p class="detail">Selected HAT/speaker labels are retained information, not automatic compatibility checks.</p></section>

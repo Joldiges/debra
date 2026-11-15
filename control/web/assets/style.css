@@ -51,4 +51,21 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 #error { color: #ffc8b8; }
 footer { padding: 6px 4px; }
 [hidden] { display: none !important; }
+/* The Setup card. A disabled control keeps full-strength text around it: the
+   reason is the point of showing it at all, so only the control itself dims. */
+h3 { color: #d5e4e0; font-size: 15px; font-weight: 650; letter-spacing: .01em; margin: 24px 0 10px; }
+.choices { display: flex; flex-direction: column; gap: 10px; }
+.choice { display: flex; flex-direction: column; gap: 8px; border: 1px solid #3b514c; border-radius: 11px; padding: 14px 16px; }
+.choice-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.choice-head label { margin: 0; font-weight: 600; }
+.choice-detail, .choice-caveat, .choice-status { margin: 0; font-size: 13px; line-height: 1.6; }
+.choice-caveat { color: var(--muted); font-size: 12px; }
+.choice-status { color: var(--accent); }
+.choice-control { display: flex; align-items: center; gap: 10px; }
+.choice input[type=radio] { margin: 0; accent-color: var(--accent); width: 18px; height: 18px; }
+.choice select { max-width: 100%; padding: 9px 12px; border: 1px solid #56716b; border-radius: 9px; background: #101619; color: #d5e4e0; font: inherit; font-size: 14px; }
+.choice input:disabled, .choice select:disabled { opacity: .6; cursor: default; }
+.choice input[type=radio]:disabled { opacity: .8; }
+.choice button:disabled { opacity: .6; }
+.badge.planned { color: #eac88a; border: 1px solid #6b5a34; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 @media (max-width: 650px) { .grid { grid-template-columns: 1fr; gap: 0; } header, main { padding-left: 16px; padding-right: 16px; } .card { padding: 20px; } .heading { align-items: start; flex-direction: column; } #connection { max-width: 145px; text-align: right; } }

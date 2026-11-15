@@ -41,6 +41,33 @@ SERVICES = (
     ("PipeWire", "pipewire.service", True),
     ("WirePlumber", "wireplumber.service", True),
 )
+# The audio hardware this repository has evidence for, and how to recognise it.
+# `match` words are looked for in the device-tree HAT EEPROM product; `card` is
+# the ALSA card name the tested overlay creates. Neither proves a working
+# microphone, and no write exists to change either.
+HAT_OPTIONS = (
+    {"id": "respeaker-2mic-hat-v2",
+     "label": "ReSpeaker 2-Mics Pi HAT v2",
+     "summary": "TLV320AIC3104 codec, two microphones, three APA102 LEDs, a user button, "
+                "3.5 mm and JST speaker outputs.",
+     "match": ("respeaker", "2-mics", "2mic", "seeed"),
+     "card": "seeed2micvoicec",
+     "caveats": (
+         "Microphone and LED positions are an estimate, not a measurement of this board: "
+         "they come from Seeed's v1 Eagle layout plus a photograph cross-check, and a v2 "
+         "board could have moved a part. Heights are unmeasured.",
+         "The LEDs (APA102 on SPI) and the button (GPIO17) are not audio: no audio driver "
+         "provides them.",
+     )},
+    {"id": "none",
+     "label": "No HAT: 3.5 mm jack or USB audio",
+     "summary": "The board's own headphone output, or a USB sound card.",
+     "match": (),
+     "card": None,
+     "caveats": (
+         "This page cannot tell which output is in use; the Audio card names the selected sink.",
+     )},
+)
 REQUEST_TIMEOUT = 15
 COMMAND_TIMEOUT = 2
 DISCOVERY_INTERVAL = 30
@@ -189,6 +216,45 @@ def read_text(root, name):
         return (root / name.lstrip("/")).read_text().strip().strip("\0")
     except (OSError, UnicodeError):
         return ""
+
+
+def read_optional(root, name):
+    """Read a kernel file, keeping "unreadable" apart from "empty".
+
+    `read_text` collapses both to "", which would turn a permission failure into
+    a confident "nothing is there" — the one answer a setup page must not invent.
+    """
+    try:
+        return (root / name.lstrip("/")).read_text()
+    except (OSError, UnicodeError):
+        return None
+
+
+CARD_LINE = re.compile(r"^\s*\d+\s+\[([^]]+)\]")
+
+
+def alsa_cards(root):
+    """ALSA card ids from /proc/asound/cards, or None when it cannot be read."""
+    text = read_optional(root, "/proc/asound/cards")
+    if text is None:
+        return None
+    cards = []
+    for line in text.splitlines():
+        match = CARD_LINE.match(line)
+        if match:
+            cards.append(match.group(1).strip())
+    return cards
+
+
+def planned(identifier, label, summary, options, reason):
+    """A choice the page can show but not make.
+
+    Every setting is reported this way because the device has no config model to
+    store one in yet: a value accepted and dropped would be worse than a visible
+    control that says it is unavailable.
+    """
+    return {"id": identifier, "label": label, "summary": summary, "value": None,
+            "options": options, "selectable": False, "reason": reason}
 
 
 def finite_number(text, divisor=1):
@@ -399,6 +465,103 @@ class Backend:
             pass
         return output
 
+    def setup(self, deadline=None):
+        """What this device is built to do, and why the page cannot change it.
+
+        Read-only by design. A HAT change is a device-tree overlay and driver
+        write, and there is no config model to record a setting in, so every
+        choice is reported unavailable rather than accepted and dropped. This
+        takes no backend lock: it reads no audio state and starts no write.
+        """
+        product = read_text(self.root, "/sys/firmware/devicetree/base/hat/product") or None
+        cards = alsa_cards(self.root)
+        options = []
+        for option in HAT_OPTIONS:
+            detected = None if product is None else any(
+                word in product.lower() for word in option["match"])
+            present = None
+            if option["card"] and cards is not None:
+                present = option["card"] in cards
+            options.append({
+                "id": option["id"], "label": option["label"], "summary": option["summary"],
+                "detected": detected,
+                "card": {"name": option["card"], "present": present},
+                # A listed card is the only evidence available here. It does not
+                # prove capture, playback, or that the overlay survives a reboot.
+                "applied": present,
+                "caveats": list(option["caveats"]),
+            })
+        services = {row["name"]: row for row in self.components(deadline)}
+
+        def observed(name):
+            row = services.get(name) or {}
+            return {"unit_found": row.get("unit_found"), "active": row.get("active"),
+                    "enabled": row.get("enabled")}
+
+        return {
+            "writable": False,
+            "reason": "This page reports what the device is built to do; it cannot change "
+                      "any of it yet.",
+            "hardware": {
+                "detected_hat": product,
+                "detected_source": "Device-tree HAT EEPROM product; empty means the HAT "
+                                   "has no EEPROM or it is unreadable",
+                "retained_label": self.metadata.get("hat") or None,
+                "retained_note": "The retained label is a note from hardware.json, not a "
+                                 "verified or applied choice.",
+                "cards": cards,
+                "cards_source": "/proc/asound/cards",
+                "selectable": False,
+                "reason": "Changing the HAT means writing a device-tree overlay and a driver "
+                          "configuration, which nothing here can do (roadmap A02, WEB03).",
+                "options": options,
+            },
+            "settings": {
+                "music": planned(
+                    "music", "Music player",
+                    "Which receiver plays music on this device. SendSpin comes first; "
+                    "Snapcast is the alternative.",
+                    [{"id": "sendspin", "label": "SendSpin",
+                      "observed": {"user": observed("Sendspin"), "system": None}},
+                     {"id": "snapcast", "label": "Snapcast (alternative)",
+                      "observed": {"user": observed("Snapcast (user)"),
+                                   "system": observed("Snapcast (system)")}}],
+                    "No music setting is stored on the device yet (roadmap C01), and neither "
+                    "adapter can be installed or switched from here (M01, M03)."),
+                "interruption": planned(
+                    "interruption", "During an announcement",
+                    "What happens to music when the device speaks.",
+                    [{"id": "duck", "label": "Lower the music, then bring it back"},
+                     {"id": "pause", "label": "Pause the music, then resume"}],
+                    "Duck/resume and pause/resume are not implemented or tested on a device "
+                    "yet (roadmap A03), and this page cannot control either music stack."),
+                "update_policy": planned(
+                    "update-policy", "Update policy", "How component versions change.",
+                    [{"id": "pinned",
+                      "label": "Pinned versions, updated by hand (the intended default)"},
+                     {"id": "auto", "label": "Update a chosen component automatically"}],
+                    "Nothing on the device can be pinned or updated yet (roadmap U01-U03), "
+                    "so there is no policy to record."),
+            },
+            "updates": {
+                "available": False,
+                "reason": "No update, version manifest or snapshot/restore mechanism exists, "
+                          "so none of these buttons can do anything.",
+                "actions": [
+                    {"id": "check", "label": "Check for updates", "enabled": False,
+                     "reason": "There is no version manifest or update source to check "
+                               "(roadmap U01)."},
+                    {"id": "update", "label": "Install updates", "enabled": False,
+                     "reason": "There is no update transaction to run (roadmap U02)."},
+                    {"id": "rollback", "label": "Roll back the last change", "enabled": False,
+                     "reason": "On-target snapshots and restore are not implemented (roadmap "
+                               "B02, B03). The web service alone can be rolled back by hand "
+                               "with the previous unit the installer kept; see "
+                               "control/web/README.md."},
+                ],
+            },
+        }
+
     def status(self, deadline=None):
         deadline = time.monotonic() + REQUEST_TIMEOUT if deadline is None else deadline
         with self.acquired(deadline):
@@ -545,6 +708,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, data)
             except (Unavailable, RequestExpired):
                 self.reply(503, {"error": "Status unavailable; request timed out"})
+        elif self.path == "/api/setup":
+            # Read-only: every build choice is reported with a reason it cannot
+            # be changed, so there is no matching POST path to accept one.
+            try:
+                self.reply(200, self.server.backend.setup(deadline=self.deadline))
+            except (Unavailable, RequestExpired):
+                self.reply(503, {"error": "Setup state unavailable; request timed out"})
         else:
             self.reply(404, {"error": "Not found"})
 

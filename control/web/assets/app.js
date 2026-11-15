@@ -186,6 +186,181 @@ function render(data) {
     el("component-list").append(row);
   }
 }
+// The Setup card reports the device's build choices. Everything on it is
+// read-only in this build, so each control is disabled and carries its reason
+// beside it: a control that looked usable would be the lie this page exists to
+// avoid. The server decides what is enabled; the page never assumes it.
+function plannedBadge() {
+  const badge = document.createElement("span");
+  badge.className = "badge planned";
+  badge.textContent = "Planned";
+  return badge;
+}
+function detailLine(text, className = "choice-detail") {
+  const line = document.createElement("p");
+  line.className = className;
+  line.textContent = text;
+  return line;
+}
+// The reason is a visible line, and the control points at it, because a
+// disabled control that cannot be focused must still explain itself.
+function addReason(row, control, text, id) {
+  const line = detailLine(text);
+  line.id = id;
+  if (control) control.setAttribute("aria-describedby", id);
+  row.append(line);
+}
+function setupRow(id, label, planned) {
+  const row = document.createElement("div");
+  row.className = "choice";
+  const head = document.createElement("div");
+  head.className = "choice-head";
+  const title = document.createElement("label");
+  title.htmlFor = id;
+  title.textContent = label;
+  head.append(title);
+  if (planned) head.append(plannedBadge());
+  row.append(head);
+  return row;
+}
+function hatStatus(option) {
+  const detected = option.detected === true ? "identified by the HAT EEPROM"
+    : option.detected === false ? "not identified by the HAT EEPROM"
+    : "HAT EEPROM unreadable, so detection is unknown";
+  let applied;
+  if (!option.card || !option.card.name) {
+    applied = "there is no sound card of its own to check";
+  } else if (option.applied === true) {
+    applied = `an ALSA card named ${option.card.name} is listed`;
+  } else if (option.applied === false) {
+    applied = `no ALSA card named ${option.card.name} is listed`;
+  } else {
+    applied = "unknown, because the sound-card list could not be read";
+  }
+  return `Status: ${detected}; ${applied}.`;
+}
+function hatChoice(option) {
+  const id = `setup-hat-${option.id}`;
+  const row = setupRow(id, option.label, true);
+  if (option.summary) row.append(detailLine(option.summary));
+  const control = document.createElement("div");
+  control.className = "choice-control";
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "setup-hat";
+  radio.id = id;
+  // No radio is checked: the retained label is a note, not a recorded choice,
+  // so marking one would claim a selection the device does not have.
+  radio.disabled = true;
+  radio.setAttribute("aria-describedby", "setup-hardware-note");
+  control.append(radio);
+  row.append(control);
+  const status = document.createElement("p");
+  status.className = "choice-status";
+  status.textContent = hatStatus(option);
+  row.append(status);
+  for (const caveat of option.caveats || []) row.append(detailLine(caveat, "choice-caveat"));
+  return row;
+}
+function observedLine(option) {
+  if (!option.observed) return null;
+  const parts = [];
+  for (const [scope, state] of Object.entries(option.observed)) {
+    if (!state) continue;
+    const active = state.active || "unknown";
+    parts.push(`${scope === "user" ? "user" : "system"} service: ${active}`
+      + (state.enabled ? `, startup ${state.enabled}` : ""));
+  }
+  if (!parts.length) return null;
+  return `${option.label} on this device now — ${parts.join("; ")}.`
+    + " Service state is not proof it is configured or working.";
+}
+function settingChoice(setting) {
+  const id = `setup-setting-${setting.id}`;
+  const row = setupRow(id, setting.label, setting.selectable !== true);
+  if (setting.summary) row.append(detailLine(setting.summary));
+  const control = document.createElement("div");
+  control.className = "choice-control";
+  const select = document.createElement("select");
+  select.id = id;
+  select.disabled = setting.selectable !== true;
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "Not set on this device";
+  select.append(blank);
+  for (const option of setting.options || []) {
+    const item = document.createElement("option");
+    item.value = String(option.id);
+    item.textContent = option.label;
+    select.append(item);
+  }
+  select.value = "";
+  control.append(select);
+  row.append(control);
+  for (const option of setting.options || []) {
+    const observed = observedLine(option);
+    if (observed) row.append(detailLine(observed));
+  }
+  addReason(row, select, setting.reason || "This choice is not available.", `${id}-reason`);
+  return row;
+}
+function updateAction(action) {
+  const row = document.createElement("div");
+  row.className = "choice";
+  const head = document.createElement("div");
+  head.className = "choice-head";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary";
+  button.id = `setup-update-${action.id}`;
+  button.textContent = action.label;
+  // Enabled only when the device says the action exists; nothing does today.
+  button.disabled = action.enabled !== true;
+  head.append(button);
+  if (button.disabled) head.append(plannedBadge());
+  row.append(head);
+  addReason(row, button, action.reason || "This action is not available.",
+            `${button.id}-reason`);
+  return row;
+}
+function renderSetup(data) {
+  const hardware = data?.hardware, settings = data?.settings, updates = data?.updates;
+  if (!hardware || !settings || !updates) {
+    el("setup-status").textContent = "This device did not report its build choices.";
+    return;
+  }
+  const detected = hardware.detected_hat
+    ? `HAT EEPROM: ${hardware.detected_hat}` : "HAT EEPROM: no product recorded";
+  const retained = hardware.retained_label
+    ? `retained label: ${hardware.retained_label}` : "no retained label";
+  const cards = Array.isArray(hardware.cards)
+    ? `ALSA cards: ${hardware.cards.length ? hardware.cards.join(", ") : "none listed"}`
+    : "ALSA cards: unknown";
+  el("setup-hardware-source").textContent = `${detected} · ${retained} · ${cards}`;
+  el("setup-hardware-note").textContent = hardware.reason || "";
+  el("setup-hats").replaceChildren(...(hardware.options || []).map(hatChoice));
+  el("setup-settings").replaceChildren(...Object.values(settings).map(settingChoice));
+  const rows = (updates.actions || []).map(updateAction);
+  // The group's own reason comes first: what the three buttons share is read
+  // before the individual ones.
+  if (updates.reason) rows.unshift(detailLine(updates.reason));
+  el("setup-updates").replaceChildren(...rows);
+  el("setup-status").textContent = data.reason || "";
+}
+let setupLoading = false;
+async function loadSetup() {
+  // Separate from the status poll: a failed read here must not look like a
+  // device with no choices, and must not disturb the audio notices.
+  if ((!token && !bypass) || setupLoading) return;
+  setupLoading = true;
+  try {
+    renderSetup(await api("/api/setup"));
+  } catch (error) {
+    el("setup-status").textContent = `Build choices unavailable: ${error.message}`;
+  } finally {
+    setupLoading = false;
+  }
+}
 async function refresh() {
   if ((!token && !bypass) || busy || refreshing) return;
   const started = revision;
@@ -271,6 +446,7 @@ el("pair-form").addEventListener("submit", async event => {
   sessionStorage.setItem("debra-key", token);
   el("key").value = "";
   await refresh();
+  await loadSetup();
 });
 el("bypass").addEventListener("click", async () => {
   // Only reachable when the device itself reported that it runs without a key.
@@ -284,6 +460,7 @@ el("bypass").addEventListener("click", async () => {
   volumeOp = null;
   muteOp = null;
   await refresh();
+  await loadSetup();
 });
 el("disconnect").addEventListener("click", () => {
   sessionStorage.removeItem("debra-key");
@@ -295,6 +472,12 @@ el("disconnect").addEventListener("click", () => {
   volumeOp = null;
   muteOp = null;
   currentAudio = null;
+  // Clear the previous device's build choices so a reconnect cannot show them
+  // for a different device, even for one frame.
+  for (const id of ["setup-hats", "setup-settings", "setup-updates"]) el(id).replaceChildren();
+  el("setup-hardware-source").textContent = "";
+  el("setup-hardware-note").textContent = "";
+  el("setup-status").textContent = "";
   el("dashboard").hidden = true;
   el("pair").hidden = false;
   el("connection").textContent = "Disconnected";
@@ -417,6 +600,7 @@ async function start() {
   loadDevices();
   if (token) {
     await refresh();
+    await loadSetup();
     return;
   }
   el("pair").hidden = false;
@@ -442,3 +626,6 @@ async function start() {
 start();
 setInterval(refresh, 3000);
 setInterval(loadDevices, 5000);
+// Build choices change only when someone changes the device, so this is slower
+// than the status poll and never overlaps itself.
+setInterval(loadSetup, 15000);
