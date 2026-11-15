@@ -45,25 +45,35 @@ LOCK_PATH = RUNNER_DIR / "run.lock"
 RUNS_DIR = RUNNER_DIR / "runs"
 
 DEFAULT_CONFIG = {
-    "daily_budget_usd": 1.50,
+    "daily_budget_usd": None,
     "max_tasks_per_run": 1,
     "default_model": "openrouter/deepseek/deepseek-v4.1-flash-1017#high",
     "default_agent": "general",
     "default_timeout_minutes": 25,
-    "notes": "Reported costs only, from opencode's own event stream; not billing truth.",
+    "notes": ("Reported costs only, from opencode's own event stream; not billing truth. "
+              "A null daily_budget_usd means no local cap: James enforces spend at "
+              "the provider (OpenRouter credits) and wants throughput, not a brake."),
 }
 
-# Appended to every task prompt. Keeps a task from widening its own scope.
+# Appended to every task prompt. Deliberately light: workers may run shell
+# commands, read repositories and fetch pages when the task needs it. What is
+# left is the part that would be expensive or irreversible to get wrong.
 GUARDRAIL = """
 Standing constraints for this unattended run (they override anything above):
-- Read-only. Do not edit, create or delete files in the repository, do not run
-  shell commands, do not install anything, do not contact any device or server
-  belonging to the operator, and do not use MCP tools that mutate state.
+- Use whatever tools the task needs: shell commands, package metadata queries,
+  public APIs, public source. Work in the repository or /tmp/opencode, and do not
+  modify files under docs/, tools/, tests/ or models/ unless the task says to.
+- Do not install system packages, change the operator's git configuration, or
+  contact the operator's devices, Home Assistant, router, DNS, NAS or servers.
+  Research about them is fine; touching them is not.
+- Never place a password, key, token or populated configuration file in a report,
+  a command line, or the repository.
+- Do not delete files or non-empty directories, and do not overwrite anything you
+  did not create.
 - Public documentation and public source code only. Record a URL and the date
   checked for every claim, and label each claim upstream-documented, reported,
-  hypothesis or unknown.
-- Never invent versions, prices, dimensions, URLs or quotations. If a page is
-  blocked or absent, say so instead of guessing.
+  hypothesis or unknown. Never invent versions, prices, dimensions or quotations;
+  say a page was blocked rather than guessing.
 - Finish with a handoff of at most 900 words: findings table
   (claim | label | source URL | limits), traps, unknowns/blocked, and one next
   bounded check. A coordinator reviews everything; nothing is promoted.
@@ -119,7 +129,10 @@ def spent_today(state: dict, day: str | None = None) -> float:
 
 
 def budget_remaining(state: dict, cfg: dict, day: str | None = None) -> float:
-    return round(float(cfg["daily_budget_usd"]) - spent_today(state, day), 6)
+    cap = cfg.get("daily_budget_usd")
+    if cap is None:
+        return float("inf")
+    return round(float(cap) - spent_today(state, day), 6)
 
 
 def next_pending(queue: dict) -> dict | None:
@@ -279,16 +292,41 @@ def cmd_status(_args) -> int:
     queue = _read_json(QUEUE_PATH, {"tasks": []})
     state = _read_json(STATE_PATH, {"days": {}, "tasks": {}})
     pending = [t for t in queue.get("tasks", []) if t.get("status", "pending") == "pending"]
+    cap = cfg.get("daily_budget_usd")
+    cap_text = "no local cap" if cap is None else f"of ${float(cap):.2f}"
     print(f"stop file: {'PRESENT' if STOP_PATH.exists() else 'absent'}")
-    print(f"spent today ({_today()}): ${spent_today(state):.4f} "
-          f"of ${float(cfg['daily_budget_usd']):.2f} "
-          f"(remaining ${budget_remaining(state, cfg):.4f})")
+    print(f"spent today ({_today()}): ${spent_today(state):.4f} {cap_text}")
     print(f"pending tasks: {len(pending)}")
     for task in queue.get("tasks", []):
-        print(f"  {task['status']:9} {task['id']:18} {task.get('title', '')}")
+        print(f"  {task['status']:9} {task['id']:24} {task.get('title', '')}")
     for day in sorted(state.get("days", {}))[-5:]:
         entry = state["days"][day]
         print(f"  day {day}: {entry.get('tasks', 0)} task(s), ${entry.get('cost_usd', 0):.4f}")
+    return 0
+
+
+def cmd_log(args) -> int:
+    """Recent activity, newest last: one line per finished task."""
+    ensure_layout()
+    seen: dict[str, dict] = {}
+    for path in RUNS_DIR.glob("*/*.record.json"):
+        try:
+            rec = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        key = f"{rec.get('started_utc')}|{rec.get('task')}"
+        seen[key] = rec
+    ordered = sorted(seen.values(), key=lambda r: r.get("started_utc") or "")[-args.lines:]
+    if not ordered:
+        print("no runs yet")
+        return 0
+    for rec in ordered:
+        ok = "ok  " if rec.get("ok") else "FAIL"
+        print(f"{rec.get('started_utc')}  {ok}  {rec.get('task',''):24} "
+              f"${rec.get('cost_usd', 0):.4f}  {rec.get('duration_s', 0):6.1f}s  "
+              f"{rec.get('title','')}")
+    total = sum(r.get("cost_usd", 0) for r in ordered)
+    print(f"{'':20}  total for these {len(ordered)}: ${total:.4f}")
     return 0
 
 
@@ -335,10 +373,20 @@ def cmd_run(args) -> int:
             "finished_utc": task["finished_utc"],
         }
         _write_json(STATE_PATH, state)
+        activity = RUNNER_DIR / "activity.log"
+        with activity.open("a") as fh:
+            fh.write(json.dumps({
+                "utc": record.get("started_utc"), "task": record["task"],
+                "ok": record["ok"], "cost_usd": record["cost_usd"],
+                "duration_s": record.get("duration_s"),
+                "report": str(run_dir / f"{task['id']}.report.md"),
+            }) + "\n")
         print(json.dumps({k: record[k] for k in
                           ("task", "ok", "rc", "cost_usd", "duration_s", "session")
                           if k in record}, indent=2))
-        print(f"spent today: ${spent_today(state):.4f} of ${float(cfg['daily_budget_usd']):.2f}")
+        cap = cfg.get("daily_budget_usd")
+        cap_text = "no local cap" if cap is None else f"of ${float(cap):.2f}"
+        print(f"spent today: ${spent_today(state):.4f} {cap_text}")
         if not record["ok"]:
             exit_code = 1
     finally:
@@ -363,6 +411,10 @@ def main(argv: list[str] | None = None) -> int:
     add.set_defaults(func=cmd_add)
 
     sub.add_parser("status", help="queue, budget and recent history").set_defaults(func=cmd_status)
+
+    log = sub.add_parser("log", help="recent finished tasks, newest last")
+    log.add_argument("--lines", type=int, default=10)
+    log.set_defaults(func=cmd_log)
 
     run = sub.add_parser("run", help="run at most one pending task")
     run.add_argument("--once", action="store_true", help="accepted for the timer; one task per call")

@@ -70,6 +70,10 @@ class RunnerStateTests(unittest.TestCase):
         self.assertAlmostEqual(runner.budget_remaining(state, config, "2026-11-15"), 1.0)
         self.assertAlmostEqual(runner.budget_remaining(state, config, "2026-11-16"), 1.5)
 
+    def test_null_budget_means_no_local_cap(self):
+        state = {"days": {"2026-11-15": {"tasks": 9, "cost_usd": 42.0}}, "tasks": {}}
+        self.assertEqual(runner.budget_remaining(state, {"daily_budget_usd": None}), float("inf"))
+
     def test_lock_is_exclusive_and_stale_lock_is_reclaimed(self):
         self.assertTrue(runner.acquire_lock())
         self.assertFalse(runner.acquire_lock())
@@ -86,8 +90,9 @@ class RunnerStateTests(unittest.TestCase):
     def test_prompt_always_carries_guardrails(self):
         prompt = runner.build_prompt({"prompt": "Do the thing."})
         self.assertTrue(prompt.startswith("Do the thing."))
-        self.assertIn("Read-only", prompt)
         self.assertIn("upstream-documented", prompt)
+        self.assertIn("Never place a password", prompt)
+        self.assertIn("Do not delete files", prompt)
 
     def test_dry_run_does_not_write_state(self):
         with mock.patch("sys.stdout"):
