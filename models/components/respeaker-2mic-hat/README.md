@@ -69,6 +69,14 @@ connectors and the micro-USB power port all exit known edges. The board is the
 same size as a Pi Zero, with the same mounting-hole pattern, so one standoff
 pattern holds both.
 
+**Picture cross-check (2026-11-15).** Seeed's V2 product photograph — the HAT
+mounted on a Pi Zero — shows the same arrangement: a small microphone package at
+each end of the header edge, and three LED pads in a row near the centre, closer
+to the header edge than the microphones. That is consistent with the V1 Eagle
+coordinates below. The photograph is a perspective view and was not measured, so
+it confirms the arrangement, not the millimetre positions. Treat the numbers as
+a good estimate with a few millimetres of uncertainty until a ruler check.
+
 **Not settled.**
 
 - **The V1-versus-V2 gap.** Seeed's statement that the layout "remains basically

@@ -133,6 +133,20 @@ Script and saved-source evaluations are [eval-script.json](eval-script.json)
 and [eval-sc.json](eval-sc.json). These are measurements of simplified CAD, not
 mass, printability or physical fit claims.
 
+## To have a human confirm
+
+These are the numbers this concept guesses rather than measures. The design
+continues on them; a correction is a parameter change, not a redesign. Nothing
+here should stop the work.
+
+| Assumption | Current value | How to check |
+| --- | --- | --- |
+| V2 microphone ports | (3.05, 21.34) and (61.98, 21.34), from the V1 Eagle layout plus a V2 product photo | Calipers on the real board: port centres from the header edge and each short edge |
+| V2 LED row | middle LED (32.51, 18.16), 2.54 mm pitch, 2.2 × 1.9 mm packages | Measure the three LED centres and note if V2 moved them |
+| HAT-to-lid clearance | 2.8 mm above the tallest assumed Grove part | Measure the real stack with the lid resting on the rim |
+| DWEII 671 envelope | 44 × 28 × 15 mm, a seller claim | Calipers on the module, plus any vent, tab or terminal positions |
+| Pi/HAT stack | 11 mm between boards, 1.6 mm each | Measure the assembled stack and the header/socket height |
+
 ## Missing before use
 
 - Measure the actual 671 housing, its mounting-tab geometry, any four screw locations, arm geometry,

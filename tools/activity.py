@@ -314,23 +314,27 @@ def _needs_lines(needs: dict) -> list[str]:
         return ["- Nothing is waiting on James; the blocked work below has no answer he holds."]
     blockers = [item for item in needs["items"] if item.get("kind") != "confirm"]
     confirms = [item for item in needs["items"] if item.get("kind") == "confirm"]
-    out = []
+    out = ["### True blockers"]
     if blockers:
-        out.append("### True blockers")
         for item in blockers:
             out.append(f"- **{item['need']}**")
             if item["blocks"]:
                 out.append(f"  Blocks: {item['blocks']}")
             if item["changes"]:
                 out.append(f"  The answer changes: {item['changes']}")
+    else:
+        out.append("No true blockers right now.")
+    out.append("")
+    out.append("### Please confirm (work continues either way)")
     if confirms:
-        out.append("### Please confirm (work continues either way)")
         for item in confirms:
             out.append(f"- **{item['need']}**")
             if item["blocks"]:
                 out.append(f"  Working assumption: {item['blocks']}")
             if item["changes"]:
                 out.append(f"  A better answer would change: {item['changes']}")
+    else:
+        out.append("Nothing to confirm right now.")
     if needs["skipped"]:
         out.append(f"- {needs['skipped']} further row(s) could not be read as a question and were skipped.")
     return out
@@ -1000,7 +1004,11 @@ def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
                 if not plain:
                     entries.append(("blank", "", 0))
                     continue
-                if line.startswith(("- ", "  ")):
+                if line.startswith("### "):
+                    # A group heading ("True blockers" / "Please confirm") must
+                    # not look like another bullet in the same list.
+                    entries.append(("text", plain, "bold"))
+                elif line.startswith(("- ", "  ")):
                     entries.append(("text", plain,
                                     "bold" if line.startswith("- ") else "normal"))
                 else:
