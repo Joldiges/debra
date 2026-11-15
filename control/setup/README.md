@@ -89,11 +89,16 @@ none of them make it a secure portal:
   security itself, so the access point is read back after it is raised and taken
   down if it is not the WPA2 (or, in the development mode, the open) one that
   was asked for.
-- **Development mode:** `--setup-security none` (install) raises the setup
-  network open, with no password at all. The page and the card note both say so.
-  It exists because typing a card password on every development boot is friction
-  with no corresponding risk on a desk; the installer warns, the unit records the
-  choice, and `wpa` remains the default. Never ship an image installed that way.
+- **Development mode, and today's default:** the setup network comes up open,
+  with no password at all, and the page and the card note both say so. Typing a
+  card password on every development boot is friction with no corresponding risk
+  on a desk, so `DEFAULT_SETUP_SECURITY` in
+  [`onboarding.py`](onboarding.py) is `"none"` until release planning says
+  otherwise; that one line is the release decision. `--setup-security wpa`
+  installs the protected mode, which stays implemented and tested, and the setup
+  page can switch between them without a reinstall. The installer warns, and the
+  unit records the mode it was installed with. Never ship an image built that
+  way.
 - The service shuts the page down as soon as the device is online.
 
 Port 80 rather than 8080 is the same kind of choice: the journey promises

@@ -45,11 +45,13 @@ Two modes, chosen at install time, never inferred:
   note, and never served by the status API. The access point's
   `802-11-wireless-security.key-mgmt` is read back after it is raised; anything
   other than `wpa-psk` (in this mode) removes it and reports a failure.
-- `--setup-security none`: the development bypass. The access point comes up
-  open, the card note says "none (development build)", and the page says
-  "This is a development build: the setup network has no password." The
-  installer warns, and the unit records the choice as an argument, so an open
-  network is always something someone wrote down.
+- `--setup-security none`: the development bypass, and **the default for now**
+  (`DEFAULT_SETUP_SECURITY`). The access point comes up open, the card note says
+  "none (development build)", and the page says "This is a development build:
+  the setup network has no password." The installer warns, and the unit records
+  the mode as an argument, so an open network is always something written down
+  rather than an argument nobody passed. Moving to the protected default is a
+  one-line change plus the doc rows that name it.
 - `control/setup/devserver.py` (the local, fake-NetworkManager server) defaults
   to `none`, because that is the path a developer clicks through; `wpa` is one
   flag away for exercising the real first-boot path.

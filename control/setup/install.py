@@ -162,7 +162,8 @@ def boot_note(root):
     return BOOT_NOTES[0]
 
 
-def unit_text(template, python, runner, state, note, security="wpa"):
+def unit_text(template, python, runner, state, note,
+              security=onboarding.DEFAULT_SETUP_SECURITY):
     """Render the reviewed unit template with systemd-quoted values."""
     text = template
     for placeholder, value in zip(PLACEHOLDERS,
@@ -177,7 +178,7 @@ def unit_text(template, python, runner, state, note, security="wpa"):
 
 
 def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note=None,
-            security="wpa"):
+            security=onboarding.DEFAULT_SETUP_SECURITY):
     """Prepare the release, the unit and the paths. Returns what was written."""
     if security not in onboarding.SETUP_SECURITY:
         raise ValueError(f"security must be one of {', '.join(onboarding.SETUP_SECURITY)}")
@@ -356,7 +357,7 @@ def hotspot_address(network, status):
 
 def serve(state_dir, card_note=None, network=None, address=None,
           capture_root="/", uplink_wait=UPLINK_WAIT_S, poll=PORTAL_POLL_S,
-          grace=BASELINE_GRACE_S, security="wpa"):
+          grace=BASELINE_GRACE_S, security=onboarding.DEFAULT_SETUP_SECURITY):
     """One boot of the setup service. Returns the process exit code.
 
     Online: nothing to do, and no page is started. Otherwise the access point is
@@ -476,7 +477,7 @@ def main(argv=None):
     parser.add_argument("--capture-root", type=Path, default=Path("/"),
                         help="--serve: root the baseline reads from")
     parser.add_argument("--setup-security", choices=list(onboarding.SETUP_SECURITY),
-                        default="wpa",
+                        default=onboarding.DEFAULT_SETUP_SECURITY,
                         help="wpa: a random per-device password on the card note (default); "
                              "none: open setup network, for a development build")
     args = parser.parse_args(argv)

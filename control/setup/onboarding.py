@@ -58,9 +58,18 @@ DEFAULT_PORTAL_ADDRESS = "10.42.0.1"
 # How the setup access point is protected:
 #   "wpa"   a random per-device password, delivered on the boot-partition note
 #   "none"  deliberately open, for a development build
-# "none" is a mode a person chooses at install time, never a default a device
-# falls into because something was missing.
+# "none" is a mode a person chooses, never something a device falls into because
+# a value was missing: an unknown mode is refused, and this default is written
+# into the unit and reported by the page.
 SETUP_SECURITY = ("wpa", "none")
+
+# Where Debra is today, not where it ships. During development the setup network
+# comes up open, so nothing has to be read off a card before a page can be
+# reached; the protected mode stays implemented and tested and is one flag away
+# (`--setup-security wpa`, or the button on the setup page). Changing this line
+# to "wpa" is the release decision, and every test that names the default reads
+# it from here rather than repeating the word.
+DEFAULT_SETUP_SECURITY = "none"
 # Unambiguous when read off a card and typed into a phone: no 0/O, 1/l/I.
 SECRET_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 SECRET_CHARS = 12
@@ -172,7 +181,8 @@ class Onboarder:
 
     def __init__(self, network, state_path, baseline_dir, hostname=None,
                  clock=time.monotonic, serial_paths=SERIAL_PATHS, root="/",
-                 card_note_path=None, keyfile_dir=None, security="wpa",
+                 card_note_path=None, keyfile_dir=None,
+                 security=DEFAULT_SETUP_SECURITY,
                  secret_path=None):
         if security not in SETUP_SECURITY:
             # A typo in an install argument must not quietly become an open

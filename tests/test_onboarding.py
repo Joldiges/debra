@@ -676,17 +676,15 @@ class SetupPasswordTests(Temp):
         # was ever shown, so the password has to be ours and has to be long
         # enough to be a valid PSK (8-63).
         network = FakeNetwork()
-        onboarder = self.onboarder(network)
+        onboarder = self.onboarder(network, security="wpa")
         onboarder.start_hotspot()
-        # The fake records only whether a password was passed, so that a test
-        # log never holds a credential; the length is checked on the real one.
         hotspot_calls = [call for call in network.calls if call[0] == "start_hotspot"]
         self.assertTrue(hotspot_calls[0][3], "start_hotspot was called without a password")
         self.assertGreaterEqual(len(onboarding.setup_secret(onboarder.secret_path)), 8,
                                 "a PSK shorter than eight characters is invalid")
 
-    def test_the_household_passphrase_is_never_written_into_the_setup_state(self):
-        onboarder = self.onboarder()
+    def test_the_password_is_never_written_into_the_setup_state(self):
+        onboarder = self.onboarder(security="wpa")
         onboarder.start_hotspot()
         stored = self.state_path.read_text(encoding="utf-8")
         password = onboarding.setup_secret(onboarder.secret_path)
@@ -696,7 +694,7 @@ class SetupPasswordTests(Temp):
     def test_the_password_is_not_served_by_the_status_page(self):
         # The status response is read by anything that has joined the network,
         # so it is not a place to keep the credential that let it join.
-        onboarder = self.onboarder()
+        onboarder = self.onboarder(security="wpa")
         status = onboarder.start_hotspot()
         self.assertNotIn("password", status["hotspot"])
         self.assertNotIn(onboarding.setup_secret(onboarder.secret_path),
@@ -704,8 +702,8 @@ class SetupPasswordTests(Temp):
 
     def test_the_card_note_says_the_three_things_needed_before_any_page_loads(self):
         note = self.dir / "boot" / "debra-setup.txt"
-        onboarder = self.onboarder(card_note_path=note)
-        status = onboarder.start_hotspot()
+        onboarder = self.onboarder(card_note_path=note, security="wpa")
+        onboarder.start_hotspot()
         text = note.read_text(encoding="utf-8")
         self.assertIn("Debra-Setup-demo1", text)
         self.assertIn(onboarding.setup_secret(onboarder.secret_path), text)
@@ -729,12 +727,26 @@ class SetupPasswordTests(Temp):
 class SetupSecurityTests(Temp):
     """Open is a mode somebody chose, not what happens when nothing was set."""
 
-    def test_the_secured_mode_is_the_default(self):
+    def test_the_default_is_the_development_bypass(self):
+        # Where Debra is today: the setup network comes up open so nothing has
+        # to be read off a card before the page can be reached. This is a
+        # deliberate default, kept in one constant, not an absence of one.
         network = FakeNetwork()
         status = self.onboarder(network).start_hotspot()
+        self.assertEqual(onboarding.DEFAULT_SETUP_SECURITY, "none")
+        self.assertEqual(status["security"], "none")
+        calls = [call for call in network.calls if call[0] == "start_hotspot"]
+        self.assertEqual(calls[0][3], False)
+
+    def test_the_protected_mode_is_one_flag_away(self):
+        # The other half of the same decision: the security that is bypassed by
+        # default has to keep working, or the bypass quietly becomes the only
+        # path and nobody notices until release.
+        network = FakeNetwork()
+        status = self.onboarder(network, security="wpa").start_hotspot()
         self.assertEqual(status["security"], "wpa")
         calls = [call for call in network.calls if call[0] == "start_hotspot"]
-        self.assertTrue(calls[0][3], "the default must not be an open network")
+        self.assertTrue(calls[0][3], "wpa mode must give the adapter a password")
 
     def test_a_development_build_raises_an_open_network_and_says_so(self):
         network = FakeNetwork()

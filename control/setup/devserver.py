@@ -46,10 +46,10 @@ def main():
     parser.add_argument("--state-dir", type=Path, default=None,
                         help="keep the state instead of using a temporary directory")
     parser.add_argument("--setup-security", choices=list(onboarding.SETUP_SECURITY),
-                        default="none",
-                        help="default here is none: this server is a development "
-                             "bypass, so there is no password to type. Use wpa to "
-                             "exercise the real first-boot path")
+                        default=onboarding.DEFAULT_SETUP_SECURITY,
+                        help="default is the development bypass, so there is no "
+                             "password to type; wpa exercises the real first-boot "
+                             "path")
     args = parser.parse_args()
 
     directory = args.state_dir or Path(tempfile.mkdtemp(prefix="debra-setup-", dir="/tmp/opencode"))
