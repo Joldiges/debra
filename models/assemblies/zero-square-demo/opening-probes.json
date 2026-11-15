@@ -1,0 +1,320 @@
+[
+  {
+    "bodies": [
+      "Case",
+      "Lid",
+      "Pi_PCB",
+      "Pi_Header",
+      "Pi_USB_power",
+      "Pi_USB_data",
+      "Pi_HDMI",
+      "Pi_microSD",
+      "Pi_Shield",
+      "HAT_PCB",
+      "HAT_Socket",
+      "HAT_MIC1",
+      "HAT_MIC2",
+      "HAT_LED1",
+      "HAT_LED2",
+      "HAT_LED3",
+      "HAT_Button",
+      "HAT_Power",
+      "HAT_Grove1",
+      "HAT_Grove2",
+      "HAT_JST",
+      "HAT_Jack",
+      "DWEII_671_Envelope",
+      "Concept_Arm_Left",
+      "Concept_Arm_Right",
+      "Probe_MIC1"
+    ],
+    "changed_bodies": [],
+    "created_bodies": [
+      "Probe_MIC1"
+    ],
+    "feature": 54,
+    "ms": 3.853274,
+    "name": "Probe_MIC1",
+    "removed_bodies": [],
+    "warning": null
+  },
+  {
+    "bodies": [
+      "Case",
+      "Lid",
+      "Pi_PCB",
+      "Pi_Header",
+      "Pi_USB_power",
+      "Pi_USB_data",
+      "Pi_HDMI",
+      "Pi_microSD",
+      "Pi_Shield",
+      "HAT_PCB",
+      "HAT_Socket",
+      "HAT_MIC1",
+      "HAT_MIC2",
+      "HAT_LED1",
+      "HAT_LED2",
+      "HAT_LED3",
+      "HAT_Button",
+      "HAT_Power",
+      "HAT_Grove1",
+      "HAT_Grove2",
+      "HAT_JST",
+      "HAT_Jack",
+      "DWEII_671_Envelope",
+      "Concept_Arm_Left",
+      "Concept_Arm_Right",
+      "Probe_MIC1",
+      "Probe_MIC2"
+    ],
+    "changed_bodies": [],
+    "created_bodies": [
+      "Probe_MIC2"
+    ],
+    "feature": 55,
+    "ms": 3.349437,
+    "name": "Probe_MIC2",
+    "removed_bodies": [],
+    "warning": null
+  },
+  {
+    "bodies": [
+      "Case",
+      "Lid",
+      "Pi_PCB",
+      "Pi_Header",
+      "Pi_USB_power",
+      "Pi_USB_data",
+      "Pi_HDMI",
+      "Pi_microSD",
+      "Pi_Shield",
+      "HAT_PCB",
+      "HAT_Socket",
+      "HAT_MIC1",
+      "HAT_MIC2",
+      "HAT_LED1",
+      "HAT_LED2",
+      "HAT_LED3",
+      "HAT_Button",
+      "HAT_Power",
+      "HAT_Grove1",
+      "HAT_Grove2",
+      "HAT_JST",
+      "HAT_Jack",
+      "DWEII_671_Envelope",
+      "Concept_Arm_Left",
+      "Concept_Arm_Right",
+      "Probe_MIC1",
+      "Probe_MIC2",
+      "Probe_LED1"
+    ],
+    "changed_bodies": [],
+    "created_bodies": [
+      "Probe_LED1"
+    ],
+    "feature": 56,
+    "ms": 3.389983,
+    "name": "Probe_LED1",
+    "removed_bodies": [],
+    "warning": null
+  },
+  {
+    "bodies": [
+      "Case",
+      "Lid",
+      "Pi_PCB",
+      "Pi_Header",
+      "Pi_USB_power",
+      "Pi_USB_data",
+      "Pi_HDMI",
+      "Pi_microSD",
+      "Pi_Shield",
+      "HAT_PCB",
+      "HAT_Socket",
+      "HAT_MIC1",
+      "HAT_MIC2",
+      "HAT_LED1",
+      "HAT_LED2",
+      "HAT_LED3",
+      "HAT_Button",
+      "HAT_Power",
+      "HAT_Grove1",
+      "HAT_Grove2",
+      "HAT_JST",
+      "HAT_Jack",
+      "DWEII_671_Envelope",
+      "Concept_Arm_Left",
+      "Concept_Arm_Right",
+      "Probe_MIC1",
+      "Probe_MIC2",
+      "Probe_LED1",
+      "Probe_LED2"
+    ],
+    "changed_bodies": [],
+    "created_bodies": [
+      "Probe_LED2"
+    ],
+    "feature": 57,
+    "ms": 3.713201,
+    "name": "Probe_LED2",
+    "removed_bodies": [],
+    "warning": null
+  },
+  {
+    "bodies": [
+      "Case",
+      "Lid",
+      "Pi_PCB",
+      "Pi_Header",
+      "Pi_USB_power",
+      "Pi_USB_data",
+      "Pi_HDMI",
+      "Pi_microSD",
+      "Pi_Shield",
+      "HAT_PCB",
+      "HAT_Socket",
+      "HAT_MIC1",
+      "HAT_MIC2",
+      "HAT_LED1",
+      "HAT_LED2",
+      "HAT_LED3",
+      "HAT_Button",
+      "HAT_Power",
+      "HAT_Grove1",
+      "HAT_Grove2",
+      "HAT_JST",
+      "HAT_Jack",
+      "DWEII_671_Envelope",
+      "Concept_Arm_Left",
+      "Concept_Arm_Right",
+      "Probe_MIC1",
+      "Probe_MIC2",
+      "Probe_LED1",
+      "Probe_LED2",
+      "Probe_LED3"
+    ],
+    "changed_bodies": [],
+    "created_bodies": [
+      "Probe_LED3"
+    ],
+    "feature": 58,
+    "ms": 4.7284500000000005,
+    "name": "Probe_LED3",
+    "removed_bodies": [],
+    "warning": null
+  },
+  {
+    "bodies": [
+      "Case",
+      "Lid",
+      "Pi_PCB",
+      "Pi_Header",
+      "Pi_USB_power",
+      "Pi_USB_data",
+      "Pi_HDMI",
+      "Pi_microSD",
+      "Pi_Shield",
+      "HAT_PCB",
+      "HAT_Socket",
+      "HAT_MIC1",
+      "HAT_MIC2",
+      "HAT_LED1",
+      "HAT_LED2",
+      "HAT_LED3",
+      "HAT_Button",
+      "HAT_Power",
+      "HAT_Grove1",
+      "HAT_Grove2",
+      "HAT_JST",
+      "HAT_Jack",
+      "DWEII_671_Envelope",
+      "Concept_Arm_Left",
+      "Concept_Arm_Right",
+      "Probe_MIC1",
+      "Probe_MIC2",
+      "Probe_LED1",
+      "Probe_LED2",
+      "Probe_LED3",
+      "Probe_Control"
+    ],
+    "changed_bodies": [],
+    "created_bodies": [
+      "Probe_Control"
+    ],
+    "feature": 59,
+    "ms": 4.8784220000000005,
+    "name": "Probe_Control",
+    "removed_bodies": [],
+    "warning": null
+  },
+  {
+    "boolean_ms": 54.359,
+    "budget_exceeded": false,
+    "budget_s": 240.0,
+    "checked": 8,
+    "count": 1,
+    "interferences": [
+      {
+        "a": "Lid",
+        "a_part": {
+          "component": "",
+          "path": [],
+          "path_ids": []
+        },
+        "area_mm2": 2.0263272615808474,
+        "b": "Probe_Control",
+        "b_part": {
+          "component": "",
+          "path": [],
+          "path_ids": []
+        },
+        "bbox": {
+          "max": [
+            20.150000000000002,
+            23.15,
+            31.000000000000004
+          ],
+          "min": [
+            19.85,
+            22.85,
+            29.0
+          ]
+        },
+        "center": [
+          20.000000000009848,
+          22.999999999995822,
+          29.999999999986347
+        ],
+        "volume_mm3": 0.1413716694294116
+      }
+    ],
+    "ms": 97.564,
+    "pairs_candidate": 13,
+    "pairs_cleared": 11,
+    "pairs_excluded": 0,
+    "pairs_intersected": 2,
+    "pairs_not_checked": 0,
+    "skipped_pairs": 0,
+    "slowest": [
+      {
+        "a": "Lid",
+        "b": "Probe_Control",
+        "boolean_ms": 23.864,
+        "ms": 35.389,
+        "tessellate_ms": 0.0
+      },
+      {
+        "a": "Case",
+        "b": "Lid",
+        "boolean_ms": 30.495,
+        "ms": 30.497,
+        "tessellate_ms": 0.0
+      }
+    ],
+    "tessellate_ms": 0.0,
+    "threads": 2,
+    "truncated": false,
+    "unchecked": []
+  }
+]

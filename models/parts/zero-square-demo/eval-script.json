@@ -1,0 +1,608 @@
+{
+  "bodies": [
+    {
+      "area_mm2": 27853.47235883782,
+      "bbox": {
+        "max": [
+          76.0,
+          41.0,
+          29.0
+        ],
+        "min": [
+          -11.0,
+          -51.9,
+          0.0
+        ]
+      },
+      "center_of_mass": [
+        32.500000000294186,
+        10.360550538863924,
+        10.73353515137039
+      ],
+      "closed": true,
+      "density_g_cm3": 1.29,
+      "edges": 198,
+      "face_types": {
+        "cylinder": 8,
+        "plane": 62
+      },
+      "faces": 70,
+      "kernel": {
+        "edges": 198,
+        "faces": 70,
+        "shells": 1,
+        "vertices": 132
+      },
+      "mass_g": 46.54151752888586,
+      "material": "Default",
+      "measured_by": "smlib",
+      "name": "Case",
+      "notes": [],
+      "vertices": 132,
+      "volume_mm3": 36078.695758826245
+    },
+    {
+      "area_mm2": 9589.424777944947,
+      "bbox": {
+        "max": [
+          76.0,
+          41.0,
+          31.0
+        ],
+        "min": [
+          -11.0,
+          -11.0,
+          29.0
+        ]
+      },
+      "center_of_mass": [
+        32.499863070174484,
+        14.951669738703641,
+        30.000000000000476
+      ],
+      "closed": true,
+      "density_g_cm3": 1.29,
+      "edges": 30,
+      "face_types": {
+        "cylinder": 2,
+        "plane": 10
+      },
+      "faces": 12,
+      "kernel": {
+        "edges": 30,
+        "faces": 12,
+        "shells": 1,
+        "vertices": 20
+      },
+      "mass_g": 11.532246109284806,
+      "material": "Default",
+      "measured_by": "smlib",
+      "name": "Lid",
+      "notes": [],
+      "vertices": 20,
+      "volume_mm3": 8939.725666112252
+    }
+  ],
+  "body_count": 2,
+  "params": [
+    {
+      "comment": "Pi reference outline",
+      "error": null,
+      "expression": "65 mm",
+      "model": false,
+      "name": "PI_L",
+      "unit": "mm",
+      "value": 65.0
+    },
+    {
+      "comment": "Pi reference outline",
+      "error": null,
+      "expression": "30 mm",
+      "model": false,
+      "name": "PI_W",
+      "unit": "mm",
+      "value": 30.0
+    },
+    {
+      "comment": "assumed extra board bay space per side",
+      "error": null,
+      "expression": "8 mm",
+      "model": false,
+      "name": "SIDE_GAP",
+      "unit": "mm",
+      "value": 8.0
+    },
+    {
+      "comment": "assumed wall",
+      "error": null,
+      "expression": "3 mm",
+      "model": false,
+      "name": "WALL",
+      "unit": "mm",
+      "value": 3.0
+    },
+    {
+      "comment": "assumed floor",
+      "error": null,
+      "expression": "2.5 mm",
+      "model": false,
+      "name": "FLOOR",
+      "unit": "mm",
+      "value": 2.5
+    },
+    {
+      "comment": "assumed height",
+      "error": null,
+      "expression": "29 mm",
+      "model": false,
+      "name": "CASE_H",
+      "unit": "mm",
+      "value": 29.0
+    },
+    {
+      "comment": "assumed lid thickness",
+      "error": null,
+      "expression": "2 mm",
+      "model": false,
+      "name": "LID_T",
+      "unit": "mm",
+      "value": 2.0
+    },
+    {
+      "comment": "assumed clearance below Pi",
+      "error": null,
+      "expression": "3 mm",
+      "model": false,
+      "name": "STAND_H",
+      "unit": "mm",
+      "value": 3.0
+    },
+    {
+      "comment": "assumed standoff",
+      "error": null,
+      "expression": "6 mm",
+      "model": false,
+      "name": "STAND_D",
+      "unit": "mm",
+      "value": 6.0
+    },
+    {
+      "comment": "tentative pilot; hardware unspecified",
+      "error": null,
+      "expression": "2.5 mm",
+      "model": false,
+      "name": "PILOT_D",
+      "unit": "mm",
+      "value": 2.5
+    },
+    {
+      "comment": "DWEII 701715519671 larger seller claim; conflicting 31 mm",
+      "error": null,
+      "expression": "44 mm",
+      "model": false,
+      "name": "SP_X",
+      "unit": "mm",
+      "value": 44.0
+    },
+    {
+      "comment": "DWEII 701715519671 seller claim, unmeasured",
+      "error": null,
+      "expression": "28 mm",
+      "model": false,
+      "name": "SP_Y",
+      "unit": "mm",
+      "value": 28.0
+    },
+    {
+      "comment": "DWEII 701715519671 seller claim, unmeasured",
+      "error": null,
+      "expression": "15 mm",
+      "model": false,
+      "name": "SP_Z",
+      "unit": "mm",
+      "value": 15.0
+    },
+    {
+      "comment": "assumed per-side speaker recess clearance",
+      "error": null,
+      "expression": "0.4 mm",
+      "model": false,
+      "name": "SP_CLEAR",
+      "unit": "mm",
+      "value": 0.4
+    },
+    {
+      "comment": "assumed speaker tray wall and floor",
+      "error": null,
+      "expression": "2.5 mm",
+      "model": false,
+      "name": "SP_WALL",
+      "unit": "mm",
+      "value": 2.5
+    },
+    {
+      "comment": "assumed speaker edge to case wall",
+      "error": null,
+      "expression": "10 mm",
+      "model": false,
+      "name": "SP_GAP",
+      "unit": "mm",
+      "value": 10.0
+    },
+    {
+      "comment": "assumed speaker underside elevation",
+      "error": null,
+      "expression": "12 mm",
+      "model": false,
+      "name": "SP_BASE",
+      "unit": "mm",
+      "value": 12.0
+    },
+    {
+      "comment": "GUESS mounting arm width",
+      "error": null,
+      "expression": "5 mm",
+      "model": false,
+      "name": "ARM_W",
+      "unit": "mm",
+      "value": 5.0
+    },
+    {
+      "comment": "GUESS mounting arm thickness",
+      "error": null,
+      "expression": "3 mm",
+      "model": false,
+      "name": "ARM_T",
+      "unit": "mm",
+      "value": 3.0
+    },
+    {
+      "comment": "GUESS mounting arm length",
+      "error": null,
+      "expression": "21 mm",
+      "model": false,
+      "name": "ARM_L",
+      "unit": "mm",
+      "value": 21.0
+    },
+    {
+      "comment": "GUESS arm centre inset from speaker sides",
+      "error": null,
+      "expression": "5 mm",
+      "model": false,
+      "name": "ARM_INSET",
+      "unit": "mm",
+      "value": 5.0
+    },
+    {
+      "comment": "GUESS arm overlap with speaker envelope",
+      "error": null,
+      "expression": "3 mm",
+      "model": false,
+      "name": "ARM_ENGAGE",
+      "unit": "mm",
+      "value": 3.0
+    },
+    {
+      "comment": "assumed clearance per side of each arm",
+      "error": null,
+      "expression": "0.4 mm",
+      "model": false,
+      "name": "SLOT_CLEAR",
+      "unit": "mm",
+      "value": 0.4
+    },
+    {
+      "comment": "assumed lid port diameter",
+      "error": null,
+      "expression": "3 mm",
+      "model": false,
+      "name": "MIC_D",
+      "unit": "mm",
+      "value": 3.0
+    },
+    {
+      "comment": "Seeed Eagle port; V1 reference for V2",
+      "error": null,
+      "expression": "3.05 mm",
+      "model": false,
+      "name": "MIC1_X",
+      "unit": "mm",
+      "value": 3.05
+    },
+    {
+      "comment": "Seeed Eagle port; V1 reference for V2",
+      "error": null,
+      "expression": "61.98 mm",
+      "model": false,
+      "name": "MIC2_X",
+      "unit": "mm",
+      "value": 61.98
+    },
+    {
+      "comment": "Seeed Eagle port; V1 reference for V2",
+      "error": null,
+      "expression": "21.34 mm",
+      "model": false,
+      "name": "MIC_Y",
+      "unit": "mm",
+      "value": 21.34
+    },
+    {
+      "comment": "Seeed Eagle middle LED",
+      "error": null,
+      "expression": "32.51 mm",
+      "model": false,
+      "name": "LED_X",
+      "unit": "mm",
+      "value": 32.51
+    },
+    {
+      "comment": "Seeed Eagle LED row",
+      "error": null,
+      "expression": "18.16 mm",
+      "model": false,
+      "name": "LED_Y",
+      "unit": "mm",
+      "value": 18.16
+    },
+    {
+      "comment": "assumed window width",
+      "error": null,
+      "expression": "10 mm",
+      "model": false,
+      "name": "LED_SLOT_X",
+      "unit": "mm",
+      "value": 10.0
+    },
+    {
+      "comment": "assumed window height",
+      "error": null,
+      "expression": "4 mm",
+      "model": false,
+      "name": "LED_SLOT_Y",
+      "unit": "mm",
+      "value": 4.0
+    },
+    {
+      "comment": "assumed edge bearing; unknown vent locations",
+      "error": null,
+      "expression": "3 mm",
+      "model": false,
+      "name": "SP_LAND",
+      "unit": "mm",
+      "value": 3.0
+    },
+    {
+      "comment": "assumed low locator rim",
+      "error": null,
+      "expression": "3 mm",
+      "model": false,
+      "name": "SP_RIM_H",
+      "unit": "mm",
+      "value": 3.0
+    }
+  ],
+  "sketches": [],
+  "timeline": [
+    {
+      "error": null,
+      "id": 1,
+      "ms": 1.974783,
+      "name": "Electronics case stock",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 2,
+      "ms": 4.269717,
+      "name": "Electronics bay",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 3,
+      "ms": 10.689587,
+      "name": "Pi standoff 1",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 4,
+      "ms": 12.812689,
+      "name": "Pi standoff 2",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 5,
+      "ms": 13.118925,
+      "name": "Pi standoff 3",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 6,
+      "ms": 20.890115,
+      "name": "Pi standoff 4",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 7,
+      "ms": 15.671844,
+      "name": "Pi pilot 1",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 8,
+      "ms": 17.907157,
+      "name": "Pi pilot 2",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 9,
+      "ms": 21.753047000000002,
+      "name": "Pi pilot 3",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 10,
+      "ms": 20.463192000000003,
+      "name": "Pi pilot 4",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 11,
+      "ms": 19.698665000000002,
+      "name": "Left speaker tray bridge",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 12,
+      "ms": 17.010231,
+      "name": "Right speaker tray bridge",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 13,
+      "ms": 20.442954999999998,
+      "name": "Speaker tray stock",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 14,
+      "ms": 17.843638,
+      "name": "DWEII 671 locating bay",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 15,
+      "ms": 19.12201,
+      "name": "Open rear of module carrier",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 16,
+      "ms": 23.166294,
+      "name": "Left arm slot",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 17,
+      "ms": 25.966699,
+      "name": "Right arm slot",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 18,
+      "ms": 0.902296,
+      "name": "Removable electronics lid",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 19,
+      "ms": 6.76567,
+      "name": "MIC1 through port",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 20,
+      "ms": 8.148921,
+      "name": "MIC2 through port",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "CylinderFeature",
+      "warning": null
+    },
+    {
+      "error": null,
+      "id": 21,
+      "ms": 7.225605000000001,
+      "name": "Three LED window",
+      "rolled_back": false,
+      "suppressed": false,
+      "type": "BoxFeature",
+      "warning": null
+    }
+  ],
+  "total": {
+    "area_mm2": 37442.89713678276,
+    "edges": 228,
+    "faces": 82,
+    "mass_g": 58.07376363817067,
+    "open_bodies_skipped": 0,
+    "vertices": 152,
+    "volume_mm3": 45018.4214249385
+  }
+}

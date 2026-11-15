@@ -1,0 +1,17 @@
+test_committed_images_are_referenced (tests.test_docs.AssetTests.test_committed_images_are_referenced)
+No orphan renders: an asset folder is for pictures a page shows. ... ok
+test_every_referenced_image_exists (tests.test_docs.AssetTests.test_every_referenced_image_exists) ... ok
+test_model_folder_links_resolve (tests.test_docs.AssetTests.test_model_folder_links_resolve) ... ok
+test_entrypoint_links_and_heading_fragments_resolve (tests.test_docs.FrontDoorTests.test_entrypoint_links_and_heading_fragments_resolve) ... ok
+test_historical_readme_section_is_preserved (tests.test_docs.FrontDoorTests.test_historical_readme_section_is_preserved) ... ok
+test_readme_routes_to_getting_started_and_preserved_history (tests.test_docs.FrontDoorTests.test_readme_routes_to_getting_started_and_preserved_history) ... ok
+test_local_markdown_links_resolve (tests.test_docs.RelativeLinkTests.test_local_markdown_links_resolve) ... ok
+test_every_cited_key_is_defined (tests.test_docs.SourceRegisterTests.test_every_cited_key_is_defined) ... ok
+test_every_register_entry_has_a_url_and_a_date (tests.test_docs.SourceRegisterTests.test_every_register_entry_has_a_url_and_a_date) ... ok
+test_register_keys_are_unique (tests.test_docs.SourceRegisterTests.test_register_keys_are_unique) ... ok
+test_sources_page_exists_and_has_rows (tests.test_docs.SourceRegisterTests.test_sources_page_exists_and_has_rows) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.043s
+
+OK

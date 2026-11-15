@@ -43,6 +43,7 @@ reference material, consult its README for provenance and limitations.
 
 | Folder | What it is | Status |
 | --- | --- | --- |
+| [zero-square-demo](assemblies/zero-square-demo/README.md) | Pi Zero + ReSpeaker and seller-based DWEII 671 envelope with two guessed arms, in a [bay and lid concept](parts/zero-square-demo/README.md) with microphone and LED openings | **Unreviewed CAD-only**; speaker and arms unmeasured, no retention or port access, not printed or fit-tested |
 | [zero2w-respeaker-stack](assemblies/zero2w-respeaker-stack/README.md) | Pi Zero 2 W + ReSpeaker HAT stacked on a header, with a 40 mm driver beside them | **Reference assembly, CAD-only**: proves the stack clears itself and is ~21 mm tall; no tray, no case. **This is the flat layout James called ugly; it is kept as the height reference** |
 | [zero2w-respeaker-upright](assemblies/zero2w-respeaker-upright/README.md) | The same parts standing up, driver above the boards, on a rounded base — the inverted-T arrangement | **Reference assembly, CAD-only**: 75 × 40 × 78 mm. The driver is unsupported. **The driver is a stand-in, not a chosen part** |
 | [debra-compact](assemblies/debra-compact/README.md) | **An earlier CAD concept, not the selected design**: the DWEII 671 case (linked) with the ReSpeaker HAT (linked) plus the Pi Zero 2 W and speaker module inside | **Assembly, CAD-only**: 71.02 × 54.37 × 33.2 mm, 20 bodies. No screws, no wiring, no board retention |

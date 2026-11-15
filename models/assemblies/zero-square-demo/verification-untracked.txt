@@ -1,0 +1,3 @@
+Command: git diff --no-index --check /dev/null <file> for each .md, .json and .txt file in both zero-square-demo folders
+Files checked: 16
+Whitespace/errors: 0

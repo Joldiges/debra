@@ -1,0 +1,670 @@
+{
+  "about": {
+    "design": "zero-square-demo",
+    "format": "solidcraft/57",
+    "provenance": "new CAD-only concept; source and assumptions in README"
+  },
+  "commands": [
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "PI_L",
+        "expression": "65 mm",
+        "unit": "mm",
+        "comment": "Pi reference outline"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "PI_W",
+        "expression": "30 mm",
+        "unit": "mm",
+        "comment": "Pi reference outline"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SIDE_GAP",
+        "expression": "8 mm",
+        "unit": "mm",
+        "comment": "assumed extra board bay space per side"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "WALL",
+        "expression": "3 mm",
+        "unit": "mm",
+        "comment": "assumed wall"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "FLOOR",
+        "expression": "2.5 mm",
+        "unit": "mm",
+        "comment": "assumed floor"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "CASE_H",
+        "expression": "29 mm",
+        "unit": "mm",
+        "comment": "assumed height"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "LID_T",
+        "expression": "2 mm",
+        "unit": "mm",
+        "comment": "assumed lid thickness"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "STAND_H",
+        "expression": "3 mm",
+        "unit": "mm",
+        "comment": "assumed clearance below Pi"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "STAND_D",
+        "expression": "6 mm",
+        "unit": "mm",
+        "comment": "assumed standoff"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "PILOT_D",
+        "expression": "2.5 mm",
+        "unit": "mm",
+        "comment": "tentative pilot; hardware unspecified"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_X",
+        "expression": "44 mm",
+        "unit": "mm",
+        "comment": "DWEII 701715519671 larger seller claim; conflicting 31 mm"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_Y",
+        "expression": "28 mm",
+        "unit": "mm",
+        "comment": "DWEII 701715519671 seller claim, unmeasured"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_Z",
+        "expression": "15 mm",
+        "unit": "mm",
+        "comment": "DWEII 701715519671 seller claim, unmeasured"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_CLEAR",
+        "expression": "0.4 mm",
+        "unit": "mm",
+        "comment": "assumed per-side speaker recess clearance"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_WALL",
+        "expression": "2.5 mm",
+        "unit": "mm",
+        "comment": "assumed speaker tray wall and floor"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_GAP",
+        "expression": "10 mm",
+        "unit": "mm",
+        "comment": "assumed speaker edge to case wall"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_BASE",
+        "expression": "12 mm",
+        "unit": "mm",
+        "comment": "assumed speaker underside elevation"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "ARM_W",
+        "expression": "5 mm",
+        "unit": "mm",
+        "comment": "GUESS mounting arm width"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "ARM_T",
+        "expression": "3 mm",
+        "unit": "mm",
+        "comment": "GUESS mounting arm thickness"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "ARM_L",
+        "expression": "21 mm",
+        "unit": "mm",
+        "comment": "GUESS mounting arm length"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "ARM_INSET",
+        "expression": "5 mm",
+        "unit": "mm",
+        "comment": "GUESS arm centre inset from speaker sides"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "ARM_ENGAGE",
+        "expression": "3 mm",
+        "unit": "mm",
+        "comment": "GUESS arm overlap with speaker envelope"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SLOT_CLEAR",
+        "expression": "0.4 mm",
+        "unit": "mm",
+        "comment": "assumed clearance per side of each arm"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "MIC_D",
+        "expression": "3 mm",
+        "unit": "mm",
+        "comment": "assumed lid port diameter"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "MIC1_X",
+        "expression": "3.05 mm",
+        "unit": "mm",
+        "comment": "Seeed Eagle port; V1 reference for V2"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "MIC2_X",
+        "expression": "61.98 mm",
+        "unit": "mm",
+        "comment": "Seeed Eagle port; V1 reference for V2"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "MIC_Y",
+        "expression": "21.34 mm",
+        "unit": "mm",
+        "comment": "Seeed Eagle port; V1 reference for V2"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "LED_X",
+        "expression": "32.51 mm",
+        "unit": "mm",
+        "comment": "Seeed Eagle middle LED"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "LED_Y",
+        "expression": "18.16 mm",
+        "unit": "mm",
+        "comment": "Seeed Eagle LED row"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "LED_SLOT_X",
+        "expression": "10 mm",
+        "unit": "mm",
+        "comment": "assumed window width"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "LED_SLOT_Y",
+        "expression": "4 mm",
+        "unit": "mm",
+        "comment": "assumed window height"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_LAND",
+        "expression": "3 mm",
+        "unit": "mm",
+        "comment": "assumed edge bearing; unknown vent locations"
+      }
+    },
+    {
+      "command": "parameters.add",
+      "params": {
+        "name": "SP_RIM_H",
+        "expression": "3 mm",
+        "unit": "mm",
+        "comment": "assumed low locator rim"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Electronics case stock",
+        "body_name": "Case",
+        "operation": "new",
+        "corner": [
+          "-SIDE_GAP-WALL",
+          "-SIDE_GAP-WALL",
+          "0"
+        ],
+        "length": "PI_L+2*(SIDE_GAP+WALL)",
+        "width": "PI_W+2*(SIDE_GAP+WALL)",
+        "height": "CASE_H"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Electronics bay",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "corner": [
+          "-SIDE_GAP",
+          "-SIDE_GAP",
+          "FLOOR"
+        ],
+        "length": "PI_L+2*SIDE_GAP",
+        "width": "PI_W+2*SIDE_GAP",
+        "height": "CASE_H-FLOOR"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi standoff 1",
+        "targets": [
+          "Case"
+        ],
+        "operation": "join",
+        "base": [
+          "3.5",
+          "3.5",
+          "FLOOR"
+        ],
+        "diameter": "STAND_D",
+        "height": "STAND_H"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi standoff 2",
+        "targets": [
+          "Case"
+        ],
+        "operation": "join",
+        "base": [
+          "61.5",
+          "3.5",
+          "FLOOR"
+        ],
+        "diameter": "STAND_D",
+        "height": "STAND_H"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi standoff 3",
+        "targets": [
+          "Case"
+        ],
+        "operation": "join",
+        "base": [
+          "3.5",
+          "26.5",
+          "FLOOR"
+        ],
+        "diameter": "STAND_D",
+        "height": "STAND_H"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi standoff 4",
+        "targets": [
+          "Case"
+        ],
+        "operation": "join",
+        "base": [
+          "61.5",
+          "26.5",
+          "FLOOR"
+        ],
+        "diameter": "STAND_D",
+        "height": "STAND_H"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi pilot 1",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "base": [
+          "3.5",
+          "3.5",
+          "0"
+        ],
+        "diameter": "PILOT_D",
+        "height": "FLOOR+STAND_H"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi pilot 2",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "base": [
+          "61.5",
+          "3.5",
+          "0"
+        ],
+        "diameter": "PILOT_D",
+        "height": "FLOOR+STAND_H"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi pilot 3",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "base": [
+          "3.5",
+          "26.5",
+          "0"
+        ],
+        "diameter": "PILOT_D",
+        "height": "FLOOR+STAND_H"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "Pi pilot 4",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "base": [
+          "61.5",
+          "26.5",
+          "0"
+        ],
+        "diameter": "PILOT_D",
+        "height": "FLOOR+STAND_H"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Left speaker tray bridge",
+        "targets": [
+          "Case"
+        ],
+        "operation": "join",
+        "corner": [
+          "PI_L/2-SP_X/2+ARM_INSET-ARM_W/2-SP_WALL",
+          "-SIDE_GAP-WALL-SP_GAP+SP_CLEAR",
+          "SP_BASE-SP_WALL"
+        ],
+        "length": "ARM_W+2*SP_WALL",
+        "width": "SP_GAP+WALL-SP_CLEAR+1",
+        "height": "SP_WALL-SLOT_CLEAR"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Right speaker tray bridge",
+        "targets": [
+          "Case"
+        ],
+        "operation": "join",
+        "corner": [
+          "PI_L/2+SP_X/2-ARM_INSET-ARM_W/2-SP_WALL",
+          "-SIDE_GAP-WALL-SP_GAP+SP_CLEAR",
+          "SP_BASE-SP_WALL"
+        ],
+        "length": "ARM_W+2*SP_WALL",
+        "width": "SP_GAP+WALL-SP_CLEAR+1",
+        "height": "SP_WALL-SLOT_CLEAR"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Speaker tray stock",
+        "targets": [
+          "Case"
+        ],
+        "operation": "join",
+        "corner": [
+          "PI_L/2-SP_X/2-SP_CLEAR-SP_WALL",
+          "-SIDE_GAP-WALL-SP_GAP-SP_Y-SP_CLEAR-SP_WALL",
+          "SP_BASE-SP_WALL"
+        ],
+        "length": "SP_X+2*(SP_CLEAR+SP_WALL)",
+        "width": "SP_Y+2*(SP_CLEAR+SP_WALL)",
+        "height": "SP_WALL+SP_RIM_H"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "DWEII 671 locating bay",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "corner": [
+          "PI_L/2-SP_X/2-SP_CLEAR",
+          "-SIDE_GAP-WALL-SP_GAP-SP_Y-SP_CLEAR",
+          "SP_BASE"
+        ],
+        "length": "SP_X+2*SP_CLEAR",
+        "width": "SP_Y+2*SP_CLEAR",
+        "height": "SP_RIM_H"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Open rear of module carrier",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "corner": [
+          "PI_L/2-SP_X/2+SP_LAND",
+          "-SIDE_GAP-WALL-SP_GAP-SP_Y+SP_LAND",
+          "SP_BASE-SP_WALL"
+        ],
+        "length": "SP_X-2*SP_LAND",
+        "width": "SP_Y-2*SP_LAND",
+        "height": "SP_WALL"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Left arm slot",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "corner": [
+          "PI_L/2-SP_X/2+ARM_INSET-ARM_W/2-SLOT_CLEAR",
+          "-SIDE_GAP-WALL-SP_GAP-ARM_ENGAGE-SLOT_CLEAR",
+          "SP_BASE-SLOT_CLEAR"
+        ],
+        "length": "ARM_W+2*SLOT_CLEAR",
+        "width": "SP_GAP+WALL+ARM_ENGAGE+2*SLOT_CLEAR",
+        "height": "ARM_T+2*SLOT_CLEAR"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Right arm slot",
+        "targets": [
+          "Case"
+        ],
+        "operation": "cut",
+        "corner": [
+          "PI_L/2+SP_X/2-ARM_INSET-ARM_W/2-SLOT_CLEAR",
+          "-SIDE_GAP-WALL-SP_GAP-ARM_ENGAGE-SLOT_CLEAR",
+          "SP_BASE-SLOT_CLEAR"
+        ],
+        "length": "ARM_W+2*SLOT_CLEAR",
+        "width": "SP_GAP+WALL+ARM_ENGAGE+2*SLOT_CLEAR",
+        "height": "ARM_T+2*SLOT_CLEAR"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Removable electronics lid",
+        "body_name": "Lid",
+        "operation": "new",
+        "corner": [
+          "-SIDE_GAP-WALL",
+          "-SIDE_GAP-WALL",
+          "CASE_H"
+        ],
+        "length": "PI_L+2*(SIDE_GAP+WALL)",
+        "width": "PI_W+2*(SIDE_GAP+WALL)",
+        "height": "LID_T"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "MIC1 through port",
+        "targets": [
+          "Lid"
+        ],
+        "operation": "cut",
+        "base": [
+          "MIC1_X",
+          "MIC_Y",
+          "CASE_H"
+        ],
+        "diameter": "MIC_D",
+        "height": "LID_T"
+      }
+    },
+    {
+      "command": "solid.cylinder",
+      "params": {
+        "name": "MIC2 through port",
+        "targets": [
+          "Lid"
+        ],
+        "operation": "cut",
+        "base": [
+          "MIC2_X",
+          "MIC_Y",
+          "CASE_H"
+        ],
+        "diameter": "MIC_D",
+        "height": "LID_T"
+      }
+    },
+    {
+      "command": "solid.box",
+      "params": {
+        "name": "Three LED window",
+        "targets": [
+          "Lid"
+        ],
+        "operation": "cut",
+        "corner": [
+          "LED_X-LED_SLOT_X/2",
+          "LED_Y-LED_SLOT_Y/2",
+          "CASE_H"
+        ],
+        "length": "LED_SLOT_X",
+        "width": "LED_SLOT_Y",
+        "height": "LID_T"
+      }
+    }
+  ]
+}
