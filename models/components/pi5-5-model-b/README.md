@@ -5,6 +5,47 @@ thickness and header height. Not a case, not print-ready, not fit-tested.**
 
 Editable SolidCraft source: [`pi5-reference.sc`](pi5-reference.sc).
 
+## What the envelope looks like
+
+Rendered from `pi5-reference.sc` on 2026-11-15, no grid and no axes, so the
+images show the geometry and nothing else. They are what the model *is*: a
+1.6 mm board with four mounting holes and one 8.5 mm header block. The ports,
+the chips and everything under the board are absent because they are not
+modelled yet (see [Known gaps](#known-gaps)).
+
+![Isometric view of the Pi 5 envelope: a thin rectangular board with four mounting holes near the corners and a long low block along the far edge standing for the 40-pin header](assets/pi5-iso.png)
+
+*Isometric. The long block is the 2×20 header socket, 50.8 × 5.08 × 8.5 mm,
+straddling the far mounting-hole line. Everything else on a real board —
+USB-C, micro-HDMI, USB-A, Ethernet, the SoC and its shield — is missing.*
+
+![Top view of the same envelope: 85 mm by 56 mm board, holes inset 3.5 mm from three edges and 58 by 49 mm apart, header along the top edge](assets/pi5-top.png)
+
+*Top. Board 85 × 56 mm; holes Ø3 mm, 3.5 mm in from the edges, 58 mm apart
+across and 49 mm down. This view is the one to compare against the mechanical
+drawing.*
+
+![Front view: the board seen edge-on at 1.6 mm thick, with the header block rising 8.5 mm above it](assets/pi5-front.png)
+
+*Front, edge-on. The board is 1.6 mm (assumed — the drawing does not print it)
+and the header stands 8.5 mm above it (also assumed, a typical socket). This is
+the height budget a tray or case has to clear, and it is the least trustworthy
+number here.*
+
+Regenerate with the SolidCraft MCP tools while the model is open:
+
+```
+screenshot({ source: "model", grid: true,  axes: false, width: 1200, height: 800,
+             camera: { target: [0,0,5], yaw: 0.785, pitch: 0.45, distance: 165 },
+             path: ".../assets/pi5-iso.png" })
+screenshot({ source: "model", grid: true,  axes: false, width: 1200, height: 800,
+             camera: { target: [0,0,5], yaw: 0,     pitch: 1.5,  distance: 150 },
+             path: ".../assets/pi5-top.png" })
+screenshot({ source: "model", grid: false, axes: false, width: 1200, height: 800,
+             camera: { target: [0,0,4.5], yaw: 0,   pitch: 0.10, distance: 112 },
+             path: ".../assets/pi5-front.png" })
+```
+
 ## Parameters
 
 | Parameter | Value | Status | Source |
@@ -31,8 +72,9 @@ The first build measured exactly the analytic value:
 | `Pi5_PCB` | 7570.761 mm³ | 85×56×1.6 − 4·π·1.5²·1.6 = 7570.76 | 85 × 56 × 1.6 |
 | `Pi5_Header` | 2193.544 mm³ | 50.8 × 5.08 × 8.5 = 2193.54 | 50.8 × 5.08 × 8.5 |
 
-A rendered top view matches the drawing's layout: four holes, header along the
-far edge starting near the left hole and ending well short of the right edge.
+A rendered top view ([`assets/pi5-top.png`](assets/pi5-top.png)) matches the
+drawing's layout: four holes, header along the far edge starting near the left
+hole and ending well short of the right edge.
 
 ## Known gaps
 

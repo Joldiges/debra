@@ -75,5 +75,63 @@ class RelativeLinkTests(unittest.TestCase):
                 self.assertTrue(path.exists(), f"{page.name} links to missing {target}")
 
 
+IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)")
+
+
+class AssetTests(unittest.TestCase):
+    """An image that does not exist renders as a broken box and nothing else.
+
+    Pictures are committed beside the document that shows them, so a moved or
+    renamed file is a documentation bug the reader sees first. Check every
+    image reference in docs/ and models/, and every local link in models/.
+    """
+
+    def pages(self):
+        for folder in (ROOT / "docs", ROOT / "models"):
+            for page in sorted(folder.rglob("*.md")):
+                if ".local" in page.parts:
+                    continue
+                yield page
+
+    def test_every_referenced_image_exists(self):
+        checked = 0
+        for page in self.pages():
+            for target in IMAGE.findall(page.read_text()):
+                if target.startswith(("http://", "https://", "data:")):
+                    continue
+                checked += 1
+                path = (page.parent / target.split("#", 1)[0]).resolve()
+                self.assertTrue(
+                    path.exists(),
+                    f"{page.relative_to(ROOT)} embeds missing image {target}",
+                )
+        self.assertGreater(checked, 0, "no image references found; the check is idle")
+
+    def test_model_folder_links_resolve(self):
+        for page in sorted((ROOT / "models").rglob("*.md")):
+            for target in MARKDOWN_LINK.findall(page.read_text()):
+                if target.startswith(("http://", "https://", "mailto:", "#")):
+                    continue
+                path = (page.parent / target.split("#", 1)[0]).resolve()
+                self.assertTrue(
+                    path.exists(),
+                    f"{page.relative_to(ROOT)} links to missing {target}",
+                )
+
+    def test_committed_images_are_referenced(self):
+        """No orphan renders: an asset folder is for pictures a page shows."""
+        for assets in sorted(ROOT.glob("models/**/assets")):
+            text = ""
+            for page in assets.parent.rglob("*.md"):
+                text += page.read_text()
+            for image in sorted(assets.iterdir()):
+                if image.is_file():
+                    self.assertIn(
+                        image.name,
+                        text,
+                        f"{image.relative_to(ROOT)} is committed but no page shows it",
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()

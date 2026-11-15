@@ -22,6 +22,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Pi 5 + ReSpeaker v2 audio result](testing/results/2026-11-15-pi5-respeaker-v2-audio.md) | First device-tested audio: overlay built and persisted, mixer traps, measured speaker→microphone path; one specimen |
 | [Lab Pi 5 voice + Sendspin result](testing/results/2026-11-15-lab-pi5-lva-sendspin.md) | Pinned linux-voice-assistant satellite and Sendspin player on the lab Pi, with Home Assistant and Music Assistant evidence; conversation untested, device browns out |
 | [Lab Pi 5 device scripts](../tools/device/lab-pi5/README.md) | Audio, mixer, satellite, player and power-mitigation scripts that build that device |
+| [3D models](../models/README.md) | Parametric SolidCraft part and assembly sources, each with renders in an `assets/` folder |
 | [Unattended runner](guides/scheduled-runner.md) | Queued, budgeted research tasks on a systemd user timer; instructions, not enforcement |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
@@ -42,6 +43,7 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
 | `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
 | `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Use only when needed; existing historical files are labeled in place |
+| `models/` | SolidCraft part and assembly sources, each folder with its own `README.md` and an `assets/` folder of renders | Pi 5 envelope exists; HAT and tray planned |
 | `.local/` | Private operational records, raw logs, credentials, recovery payloads, and large local artifacts | Ignored; not shared project memory or an independent backup |
 
 Long reports belong with their subject, not in a second `verbose/` tree.
@@ -49,6 +51,31 @@ Start each report with a short result, evidence status, limitations, and next
 action; put detailed sources and reproduction underneath. A beginner should
 not have to read task logs to follow a guide, and an AI should not have to
 infer current instructions from an old chat.
+
+## Images and renders
+
+Pictures live in an `assets/` folder beside the document that uses them, and
+that document embeds them with relative links. A part or assembly folder under
+`models/` follows the same rule: `README.md` plus `assets/`, so the picture and
+the thing it describes cannot drift apart.
+
+- A render is **generated from the committed source**, and the caption or the
+  text under it says which file and which tool produced it. Anyone can rebuild
+  it instead of trusting a stale image.
+- The caption states what is modelled and what is not. An envelope with no
+  ports should say so, or a reader will assume a cut-out will clear a USB-C
+  socket.
+- Dimensions in a caption come from the parameter table, not from eyeballing
+  the picture.
+- Assumed values are marked as assumed in the image text too, because a picture
+  is the part people actually look at.
+- Screenshots of an app window and renders of the model are not the same
+  evidence; label which one an image is.
+
+Images are worth the space: they let a reader see the shape of a thing without
+opening CAD, and they make a wrong assumption obvious at a glance. Keep them
+small (a 1200 px wide PNG is plenty), and do not commit raw multi-megabyte
+viewport captures.
 
 ## Learning notes: a useful inbox, not a source of automatic truth
 
