@@ -99,9 +99,11 @@ be true, and `debra-audio outputs` reports what is true.
   distinction is volume. **Next check:** plug headphones into the HAT, enable
   `HP`, play a tone, and see which tap makes sound. **Not tested on 2026-11-15
   because it needs audible output.**
-- **Volume behaviour in a combine sink.** Whether the virtual sink's volume
-  scales every member, and what happens when a member has a hardware volume
-  control (the HAT's `PCM`), is untested.
+- **Volume behaviour in a combine sink.** Measured 2026-11-15, below: the
+  virtual sink's volume is a **second** cubic attenuator on top of each member's,
+  so a virtual sink at 50 % costs 17.7 dB, not 6 dB. What a *hardware* volume
+  control (`PCM` on the HAT) does to a combine member is still untested, because
+  the HAT sink has no separate hardware control in this profile.
 - **Bluetooth.** Not considered at all. It is a sink like any other in
   principle, and it has its own latency and reconnect problems.
 - **Whether the user wants music to follow the announcement profile.** Today
@@ -117,6 +119,21 @@ audible was played, so none of this disturbs a sleeping house.
 | Is `module-combine-stream` available? | **Yes.** `libpipewire-module-combine-stream.so` is present on PipeWire 1.4.2 (`/usr/lib/aarch64-linux-gnu/pipewire-0.3/`), so the native PipeWire combine sink is usable and the PulseAudio-compat `module-combine-sink` is not needed |
 | Is `module-echo-cancel` available? | **Yes.** `libpipewire-module-echo-cancel.so` is present, so the reply re-triggering the wake word can be attacked with a real echo-cancel sink instead of by lowering the volume |
 | Do HDMI sinks appear with no display connected? | **Yes, and this contradicts what was assumed.** `alsa_output.platform-107c701400.hdmi.hdmi-stereo` exists in `SUSPENDED` state with nothing plugged into either port. Only HDMI **0** appears; HDMI **1** does not |
+| Does a combine sink work, and does audio reach the speaker through it? | **Yes to both.** `pactl load-module module-combine-sink sink_name=debra_test slaves=<HAT sink>` returns a module id and creates a working sink. A tone played with `pw-play --target debra_test` measured −40.4 dBFS at the microphone, against −40.6 dBFS playing to the member sink directly, so it passes at unity |
+| Does the combine sink's own volume do what a user expects? | **No.** It is a second cubic attenuator multiplying with the member's: 100 % → 50 % cost **17.7 dB**, not 6, and 35 % cost 26.7 dB. Leave the virtual sink at 100 % and set levels on the members |
+
+### Consequence for the "all outputs" profile
+
+A combine sink is the right mechanism and it works, but its volume must be left at
+100 % or it silently undoes the user's setting twice over. The interface in
+"what the user should actually touch" therefore sets **member** volumes, and the
+virtual sink exists only to fan the stream out. That is also why a member that is
+unplugged is harmless — the fan-out has nothing to say about level.
+
+The measurement was made with the tone at 36 % of the member sink's volume, which
+is the level the device runs at, and the microphone as the detector, so nothing
+was played louder than a normal spoken reply. The full sweep is in
+[the audio-levels result](../testing/results/2026-11-15-lab-pi5-audio-levels.md).
 
 The HDMI answer changes the design: an "all outputs" combine sink would include a
 dead HDMI member on a device with no screen. That is not harmful for a chime, but
