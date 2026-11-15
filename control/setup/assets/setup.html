@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Debra · Set up Wi-Fi</title>
+<style>
+:root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; background: #101619; color: #e6eeed;
+        --muted: #a4b8b5; --accent: #9ddbc7; --line: #2b3a3e; --warn: #eac88a; --bad: #ffc8b8; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 48px; display: flex; justify-content: center; }
+main { width: 100%; max-width: 520px; }
+.brand { font-size: 26px; font-weight: 750; letter-spacing: -1px; }
+.brand span { display: block; font-size: 9px; letter-spacing: 2px; color: var(--muted); font-weight: 600; }
+.card { background: #192226; border: 1px solid var(--line); border-radius: 18px; padding: 24px; margin-top: 20px; }
+h1 { font-size: 24px; letter-spacing: -.5px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; }
+p { color: var(--muted); line-height: 1.6; margin: 0 0 14px; }
+.eyebrow { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 2px; margin: 0 0 10px; }
+label { display: block; margin: 16px 0 8px; color: #d5e4e0; font-size: 14px; }
+input, select { width: 100%; background: #101619; border: 1px solid #56716b; border-radius: 10px; color: #fff;
+                padding: 13px; font: inherit; font-size: 16px; }
+button { width: 100%; margin-top: 20px; border: 1px solid transparent; background: var(--accent); color: #10251d;
+         border-radius: 10px; padding: 14px; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--warn); outline-offset: 3px; }
+.detail { font-size: 13px; }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
+.ok { color: var(--accent); }
+.hidden { display: none; }
+dl { margin: 0; }
+dl div { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+dl div:last-child { border: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.big { font-size: 15px; color: #e6eeed; }
+ul { margin: 0 0 14px; padding-left: 20px; color: var(--muted); line-height: 1.7; font-size: 14px; }
+code { background: #101619; border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">debra<span>SET UP THIS DEVICE</span></div>
+
+  <section id="loading" class="card"><p>Checking this device…</p></section>
+
+  <section id="form-card" class="card hidden">
+    <p class="eyebrow" id="step-label">STEP 1 OF 2</p>
+    <h1>Connect <span id="device-name">your Debra</span> to Wi-Fi</h1>
+    <p>This device is running its own small network because it has no internet
+       connection yet. Pick the Wi-Fi it should use from now on.</p>
+
+    <label for="country">Country</label>
+    <select id="country">
+      <option value="">Choose a country</option>
+    </select>
+    <p class="detail" id="country-note">Some radios stay switched off until the
+       country is set, so this is asked before the network name.</p>
+
+    <label for="ssid">Wi-Fi network name</label>
+    <input id="ssid" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="HomeWiFi">
+
+    <label for="psk">Wi-Fi password</label>
+    <input id="psk" type="password" autocomplete="off" placeholder="At least 8 characters">
+
+    <button id="join">Join network</button>
+    <p class="detail" id="form-error" role="alert"></p>
+  </section>
+
+  <section id="handover" class="card hidden">
+    <p class="eyebrow">LAST STEP</p>
+    <h1>Your phone is about to leave this network</h1>
+    <p>This device has only one Wi-Fi radio, so the setup network
+       <strong id="hotspot-name">Debra-Setup</strong> has to switch off before it can
+       join <strong id="join-name">your network</strong>. That will disconnect this page.</p>
+    <p class="big">On your phone:</p>
+    <ul>
+      <li>Reconnect to your home Wi-Fi.</li>
+      <li>Open <code id="device-url">http://debra.local:8787/</code>.</li>
+      <li>If that does not open, the device will bring the setup network back with
+          the reason it failed.</li>
+    </ul>
+    <p class="detail">Nothing is rebooted. If the password was wrong, the setup
+       network comes back in about a minute so you can try again.</p>
+  </section>
+
+  <section id="failed" class="card hidden">
+    <p class="eyebrow">TRY AGAIN</p>
+    <h1>That did not work</h1>
+    <p class="bad" id="failed-reason"></p>
+    <button id="retry">Try another network</button>
+  </section>
+
+  <section id="online" class="card hidden">
+    <p class="eyebrow">CONNECTED</p>
+    <h1>This device is online</h1>
+    <p class="ok">It is on <strong id="online-ssid"></strong> and ready to configure.</p>
+    <dl id="online-values"></dl>
+  </section>
+
+  <p class="detail" id="footer-note">Only Wi-Fi details are accepted on this page.
+     Nothing here changes your home router.</p>
+</main>
+<script src="setup.js"></script>
+</body>
+</html>
