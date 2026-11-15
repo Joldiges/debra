@@ -134,21 +134,30 @@ availability. Proposed test threshold: poll every 10 seconds while the page is
 visible; a reading is fresh through 30 seconds after observation and
 stale thereafter, including while disconnected. A timestamp must be from the
 collector's observation, not the browser's receipt of a cached response. If age
-cannot be established, show `Unknown: observation time unavailable`, not fresh.
+cannot be established, show `Unknown` age with the reason, not fresh.
 The current server caches most status for two seconds but sends no observation
 times, so it cannot yet satisfy this rule. For CPU and swap I/O, display the
 sampling interval as well. A historical event is labeled with its actual event
 time or `time unknown`, never presented as a current measurement.
 
+The following are **future acceptance tests**, not existing capabilities. Use
+offline fixtures with fake operations, clocks and credentials; a passing fixture
+is not evidence of device support. Each bullet gives expected observable output
+or readback; any different result, missing evidence, unexpected write or exposed
+secret fails it. Tests requiring a collector, operation or security design wait
+for that prerequisite; none authorizes a device operation.
+
 ### Shared failure and safety cases
 
 Apply these cases to each packet as well as its specific cases below:
 
-- Given no reachable device, show `Device unavailable`, retain any previous
-  readings only with their last-observed time and stale/unknown age, and disable
-  device actions. Offer retry without silently selecting another device.
-- Given no valid key, show `Access required`; do not show protected device data
-  or enable device actions. A previously cached value must not appear current.
+- Given no reachable device, show `Device unavailable`, retain previous readings
+  only with last-observed time or `time unknown` and stale/unknown age, and
+  disable device actions. Offer retry without silently selecting another device.
+- In authenticated mode, given no valid credential, show `Access required`; do
+  not show protected data or enable actions. The prototype's explicit `--auth
+  none` development bypass is excluded from production acceptance, not a missing
+  credential; it must be visibly identified as unauthenticated when tested.
 - Given the selected sink is missing, show its identity and `Selected output
   unavailable`; disable audio actions, do not use another sink, and continue to
   show independently available identity, hardware, component and metric data.
@@ -161,11 +170,29 @@ Apply these cases to each packet as well as its specific cases below:
 - Given a reading older than 30 seconds, show `Stale`, its value and observation
   time, and do not use it to establish current status. If no time is known, show
   unknown age instead. A successful new observation replaces that label.
+- **Future age/order contract:** inject an observation with a provable age of
+  exactly 30 seconds, then advance a suspend-aware clock beyond 30 without any
+  response; it changes from fresh to stale, including on return from suspension.
+  A cached response, background tab or disconnection must not reset age;
+  untimed retained values show unknown time/age.
+- With a fake clock and visible page, record polling at 10-second intervals; a
+  missing or extra poll, write or diagnostic operation fails the fixture.
+- Inject browser/device clock skew, a future timestamp or unbounded transit time:
+  show unknown age unless a trusted age bound proves freshness or staleness. An
+  arrival timestamp alone, or an untrusted wall-clock subtraction, cannot prove it.
+- Inject out-of-order responses, reconnect and a new device boot/monotonic epoch:
+  reject older observations, invalidate prior-epoch current state and accept only
+  ordered evidence from the new epoch. A late prior-boot response or a repeated
+  cache response must not overwrite a newer sample or renew its age.
 - Page load, refresh, polling and reconnect must not change device settings,
   enroll a browser, revoke access, play audio, reboot, or initiate a diagnostic
   operation. Missing readings must not become invented states, zeros or healthy
   badges. An unavailable action is disabled or absent, with a reason; it must
   never look active if it cannot act.
+- For a failed action, show its reason beside the disabled control or in the
+  section where an absent control would appear. With one failed action and one
+  independently available action, the latter remains usable; action logs show
+  no fallback device or unintended write.
 
 ### WEB02: address, identity and browser access
 
@@ -191,22 +218,56 @@ no hands-on comparison and does not establish any Debra feature.
 
 **Acceptance:**
 
-- Given a retained room name and hostname, show both separately; changing the
-  room name by an explicit confirmed action does not rename the hostname.
-- Given verified hostname and usable IP authorities, show both with port and
-  identify the IP as a fallback. Given mDNS failure, offer only an independently
-  known IP; if none is known, show `IP address unknown` rather than invent one.
-- Given missing hardware ID or an identity collision, show `Identity unknown`
-  or `Identity collision` respectively; do not derive `debra-unknown` or claim
-  stability. A directory entry alone must not prove physical device identity.
-- Given a browser not enrolled, offer the supported enrollment path; explicit
-  user confirmation is required. Given successful revocation, a subsequent
-  request using the revoked credential is rejected, including from another tab;
-  report separately that an already-started operation may have completed. If
-  revocation fails or cannot be verified, show the failure, not `Revoked`.
-- Given no key, expired enrollment or permission denied, show the relevant
-  access failure and a recovery path that does not require SSH for ordinary
-  operation. Given stale addresses, label them stale and do not claim reachability.
+- **Room name — future operation:** start with name A and hostname H; confirm
+  name B, reopen and simulate service restart. Authoritative readback must show B
+  and unchanged H; browser-only persistence or a changed hostname fails.
+- Cancel a name change and inject a rejected write; readback remains A. For a
+  lost response or competing update, show an uncertain/conflict result and
+  read back the authoritative name before offering retry or claiming B saved.
+- **Identity/fallback — future binding and discovery:** a fixture binds device D
+  to a hostname and IP:port with independently verified identity, transport,
+  authority and browser-side reachability evidence at known times. Show both
+  addresses and the IP fallback only while that evidence is current; a directory
+  entry, IP alone or hostname alone is not the binding evidence.
+- Inject mDNS failure, an IP reassigned to device E, wrong transport identity,
+  disallowed authority, stale binding and unreachable IP separately. Show the
+  affected fallback as unverified/unavailable with its reason, never as a verified
+  link to D; without a known IP show `IP address unknown`.
+- Test hostname and IP as different browser origins: each needs its own allowed
+  authority, transport identity and an authorized session or explicit enrollment;
+  a successful hostname session must not imply IP-origin access.
+- Given missing hardware ID or a reported collision, show `Identity unknown` or
+  `Identity collision`; neither `debra-unknown` nor a stable-identity claim may
+  appear. Show stale address observation time, or unknown age if unavailable.
+- **Enrollment/revocation — future authenticated operation:** in a fake secure
+  design, explicitly enroll credential A in tabs A1 and A2 and separate credential
+  B in tab B; prove protected reads and a harmless fake write work in all three
+  and for direct HTTP clients using A and B. Enrollment requires confirmation;
+  cancellation or an unauthorized enrollment must leave the access list unchanged.
+- Revoke exactly A using authorized B. After confirmed server-side effectiveness,
+  A2 and a direct HTTP client using A must each be denied a protected read and a
+  new fake write; B's tab and direct client must still succeed. Tab-local clearing,
+  a denial caused only by browser state, or any successful A request fails this test.
+- Reject an unauthorized revocation and inject server failure: read back that A
+  remains authorized and show failure, not `Revoked`. Drop the response after a
+  successful revoke: show unknown until independent server readback and A-client
+  rejection verify it; do not silently repeat the mutation.
+- Start a fake write under A before revocation and release it afterwards: display
+  its independently read-back result or `outcome unknown`, not a claim that
+  revocation cancelled it; no newly started A write may succeed.
+- In authenticated-mode fixtures, distinguish unreachable device, unenrolled,
+  invalid/expired credential and denied permission where safely evidenced;
+  otherwise show a generic access failure. Pre-auth output contains only the
+  reviewed bootstrap/recovery information, never protected state or credentials.
+- After a reviewed non-SSH recovery design exists, exercise its recovery fixture
+  from an expired credential to a newly authorized browser session. Missing
+  recovery instructions, protected data leakage or an SSH-only path fails.
+
+**Open questions:** Which reviewed enrollment, credential recovery and transport
+design provides the authorization and revocation boundary? What identity proof,
+address lifetime and invalidation method bind an origin to a physical device?
+What pre-auth distinctions and non-SSH recovery steps are safe to disclose?
+Until decided, those positive paths are blocked, not implemented features.
 
 **Must never happen:** Require SSH for ordinary supported configuration, enroll
 or revoke on load, log/display credentials, treat tab disconnect as revocation,
@@ -234,23 +295,36 @@ details, and see evidence-backed compatibility, driver and reboot requirements.
 
 **Acceptance:**
 
-- Given detected board/HAT evidence and a different user selection, show both
-  values, their sources and the mismatch; do not change either selection.
-- Given no HAT detection or speaker identification, show the exact UI text
-  `Unknown is not auto-detection or a replacement recommendation` and retain
-  any independently selected HAT and speaker information. Unknown is selectable
-  as an honest value, not an automatically detected model.
-- Given retained speaker model, impedance in ohms, rating in watts, connector and
-  mounting details, show each supplied field after reopening; show `Unknown` for
-  each absent field. Never recommend replacing the existing speaker merely to
-  match a model or enclosure.
-- Given a driver loaded, a pending overlay and evidence that reboot is needed,
-  show each separately with its source and the pending reboot. Given missing or
-  conflicting compatibility evidence, show `Compatibility unknown` and disable
-  apply with the missing prerequisite; an untested pairing is not supported.
-- Given permission denied or stale detection, label the affected observation
-  rather than claiming hardware is absent; a missing sink does not delete the
-  retained hardware or speaker selection.
+- Given differing detected and selected board/HAT revisions, show both with
+  sources and a mismatch; fixture readback must show neither was changed.
+- Test missing HAT detection only, missing speaker identification only, and both
+  missing. Label each missing field `Unknown` independently, retain known detected
+  and selected fields, and permit an explicit unknown selection; an inferred
+  model or replacement recommendation fails.
+- **Structured selection — future operation:** select fixture board B/revision 1
+  and HAT H/revision 2; before confirmation show them pending while retained and
+  effective selections remain A. Cancel and read back A, with no operation call.
+- With a compatible fixture and an authorized operation, confirm and apply B/H;
+  operation result and reopened authoritative readback show retained B/H, while
+  effective A and a pending reboot remain separate until a simulated reboot and
+  effective readback show B/H. A disabled selector or browser-only save fails.
+- Inject a refused apply or lost response: retain the last verified effective
+  state, show the failure or uncertainty, and read back before retry; never claim
+  the pending choice is effective without evidence.
+- **Compatibility — future evidence:** fixture evidence names exact board/HAT
+  revisions, OS, kernel and driver versions. A supported match plus available
+  operation enables apply; evidenced incompatibility, missing/conflicting evidence,
+  or absent operation disables it with the specific reason beside the control.
+- Show loaded driver, pending overlay and evidence-backed reboot requirement as
+  separate sourced fields. An untested pairing is `Compatibility unknown`, not
+  supported; A01/A02 evidence and authorized writes remain prerequisites.
+- Reopen retained speaker model, ohms, watts, connector and mounting fields;
+  supplied values persist and each absent value is `Unknown`. Missing sink,
+  permission-denied or stale detection must not erase selections or prove absence.
+
+**Open questions:** Which exact board/HAT/OS/kernel/driver combinations have
+adequate compatibility evidence, and which changes require a reboot? No current
+fixture choice above asserts a real supported pairing.
 
 **Must never happen:** Save or apply hardware choices on page load, infer a
 speaker or exact HAT revision from an empty reading, recommend replacement from
@@ -279,7 +353,7 @@ incomplete probe is `Unknown`.
 | Configured: required device-side settings are present and valid for the pinned runtime and chosen deployment, without exposing secrets. | Collector: version-specific validation. Current `configuration` is a placeholder, not inspection. |
 | Running: the component's relevant runtime is currently executing. | Current partial: `active` is systemd `ActiveState` for named units, not proof of a running component in every deployment. Collector: correlate actual runtime and scope, including non-systemd cases. |
 | Connected: the component has a current established link to its required named peer, such as HA, Music Assistant or Snapserver. | Collector: component-specific link evidence. A running process or reachable server alone does not prove connection. |
-| Working: an explicitly identified end-to-end function succeeded under stated conditions and at a stated time. | Collector: safe, component-specific evidence and timestamp. Current operation cannot be known from an old test or without evidence; no automatic recording, playback or intrusive probe. |
+| Working: current evidence for a specifically identified end-to-end function under stated conditions. A completed test is `Last worked`, not proof of current working, however recent. | Collector: a reviewed, safe, function-specific current-evidence contract and invalidation; absent that, current working is `Unknown`. No automatic recording, playback or intrusive probe. |
 
 | Other data needed | Current payload or gap |
 | --- | --- |
@@ -297,23 +371,51 @@ service.
 
 **Acceptance:**
 
-- Given an active LVA unit but no configuration, connection or end-to-end
-  evidence, show the unit active and those three states `Unknown`, not working.
-  Given an enabled but stopped component, show `Enabled: Yes` and `Running: No`
-  only when both are independently established.
-- Given a verified package without a unit, show `Installed: Yes` and the unit
-  missing, not `Not installed`. Given a missing unit without package evidence,
-  show `Installed: Unknown`; given a confirmed absent installation, show `No`.
-- Given separate user and system Snapcast units, show each scope and do not
-  collapse conflicting observations into one affirmative state. Given only a
-  Bluetooth radio, show proxy installation and working as `Unknown`.
-- Given version `x` and a missing compatible server, show exact `x`, the missing
-  server and who owns it; given no version evidence, show `Version: Unknown`.
-  Do not imply the page changed the server.
-- Given successful end-to-end evidence from an earlier time, show `Last worked`
-  with its time and test scope; do not claim current working after it becomes
-  stale. Given permission denied, show `Unknown: permission denied` for the
-  affected state, not `No`.
+- **State matrix — future collectors:** for each of LVA, Sendspin, Snapcast and
+  Bluetooth proxy, fixture all six rows independently: installed, enabled,
+  configured, running, connected and current working. For each row inject its
+  own scoped positive, proven negative, missing, permission-denied and stale
+  evidence; expect respectively `Yes`, `No`, `Unknown`, `Unknown: permission
+  denied` and current `Unknown` with stale value labeled `Stale`, plus source/time.
+  Missing rows or a state inferred from a different row fail; unavailable
+  current-working evidence must be `Unknown`.
+- Validate fixture configuration against that runtime/version: valid is `Yes`,
+  independently invalid is `No`, unreadable is `Unknown`. A reachable server
+  without evidence of an established link is `Connected: Unknown`, not `Yes`.
+- Show raw active unit with `Running: Unknown` if runtime correlation is absent;
+  an independently enabled but stopped runtime shows enabled `Yes`, running `No`.
+  A verified package without a unit is installed `Yes`; missing unit alone is
+  installed `Unknown`, and an authoritative absence is `No`.
+- **Current versus history:** inject a scoped success 5 seconds ago without
+  current-function evidence; show `Last worked` with test time and scope, and
+  current working `Unknown`, not `Yes`. Inject later failure or configuration/
+  peer change without a new intrusive check; invalidate current evidence and
+  retain history without relabeling the old success as current.
+- A simulated reviewed live evidence contract for one named function may yield
+  current `Yes` or `No` only with its own valid positive or negative evidence;
+  loss, expiry or scope change yields `Unknown`. Fixture signals are not claims
+  that any actual component offers such a contract.
+- **Multiple runtimes:** show all six rows per discovered runtime/scope, including
+  a non-systemd runtime. For each aggregate row, show `Yes` only when complete
+  scope enumeration and every applicable scope independently say `Yes`; show
+  `No` only when all say `No`; mixed, incomplete, zero or unknown scopes are
+  `Unknown` unless an independent component-level negative is established.
+- Test Snapcast user/system `Yes`/`No` and `No`/`Yes`, a denied scope and an
+  additional non-systemd scope; neither a single unit nor an incomplete scan
+  may determine an aggregate. A radio alone leaves Bluetooth proxy installation
+  and working `Unknown`.
+- For each component show version-scoped prerequisites and sanitized error with
+  source/time. Fixture an evidenced absent server, an unreachable server and an
+  unverified server separately; label each correctly and show independently
+  evidenced ownership or `Owner: Unknown`, never infer it from absence.
+- With no version evidence show `Version: Unknown`; with exact fixture version x
+  show x and its source. Missing lifecycle operations are disabled or absent with
+  a nearby reason, and fake operation logs show no server change or page-load test.
+
+**Open questions:** What nonintrusive, continuously valid end-to-end evidence and
+invalidation rules, if any, can each pinned component provide? Which deployment
+scopes are enumerable and what independently proves a server absent? Until
+reviewed, those answers and current working remain unknown.
 
 **Must never happen:** Treat found, enabled, active or connected as proof of
 working; create an end-to-end check on page load; invent versions or server
@@ -354,27 +456,65 @@ includes adding timestamps and distinguishing absence from read failure.
 
 **Acceptance:**
 
-- Given only the first CPU sample, show total and each discovered core as
-  `Unknown: waiting for second sample`; given two valid samples, show separate
-  total/per-core percentages and the interval. Given a reset counter, show unknown
-  rate until two new valid samples exist.
-- Given `SwapTotal` and `SwapFree`, show used and total in MiB/GiB; given either
-  missing, show used as `Unknown`. Given no readable zram stats, distinguish
-  confirmed no zram devices from `Unknown: stats unavailable`; never infer one
-  from an empty list. Given compressed bytes zero, show ratio `Unknown`, not 0.
-- Given core voltage unavailable and measured 5 V supply 4.8 V, show `CPU-core
-  voltage: Unknown` and `5 V supply: 4.8 V` separately. Given a current or
-  since-boot undervoltage flag, show its scope and raw evidence; do not order a
-  reboot. Given no flag evidence, show unknown, not `No undervoltage`.
-- Given a signed dBm value with verified unit and interface, show it with the
-  interface; given a relative or unknown unit, show `Signal: Unknown` rather
-  than relabeling it as dBm. Given a denied thermal reading, show
-  `Temperature: Unknown: permission denied` and retain other fresh metrics.
-- Given a sample 30 seconds old, show it as fresh; once older than 30 seconds,
-  label it `Stale` with its sample time even if the page is still receiving
-  cached responses. Given no observation time, show unknown age; given a fresh
-  sample, replace the stale reading. No aggregate health score or synthetic
-  working badge appears for any combination of readings.
+- **CPU — future counter-validity collector:** the first sample for total and
+  each core shows `Unknown: waiting for second sample`. For normalized fixture
+  counters with total delta 100, idle delta 25 and interval 10 s, show 75% and
+  10 s for the applicable total/core; zero or negative elapsed time is unknown.
+- Decrease any individual CPU counter while other counters rise enough that their
+  sum still rises; show that series' rate `Unknown: counter reset`, not a clamped
+  percentage. Rebaseline at the reset and require a second valid sample; unrelated
+  cores with valid pairs remain available.
+- Remove a core, then add it back with a new counter sequence: show it unavailable
+  while absent and unknown on its first new sample, not a rate across the gap.
+  An independently new core also waits for its own second sample.
+- **RAM/storage:** for total 1024 MiB and available 256 MiB show estimated RAM
+  used 768 MiB, labeled `total minus available`; missing either input makes used
+  unknown. For root mount total 1000, actual used 600, user-available free 300,
+  reserved 100 MiB, show those sourced values and mount; 700 MiB used fails.
+- **Uptime/swap:** 3600 seconds displays one hour; an unreadable source is
+  unknown, not zero. Swap total 1024 MiB and free 768 MiB shows used 256 MiB;
+  either missing input makes used unknown.
+- For `pswpin` 100→120 and `pswpout` 200→230 over 10 s, show 2 and 3 pages/s
+  and the interval. First/missing samples, nonpositive elapsed time, or a decrease
+  in either counter show that rate unknown; test each decrease separately,
+  rebaseline the affected counter and require a second valid sample rather than
+  treating a reset as continued health.
+- **Compression:** for zram0 original/compressed/resident 8/4/5 MiB show each
+  value and ratio 2; show zram1 independently. Zero compressed bytes makes ratio
+  unknown; a confirmed empty device inventory differs from unreadable stats.
+- Show independently sourced zswap enabled, pool MiB, hits and rejects counts;
+  for fixture `Y`, 4 MiB, 12, 3 display those values. Missing or denied fields
+  show unknown with reason, not zero; decreasing hit/reject counters are labeled
+  reset/rebaselined, not a continuous increase or a performance benchmark.
+- **Power:** with unavailable core voltage and measured supply 4.8 V show
+  `CPU-core voltage: Unknown` and `5 V supply: 4.8 V`. Show current and since-boot
+  flag values and raw hexadecimal evidence independently; missing flags are unknown.
+- For a latched since-boot flag observed at T, show observation time T and event
+  time `unknown` unless separately evidenced; if event time E is supplied, show E
+  separately. Neither case triggers a reboot or substitutes T for E.
+- **Wi-Fi/temperature:** show -60 dBm for wlan0 only with version-scoped driver or
+  collector documentation establishing that source's unit. A signed -60 from a
+  relative/undocumented source is unknown, not dBm; show wlan1 independently.
+- A denied thermal reading shows `Temperature: Unknown: permission denied` with
+  sensor identity if known and preserves other fresh metrics; zone 0 alone does
+  not establish a CPU sensor.
+- **Diagnostics/trends — future C05 collector:** a fixture error/log excerpt with
+  timestamp, source, harmless message, token, Wi-Fi password and microphone data
+  shows the useful sanitized message and time without the sensitive values;
+  missing/denied source shows its reason, and stale entries retain their
+  observation/event times and label.
+- For a requested fixture trend window T=0–60 s with CPU samples 10%, 20%, 30%,
+  40% at 0, 10, 50 and 60 s, show each value/time and the 10–50 s gap, not
+  interpolated health.
+  Empty, denied and stale trend data are labeled separately, not plotted as zero.
+- Across the metric fixtures, verify source, observation time, availability and
+  units; a missing row, an unlabeled stale value, aggregate health score or
+  synthetic working badge fails. A fresh ordered sample replaces stale evidence.
+
+**Open questions:** What trustworthy age/ordering protocol handles clock skew,
+suspend and boot epochs? Which per-board sources establish units and support,
+and which C05 diagnostic sources and trend windows are safe and useful? Until
+reviewed collectors exist, these are fixture contracts, not available readings.
 
 **Must never happen:** Write or trigger a test on page load, infer healthy status
 from missing data, substitute one voltage for another, show stale data unlabeled,
