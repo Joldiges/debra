@@ -23,7 +23,7 @@ records the *intent*, but the device was built by hand and corrected in place:
 | Raspberry Pi OS Lite 64-bit Trixie, 2026-10-06, cloud-init Wi-Fi and user | no — an image and a first-boot file |
 | linux-voice-assistant at `v1.1.18`, plus a 169 MB Python venv | version yes, built state no |
 | Sendspin CLI 9.1.0 and its settings | partly |
-| Docker + Music Assistant container, 2.2 GB of images | no |
+| Docker / container images on the Pi | Docker was disabled at boot; whether images remain and their size is `unknown`. The recorded Music Assistant instance runs on the household HA host, not this Pi; the Pi's `40-music-assistant.sh` was not enabled ([lab result](../testing/results/2026-11-15-lab-pi5-lva-sendspin.md)) |
 | Mixer state: `Line DAC` 106, `Line` 3, stored with `alsactl store` | script yes, the stored blob no |
 | Journald drop-in, sysctl watchdog, systemd user units, `debra-health` timer | scripts yes, but they were typed in by hand first |
 | SSH `40-debra-password.conf` drop-in | no |
@@ -43,8 +43,17 @@ card; accepting that limitation does not require imaging before every small chan
 
 ## What has been taken: a file-level archive
 
-Taken 2026-11-15 over SSH from the running device, into the ignored
-`.local/backups/` (mode 0700, never committed):
+Taken 2026-11-15 over SSH from the running device, into the host's ignored
+`.local/backups/` (directory reported as mode `0700`, never committed). The
+[evidence audit](../notes/2026-11-15-evidence-claim-audit.md) reported the two
+host-held archive files themselves as `0644`, not the required owner-only
+`0600`; their current modes have not been rechecked. A `0700` parent limits
+directory access but does not make the files `0600`, and copying them elsewhere
+can expose their contents. These are sensitive files.
+
+Editing this repository cannot repair either the host-held archives or files
+local to the Pi. Inspecting or changing device-local files requires separate
+authorization; no permission change or live device operation was performed here.
 
 ```
 ssh <device> "sudo tar --numeric-owner --one-file-system --acls --xattrs -C / -cf - \

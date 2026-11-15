@@ -57,8 +57,10 @@ anything that has to enclose the HAT.
 
 Overall model bounding box: **70.6 × 35.6 × 8 mm** (X × Y × Z).
 
-Volume check: 9283 mm³ measured, and 9283 mm³ by hand (plate 7540 + lip ring 2434
-− cable gap 847 − SD notch 168 + standoffs 462 − screw holes 137).
+Volume check: 9283 mm³ measured, and **9284 mm³** from the rounded hand terms
+(plate 7540 + lip ring 2434 − cable gap 847 − SD notch 168 + standoffs 462
+− screw holes 137 = 9284). The 1 mm³ difference is small; the conclusion that
+the hand estimate agrees closely with the measured volume still holds.
 
 ## Printing
 

@@ -14,18 +14,20 @@ each device is to doing it with vendor firmware alone.
 The protocol-level answer comes from the
 [music transport and control map](../notes/2026-11-15-music-transport-and-control-map.md)
 (R03, unreviewed). Pause, resume, per-player volume and mute are specified
-interfaces in Sendspin; **Snapcast has no pause at all**, and a Sendspin **pause
-ends the stream**, so resume is a fresh `stream/start` at the server. What remains
-unverified is the Debra device and what Music Assistant does in practice, not the
-existence of the interface. LVA's own player behavior still does not prove control
-of another process, and no multiroom or interruption test is claimed. Source checks
-dated 2026-11-15.
+interfaces in Sendspin; a Sendspin **pause ends the stream**, so resume starts a
+fresh `stream/start` at the server. R03 reports no receiver-level Snapcast pause;
+its `Stream.Control` can forward pause to a supporting source [S66 R]. Music
+Assistant documents STOP and RESUME to emulate pause, without a paused player
+state [S65 R]. What remains unverified is the Debra device and what Music
+Assistant does in practice, not the existence of the interface. LVA's own player
+behavior still does not prove control of another process, and no multiroom or
+interruption test is claimed. Source checks dated 2026-11-15.
 
 | Layer | Documented control | What it does not give Debra |
 | --- | --- | --- |
 | Sendspin protocol | `controller@v1` pause/play/next/previous/seek; per-player `volume`/`mute` on a `(v/100)^1.5` curve | A paused buffer on the receiver: pause ends the stream, and resume is a fresh `stream/start`. Whether Music Assistant emits that `stream/end` in practice is `U` |
 | Sendspin Python CLI 9.1.0 | controller role only when MPRIS is enabled; hardware volume in daemon mode writes the **system sink** | A private trim: that sink write is the same control the voice assistant's replies use |
-| Snapcast | `Client.SetVolume`, `Group.SetMute`, `Group.SetStream`; snapclient applies volume locally as a **sink-input** | **Any pause.** MA emulates it with stop+resume, so the player state never shows paused |
+| Snapcast | `Client.SetVolume`, `Group.SetMute`, `Group.SetStream`; `Stream.Control` can forward pause to a supporting source [S66 R]; snapclient applies volume locally as a **sink-input** | R03 reports no receiver-level pause. MA documents stop+resume to emulate pause, so the player state never shows paused [S65 R] |
 | Music Assistant | Pauses the queue and sets player volume through the active protocol | An announcement level on the Sendspin provider, and a stable group balance after a duck |
 | PipeWire / PulseAudio | Sink-input volume is per-stream and genuinely independent of the sink | A protocol-visible control: the sender cannot see a local gain change |
 | Home Assistant | `media_player.media_pause` and `volume_set` reach MA | Anything past MA, such as a per-device attenuation |
@@ -75,14 +77,16 @@ projects are heading, and Snapcast is the fallback that already works.
   documented as voice feedback, not music [S1]; one user reports heavy clipping
   from the 3.5 mm jack into a powered speaker and hypothesises headphone-level
   rather than line-level output, with no vendor answer found. That is one report
-  and a hypothesis, not a measurement — test the jack before trusting it for music.
+  (`R`, thread dated 2025-12-24) and a hypothesis, not a measurement; it is
+  attributed in the [R02 revision](../notes/2026-11-15-complete-alternatives-comparison-revision.md).
 - **A dropout is not automatically the protocol's fault.** One Voice PE Sendspin
   case closed with the reporter naming the access point and a 2.4 GHz channel
   about 52 % busy, resolved by a cleaner channel; a maintainer had first read the
   same logs as device-side [S55 R]. One resolved case, not a general cause.
-- **Version gates are sharp.** Sendspin needs a recent ESPHome and a Sendspin
-  server (MA 2.11 beta; stable was 2.10.12 when this was written), and MA's own
-  Sendspin page says "still in technical preview… expect it to change" [S56]. The
+- **Version gates need checking.** Exact compatible ESPHome and server versions,
+  including the MA version gate and stable release at the time, are unconfirmed
+  here `U`. MA's own Sendspin page says "still in technical preview… expect it to
+  change" [S56 D]. The
   Snapcast → Sendspin move on Satellite1 is breaking: old players have to be
   deleted, not upgraded [S33].
 - **Sendspin is not the only path, and the HA player path cannot sync.** Music

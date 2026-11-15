@@ -7,8 +7,8 @@
 > announcement fan-out is a proposal, not an adopted default. Native browser
 > volume uses [one explicitly selected sink](../../control/web/README.md).
 > Tone/microphone measurements do not prove speech level, safety or inaudibility.
-> The experiments below **did generate sound** despite “nothing audible” wording;
-> do not repeat them under the current silent-investigation constraint.
+> The experiments below **did generate sound**; do not repeat them under the
+> current silent-investigation constraint.
 > The earlier power-fault description is historical; James reports improvement
 > after changing the supply.
 
@@ -16,8 +16,9 @@ James asked for this on 2026-11-15: *"the user should be able to easily select
 which outputs it runs on — or maybe even on 'all' at once such that any one
 plugged in will be had."*
 
-**Requirement and design options, not implemented behaviour.** What is actually
-proven on the lab device is marked `T`; everything else is proposed or unknown.
+**Requirement and design options, not implemented behaviour.** `T` means a
+linked device test record; `reported` identifies historical observations without
+such a record. Proposals and unknowns are not proven behavior.
 
 ## "Output" means three different things
 
@@ -26,24 +27,27 @@ independent, and each needs its own setting.
 
 | Layer | What it is | On the lab Pi today |
 | --- | --- | --- |
-| **Codec taps** | One sound card, several physical output pins on the codec: line out, headphone out, composite out. All can be live at once with independent gains | `T` — the HAT's speaker is on **line out**; headphone and composite are silent |
-| **Sinks** | PipeWire nodes, one per physical device: the HAT card, HDMI 0, HDMI 1, any USB DAC | `T` — only the HAT sink exists, because both HDMI ports are disconnected |
-| **Network players** | Sendspin and Snapcast: the music goes out over the network to a player, which is a different transport entirely | `T` — Sendspin 9.1.0 is running and pointed at the same sink |
+| **Codec taps** | One sound card, several physical output pins on the codec: line out, headphone out, composite out; independent gains are a design consideration | `T` — the [path test](../testing/results/2026-11-15-lab-pi5-silence-and-hang.md) found the speaker on **line out**. Jack routing is `unknown`; no headphones were plugged in |
+| **Sinks** | PipeWire nodes for outputs such as the HAT, HDMI or a USB DAC | `reported` — this page's historical observation below says HDMI 0 appeared even without a display; HDMI 1 did not. No linked result record confirms it |
+| **Network players** | Sendspin and Snapcast: the music goes out over the network to a player, which is a different transport entirely | `T` — Sendspin 9.1.0 streamed to the HAT sink in the [lab result](../testing/results/2026-11-15-lab-pi5-lva-sendspin.md) |
 
 A user who says "play on the speaker or the TV" is usually talking about layer 2.
-A user who says "and my headphones too" is talking about layer 1. A user asking
-"why does music go to the other room" is talking about layer 3.
+A user who says "and my headphones too" may be talking about layer 1, depending
+on the jack's routing. A user asking "why does music go to the other room" is
+talking about layer 3.
 
 ## The finding that changes the design
 
-The speaker on the ReSpeaker 2-Mics HAT is fed from the codec's **line output**
-through the board's TPA2005D1 amplifier; the 3.5 mm jack is on the **headphone**
-output. Measured on the bare card with PipeWire stopped, a 1 kHz tone played to
-each path in turn and recorded by the HAT's own microphone:
+The [path test](../testing/results/2026-11-15-lab-pi5-silence-and-hang.md)
+supports the speaker being fed from the codec's **line output** through the
+board's TPA2005D1 amplifier (`tested`, one specimen). Which tap feeds the 3.5 mm
+jack remains `unknown`: nothing was plugged into it. With PipeWire stopped, a
+1 kHz tone was played to each path in turn and recorded by the HAT's own
+microphone:
 
 | Path | Microphone at 1 kHz |
 | --- | --- |
-| `HP` (headphone, the jack) | nothing, ≈ −100 dBFS — no headphones were plugged in |
+| `HP` (headphone tap; jack routing unverified) | ≈ −100 dBFS, near the noise floor — no headphones were plugged in |
 | `HPCOM` (composite) | nothing, ≈ −90 dBFS |
 | `Line` (the speaker) | **−21 dBFS** |
 
@@ -68,23 +72,21 @@ Two consequences:
 | Option | How | Good | Bad |
 | --- | --- | --- | --- |
 | **One selected sink** | Set the PipeWire default sink to the user's choice | Simplest, no drift, works with any player | Nothing else plays; the user has to know the name |
-| **Combine sink** | A virtual sink that fans out to several real sinks | "All at once" for announcements; one setting | Members are not clock-locked, so long playback drifts; each member has its own volume; HDMI only exists while a display is connected |
+| **Combine sink** | A virtual sink intended to fan out to several real sinks | Proposed "all at once" for announcements; one setting | Independent clocks may drift; each member has its own volume; output presence and hotplug behavior are unverified |
 | **Default follows hotplug** | `module-switch-on-connect`: a newly connected device becomes the default | Plug in a TV, sound goes there | It *moves* the audio instead of adding it, so a plugged-in monitor silently steals the voice reply — exactly the failure the pinned `AUDIO_OUTPUT_DEVICE` was added to prevent |
 
-The recommendation is a **combine sink as the default, with the single-sink
-option kept**, because the two failure modes are not symmetric: a combine sink
-that includes an unplugged output is harmless, while a hotplug default that
-steals the voice reply is a bug report.
+A combine sink with a single-sink option was proposed, not adopted. Whether an
+unplugged member is harmless, and how hotplug affects replies, remain unverified;
+see [the correction note](../notes/2026-11-15-audio-and-enclosure-corrections.md).
 
-### Where the combine sink must not be used
+### Proposed boundary for the combine sink
 
-Music. Sendspin and Snapcast do their own clock synchronisation across devices;
-a combine sink would duplicate the stream into sinks with independent clocks and
-break the thing those protocols exist for. So the rule is:
+Music is a proposed exclusion: Sendspin and Snapcast synchronize players, but
+fan-out to sinks with independent clocks may undermine that synchronization.
+Neither the effect nor the following split has been tested or adopted:
 
-- **Voice, announcements, timers, chimes → the combine sink.** They are short,
-  drift cannot accumulate, and being heard in every room is the point.
-- **Music → one sink, chosen by the user.** Sendspin's own sync stays intact.
+- **Voice, announcements, timers, chimes → the combine sink:** proposed fan-out.
+- **Music → one sink, chosen by the user:** proposed way to avoid local fan-out.
 
 That split matches the existing product decision that duck/resume and pause/resume
 are a user setting, and it is the same boundary `M04` describes as
@@ -92,7 +94,7 @@ are a user setting, and it is the same boundary `M04` describes as
 
 ## What the user should actually touch
 
-A small, boring interface, because this is a thing people set once:
+A small, boring **proposed** interface; these commands do not exist:
 
 ```
 debra-audio outputs                 # list what exists, what is connected, what is active
@@ -102,75 +104,72 @@ debra-audio outputs set all         # combine: everything currently present
 debra-audio outputs follow on|off   # whether a newly plugged device becomes active
 ```
 
-Underneath: a config file with the chosen profile, a systemd user unit that
-applies it at boot and on device change, and `pactl`/`wpctl` calls that can be
-run by hand when the UI is broken. No hidden state: the config says what should
-be true, and `debra-audio outputs` reports what is true.
+Proposed underneath: a config file with the chosen profile, a systemd user unit
+that applies it at boot and on device change, and manual recovery using
+`pactl`/`wpctl`. The goal is no hidden state: the config would say what should
+be true, and `debra-audio outputs` would report what is true.
 
 ## What is not settled
 
 - **Whether the 3.5 mm jack is on the line tap or the headphone tap.** The
-  speaker is on line; the jack is untested. If the jack is also on line, then
-  "speaker and headphones" cannot be separated by the codec and the only
-  distinction is volume. **Next check:** plug headphones into the HAT, enable
-  `HP`, play a tone, and see which tap makes sound. **Not tested on 2026-11-15
-  because it needs audible output.**
-- **Volume behaviour in a combine sink.** Measured 2026-11-15, below: the
-  virtual sink's volume is a **second** cubic attenuator on top of each member's,
-  so a virtual sink at 50 % costs 17.7 dB, not 6 dB. What a *hardware* volume
-  control (`PCM` on the HAT) does to a combine member is still untested, because
-  the HAT sink has no separate hardware control in this profile.
+  speaker is on line; the jack is untested. If the jack is also on line, codec
+  routing may not separate speaker and headphones. A future check would require
+  plugging in headphones and testing each tap; that audible test is not currently
+  authorized.
+- **Volume behaviour in a combine sink.** The historical observation below
+  `reports` a 17.7 dB reduction at 50 % and suggests a second cubic attenuator.
+  There is no linked test record establishing that conclusion; hardware volume
+  interaction and general behavior are `unknown`.
 - **Bluetooth.** Not considered at all. It is a sink like any other in
   principle, and it has its own latency and reconnect problems.
-- **Whether the user wants music to follow the announcement profile.** Today
-  they are separate by design; that is a decision to confirm, not a fact.
+- **Whether the user wants music to follow the announcement profile.** Separate
+  profiles are a proposal, not an adopted decision.
 
-## What the lab Pi answered, 2026-11-15
+## Historical lab observations reported 2026-11-15
 
-Three of the open questions above are now measured rather than assumed. Nothing
-audible was played, so none of this disturbs a sleeping house.
+The following are `reported` observations by this historical page's original
+author (identity not recorded), not `tested` results: there is no linked result
+record for the combine-sink, echo-cancel or HDMI checks. A tone was played; its
+recorded microphone level does not establish that it was inaudible or safe. See
+the [correction note](../notes/2026-11-15-audio-and-enclosure-corrections.md) and
+the [evidence audit](../notes/2026-11-15-evidence-claim-audit.md).
 
 | Question | Answer |
 | --- | --- |
-| Is `module-combine-stream` available? | **Yes.** `libpipewire-module-combine-stream.so` is present on PipeWire 1.4.2 (`/usr/lib/aarch64-linux-gnu/pipewire-0.3/`), so the native PipeWire combine sink is usable and the PulseAudio-compat `module-combine-sink` is not needed |
-| Is `module-echo-cancel` available? | **Yes.** `libpipewire-module-echo-cancel.so` is present, so the reply re-triggering the wake word can be attacked with a real echo-cancel sink instead of by lowering the volume |
-| Do HDMI sinks appear with no display connected? | **Yes, and this contradicts what was assumed.** `alsa_output.platform-107c701400.hdmi.hdmi-stereo` exists in `SUSPENDED` state with nothing plugged into either port. Only HDMI **0** appears; HDMI **1** does not |
-| Does a combine sink work, and does audio reach the speaker through it? | **Yes to both.** `pactl load-module module-combine-sink sink_name=debra_test slaves=<HAT sink>` returns a module id and creates a working sink. A tone played with `pw-play --target debra_test` measured −40.4 dBFS at the microphone, against −40.6 dBFS playing to the member sink directly, so it passes at unity |
-| Does the combine sink's own volume do what a user expects? | **No.** It is a second cubic attenuator multiplying with the member's: 100 % → 50 % cost **17.7 dB**, not 6, and 35 % cost 26.7 dB. Leave the virtual sink at 100 % and set levels on the members |
-| Does `module-echo-cancel` actually load, or does it only exist on disk? | **It loads.** `pactl load-module module-echo-cancel source_name=… sink_name=… aec_method=webrtc source_dont_move=true sink_dont_move=true` returns a module id on this image, with `libwebrtc-audio-processing-1.so.3` installed. The resulting source passes the microphone through: a 2 s recording from it measured −57.9 dBFS rms, so it is live audio and not silence |
+| Is `module-combine-stream` available? | `reported`: `libpipewire-module-combine-stream.so` was present on PipeWire 1.4.2. Presence alone does not demonstrate a usable native combine sink |
+| Is `module-echo-cancel` available? | `reported`: `libpipewire-module-echo-cancel.so` was present. Presence alone does not demonstrate echo cancellation |
+| Do HDMI sinks appear with no display connected? | `reported`: HDMI **0** appeared in `SUSPENDED` state with neither display connected; HDMI **1** did not |
+| Does a combine sink work, and does audio reach the speaker through it? | `reported`: `pactl load-module module-combine-sink sink_name=debra_test slaves=<HAT sink>` returned a module id; a tone played with `pw-play --target debra_test` registered −40.4 dBFS at the microphone, versus −40.6 dBFS directly to the member. This is not a linked test result or proof of general unity gain |
+| Does the combine sink's own volume do what a user expects? | `reported`: reducing 100 % to 50 % cost 17.7 dB; 35 % cost 26.7 dB. A second cubic attenuator was inferred, not independently established |
+| Does `module-echo-cancel` actually load, or does it only exist on disk? | `reported`: `pactl load-module module-echo-cancel source_name=… sink_name=… aec_method=webrtc source_dont_move=true sink_dont_move=true` returned a module id with `libwebrtc-audio-processing-1.so.3` installed; a 2 s recording from the resulting source registered −57.9 dBFS rms. This does not establish effective cancellation |
 
-The echo-cancel source is the mechanism for stopping a reply from re-triggering
-the wake word, and the reason it matters is now measurable: at the volume the
-device runs at, a reply reaches the microphones around −40 dBFS, which is louder
-than a person speaking across a room. What is **not** tested is whether the
-cancellation actually works — that needs the wake word to fire, which needs
-speech, which needs a person. `source_dont_move` and `sink_dont_move` are not
-optional in that test: without them the module takes over the default source and
-the voice assistant starts listening to a node it did not expect.
+Echo cancellation is a candidate for reducing reply-triggered wake words, not a
+demonstrated solution. The tone results do not establish speech level or a
+comparison with a person speaking across the room. Effective cancellation and
+wake-word behavior are `unknown`; a future test needs separate authorization.
+The historical observation also warns that omitting `source_dont_move` and
+`sink_dont_move` may change default routing; this is not a verified procedure.
 
 ### Consequence for the "all outputs" profile
 
-A combine sink is the right mechanism and it works, but its volume must be left at
-100 % or it silently undoes the user's setting twice over. The interface in
-"what the user should actually touch" therefore sets **member** volumes, and the
-virtual sink exists only to fan the stream out. That is also why a member that is
-unplugged is harmless — the fan-out has nothing to say about level.
+The reported results motivate investigation of member and virtual-sink volume,
+but do not establish a correct default, safe level, or harmless behavior when a
+member is unplugged. The interface above is a design sketch only.
 
-The measurement was made with the tone at 36 % of the member sink's volume, which
-is the level the device runs at, and the microphone as the detector, so nothing
-was played louder than a normal spoken reply. The full sweep is in
-[the audio-levels result](../testing/results/2026-11-15-lab-pi5-audio-levels.md).
+The page reports using a tone at 36 % of the member sink's volume and the
+microphone as detector. The separate [audio-levels result](../testing/results/2026-11-15-lab-pi5-audio-levels.md)
+records a tone sweep, not the combine-sink check; it cannot establish speech
+loudness or safety.
 
-The HDMI answer changes the design: an "all outputs" combine sink would include a
-dead HDMI member on a device with no screen. That is not harmful for a chime, but
-it means "all" cannot be defined as "every sink that exists" — it has to be
-"every sink the user has chosen, present or not", and the presence check has to
-come from somewhere other than `pactl list sinks`.
+The reported HDMI observation suggests that an "all outputs" design must not
+equate sink existence with an attached display. How to detect presence and handle
+unavailable selected outputs remains `unknown`.
 
 ## Why this is not being built now
 
-It touches the audio server, the service that runs the voice assistant, and the
-boot path at the same time, on a device whose power rail still sags. It belongs
+It would touch the audio server, the service that runs the voice assistant, and
+the boot path at the same time. Earlier power sag is historical; James reports
+improvement with a replacement supply, not a new measurement. It belongs
 with `A02` (hardware profiles, gains and routing) and `M04` (coexistence policy),
 both of which are blocked on a verified baseline — which is now closer, because
-the line-versus-headphone finding removes a wrong assumption from that baseline.
+the speaker line-path finding removes a wrong assumption from that baseline.

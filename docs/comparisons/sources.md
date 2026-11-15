@@ -71,6 +71,8 @@ makes the cell unusable.
 | S62 | Arace Tech — Radxa ZERO 3W listing | https://arace.tech/products/radxa-zero-3w | 2026-11-15 | $20.00 page regular price, the variant it applies to was not rendered, and all 12 listed RAM/eMMC/header combinations were sold out |
 | S63 | raspberry.tips — Zero 2 W alternative sold out (article dated 2026-11-08) | https://raspberry.tips/raspberrypi-infos/raspberry-pi-zero-2-w-alternative-ausverkauft | 2026-11-15 | Orange Pi Zero 2W 1 GB at 53,00 € incl. VAT via an Amazon.de marketplace listing (price widget stamped 2026-11-11 19:50, "few left"), "ab rund 86 €" for higher-RAM variants, and a "rund 13 Dollar" launch recollection |
 | S64 | pinout.xyz — pin 12, GPIO18 | https://pinout.xyz/pinout/pin12_gpio18 | 2026-11-15 | third-party Pi 40-pin reference used for pin positions because raspberrypi.com returned HTTP 403: 3/5 I2C1, 12/35/38/40 PCM, 13 GPIO27, 27/28 HAT ID EEPROM |
+| S65 | Music Assistant — Snapcast player support | https://www.music-assistant.io/player-support/snapcast/ | 2026-11-15 | Per the unreviewed R03 note: "MA issues a STOP and RESUME command to achieve the pause effect but this means the resulting player state never changes to paused" |
+| S66 | Snapcast — JSON-RPC control API | https://raw.githubusercontent.com/badaix/snapcast/master/doc/json_rpc_api/control.md | 2026-11-15 | Per the unreviewed R03 note: `Stream.Control` forwards commands including pause to a stream's control script, when the source supports them |
 
 `T` is the only source in this register that is a Debra observation rather than a
 third-party page. The others include vendor, upstream and attributed secondary
