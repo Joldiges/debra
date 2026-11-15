@@ -95,6 +95,7 @@ function render() {
   el("device-name").textContent = status.hostname || "your Debra";
   const host = status.hostname || "debra";
   el("device-url").textContent = `http://${host}.local:8787/`;
+  el("device-name-again").textContent = host;
   el("footer-note").textContent = status.phase === "online"
     ? "This page only configures Wi-Fi. Everything else is on the device's own page."
     : "Only Wi-Fi details are accepted on this page. Nothing here changes your home router.";

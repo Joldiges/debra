@@ -78,18 +78,22 @@ code { background: #101619; border: 1px solid var(--line); border-radius: 6px; p
   <section id="handover" class="card hidden">
     <p class="eyebrow">LAST STEP</p>
     <h1>Your phone is about to leave this network</h1>
-    <p>This device has only one Wi-Fi radio, so the setup network
-       <strong id="hotspot-name">Debra-Setup</strong> has to switch off before it can
-       join <strong id="join-name">your network</strong>. That will disconnect this page.</p>
+    <p>This device has only one Wi-Fi radio, so it has to switch off
+       <strong id="hotspot-name">the setup network</strong> before it can join
+       <strong id="join-name">your network</strong>. That will disconnect this page.</p>
     <p class="big">On your phone:</p>
     <ul>
       <li>Reconnect to your home Wi-Fi.</li>
-      <li>Open <code id="device-url">http://debra.local:8787/</code>.</li>
-      <li>If that does not open, the device will bring the setup network back with
-          the reason it failed.</li>
+      <li>Look for this device on that network under the name
+          <strong id="device-name-again">debra</strong>.</li>
+      <li>If the device could not join, it brings this setup network back and
+          says why, so you can try again.</li>
     </ul>
-    <p class="detail">Nothing is rebooted. If the password was wrong, the setup
-       network comes back in about a minute so you can try again.</p>
+    <p class="detail">Nothing is rebooted. A join that fails comes back as soon
+       as the attempt gives up; a join that works does not come back, because
+       the device is on your network instead.</p>
+    <p class="detail">Once web control is installed, its own page is at
+       <code id="device-url">http://debra.local:8787/</code></p>
   </section>
 
   <section id="failed" class="card hidden">

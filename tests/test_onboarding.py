@@ -1571,3 +1571,75 @@ class BaselinePublishTests(Temp):
                 baseline_module.capture(self.baseline_dir, root=root, stamp="E1")
         names = sorted(path.name for path in self.baseline_dir.iterdir())
         self.assertEqual(names, [], f"an archive with no manifest was left: {names}")
+
+
+class CaptivePortalTests(Temp):
+    """A phone should offer to open the page instead of being told to type it."""
+
+    def setUp(self):
+        super().setUp()
+        self.network = FakeNetwork()
+        self.onboarder = self.onboarder(self.network)
+        self.onboarder.start_hotspot()
+        self.server = onboarding.Portal(("127.0.0.1", 0), self.onboarder,
+                                        onboarding.ASSETS / "setup.html")
+        self.host = "127.0.0.1:%d" % self.server.server_port
+        self.server.host = self.host
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join()
+        super().tearDown()
+
+    def probe(self, path, host=None, method="GET"):
+        request = urllib.request.Request("http://" + self.host + path, method=method)
+        request.add_header("Host", host or self.host)
+        opener = urllib.request.build_opener(NoRedirect)
+        try:
+            with opener.open(request, timeout=10) as response:
+                return response.status, response.headers.get("Location"), response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.headers.get("Location"), exc.read()
+
+    def test_every_known_probe_redirects_to_the_page(self):
+        for path in sorted(onboarding.CAPTIVE_PROBES):
+            with self.subTest(path=path):
+                code, location, _ = self.probe(path)
+                self.assertEqual(code, 302)
+                self.assertEqual(location, f"http://{self.host}/")
+
+    def test_a_probe_with_the_operating_systems_own_host_still_redirects(self):
+        # The OS asks for these paths with its own name, so the same-origin
+        # check must not apply. It is the page that must stay same-origin.
+        code, location, _ = self.probe("/generate_204",
+                                       host="connectivitycheck.gstatic.com")
+        self.assertEqual(code, 302)
+        self.assertEqual(location, f"http://{self.host}/",
+                         "the redirect was built from the attacker-controlled Host")
+
+    def test_a_head_probe_gets_the_redirect_and_no_body(self):
+        code, location, body = self.probe("/hotspot-detect.html", method="HEAD")
+        self.assertEqual(code, 302)
+        self.assertEqual(location, f"http://{self.host}/")
+        self.assertEqual(body, b"")
+
+    def test_an_unknown_path_is_still_refused(self):
+        # Not a probe, so it is not redirected: the redirect is only for the
+        # handful of paths an operating system actually asks for.
+        code, location, _ = self.probe("/admin", host="connectivitycheck.gstatic.com")
+        self.assertEqual((code, location), (404, None))
+        code, location, _ = self.probe("/admin")
+        self.assertEqual((code, location), (404, None))
+
+    def test_the_page_itself_is_still_same_origin_only(self):
+        code, _, _ = self.probe("/", host="evil.example")
+        self.assertEqual(code, 403)
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Ask for the response itself, not the page it points at."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None

@@ -532,6 +532,28 @@ class Onboarder:
         return self.start_hotspot()
 
 
+# The addresses phones and laptops probe to decide whether they are behind a
+# captive portal. Answering with a redirect is what makes the operating system
+# offer to open this page; without it a person has to read an address off the
+# card and type it, which is the step most likely to lose them.
+#
+# Whether the probe ever arrives is a separate question, and an open one: the
+# setup network's DNS has to resolve these names to the access point. Network
+# Manager's shared mode does not promise that, so this is a best-effort
+# improvement, not a captive portal that has been demonstrated on a phone.
+CAPTIVE_PROBES = frozenset({
+    "/generate_204",       # Android
+    "/gen_204",            # Android, older
+    "/hotspot-detect.html",  # Apple
+    "/library/test/success.html",  # Apple, older
+    "/connecttest.txt",    # Windows
+    "/ncsi.txt",           # Windows
+    "/redirect",           # Windows
+    "/canonical.html",     # Firefox
+    "/success.txt",        # Firefox
+})
+
+
 class Portal(ThreadingHTTPServer):
     """The setup page, reachable only on the access point's own address."""
 
@@ -570,7 +592,41 @@ class PortalHandler(BaseHTTPRequestHandler):
             return False
         return self.headers.get("Sec-Fetch-Site") != "cross-site"
 
+    def _portal_url(self):
+        """The address this page is served on, built from the bind, not the Host.
+
+        The Host header is attacker-controlled: reflecting it would make this an
+        open redirect, and a phone would then be sent somewhere else entirely.
+        """
+        return f"http://{self.server.host}/"
+
+    def _redirect_to_page(self, body=True):
+        payload = (f'<!doctype html><meta http-equiv="refresh" '
+                   f'content="0;url={self._portal_url()}">'
+                   f'<a href="{self._portal_url()}">Set up this device</a>\n').encode()
+        self.send_response(302)
+        self.send_header("Location", self._portal_url())
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if body:
+            self.wfile.write(payload)
+
+    def do_HEAD(self):
+        if self.path.split("?")[0] in CAPTIVE_PROBES:
+            self._redirect_to_page(body=False)
+            return
+        self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self):
+        if self.path.split("?")[0] in CAPTIVE_PROBES:
+            # Deliberately before the same-origin check: the operating system
+            # asks for these paths with its own host name, not ours.
+            self._redirect_to_page()
+            return
         if self.path == "/api/status":
             if not self._same_origin():
                 self._reply(403, {"error": "Unrecognized host"})

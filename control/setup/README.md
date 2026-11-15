@@ -81,6 +81,31 @@ told and can mistype. Root can bind it. `0.0.0.0` is not an option: the portal's
 same-origin check compares the `Host` header with the address it was given, so a
 wildcard bind would reject the pages it served.
 
+## The phone should offer to open the page
+
+Phones and laptops ask a well-known address whether they are behind a captive
+portal: `/generate_204` on Android, `/hotspot-detect.html` on Apple devices,
+`/connecttest.txt` and `/ncsi.txt` on Windows, `/canonical.html` on Firefox.
+The portal answers each of those with a `302` to its own page, built from the
+address it bound rather than from the request's `Host` header, so it cannot be
+used as an open redirect. That is what makes the operating system show a "sign
+in to network" sheet instead of the person having to read an address off the
+card.
+
+**Whether the probe ever arrives is unverified.** It depends on the setup
+network resolving those names to the access point, which is the DNS that
+NetworkManager's shared mode runs, not something Debra configures. If it does
+not, the page is still reachable by typing the address from the card note, and
+nothing is worse than before. On a device, this is the check:
+
+```sh
+# while the setup access point is up, from a phone or laptop joined to it
+getent hosts connectivitycheck.gstatic.com   # should answer the AP address
+curl -sI http://connectivitycheck.gstatic.com/generate_204 | head -3
+```
+
+A `302` with a `Location` on the setup network is the whole mechanism working.
+
 ## What the device must already have
 
 - NetworkManager with `NetworkManager.service`, and `nmcli`.
@@ -217,8 +242,10 @@ Ordered by how likely it is to bite on a real first boot.
    adapter refuses a name that would not resolve as `<name>.local`, and the name
    is applied again on every boot, so a failure is retried rather than
    remembered as done. No boot has applied one.
-7. **No captive-portal helper.** A phone will not offer to open the page; the
-   address has to be typed from the card note.
+7. **The captive-portal redirect may never be asked for.** The probe paths are
+   answered, but the setup network's DNS decides whether a phone reaches them;
+   see [above](#the-phone-should-offer-to-open-the-page). Until that is measured
+   on a phone, the card-note address is the reliable route.
 8. **The network scan has never run against a radio.** It is issued once, before
    the access point is raised, because a scan with the access point up can drop
    the person's phone off it. Whether that window is clean on a real driver, and
