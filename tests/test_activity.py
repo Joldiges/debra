@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -238,6 +239,30 @@ class ActivityTests(unittest.TestCase):
             result = activity.sessions_snapshot()
         self.assertIn("too large", result["error"])
         self.assertEqual(result["sessions"], [])
+
+    def test_turn_in_progress_is_working(self):
+        # busy is the last turn start, idle the last turn end; a start with no
+        # end is a turn that is still running.
+        result = self.session_result({"data": [{"title": "t", "time": {"busy": 2000}}]})
+        self.assertIsNone(result["error"])
+        self.assertTrue(result["sessions"][0]["working"])
+
+    def test_session_with_no_turns_is_unknown(self):
+        result = self.session_result({"data": [{"title": "t", "time": {}}]})
+        self.assertIsNone(result["error"])
+        self.assertIsNone(result["sessions"][0]["working"])
+
+    def test_session_with_only_an_end_time_is_idle(self):
+        result = self.session_result({"data": [{"title": "t", "time": {"idle": 2000}}]})
+        self.assertIsNone(result["error"])
+        self.assertFalse(result["sessions"][0]["working"])
+
+    def test_ago_accepts_seconds_and_milliseconds(self):
+        now = time.time()
+        self.assertRegex(activity._ago(now - 5), r"^[0-9]+s ago$")
+        self.assertRegex(activity._ago((now - 300) * 1000), r"^[0-9]+m ago$")
+        self.assertEqual(activity._ago(None), "unknown")
+        self.assertEqual(activity._ago(0), "unknown")
 
     def test_web_probe_oserror_is_reported(self):
         with mock.patch.object(activity, "sessions_snapshot", return_value={"error": None, "sessions": []}), \

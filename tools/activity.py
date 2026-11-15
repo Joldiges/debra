@@ -131,6 +131,25 @@ def _seconds_since(utc_stamp: str) -> int | None:
     return max(0, int(time.time() - started))
 
 
+def _ago(stamp) -> str:
+    """Render a session timestamp as a rough age. Accepts seconds or milliseconds."""
+    try:
+        value = float(stamp)
+    except (TypeError, ValueError):
+        return "unknown"
+    if not value:
+        return "unknown"
+    seconds = time.time() - (value / 1000 if value > 10**11 else value)
+    seconds = max(0.0, seconds)
+    if seconds < 90:
+        return f"{int(seconds)}s ago"
+    if seconds < 5400:
+        return f"{int(seconds / 60)}m ago"
+    if seconds < 172800:
+        return f"{seconds / 3600:.1f}h ago"
+    return f"{seconds / 86400:.1f}d ago"
+
+
 def _session_rows(payload) -> list[dict]:
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         raise ValueError("invalid session list")
@@ -154,6 +173,17 @@ def _session_rows(payload) -> list[dict]:
                         not 0 <= value <= 10**20 or not math.isfinite(value)):
                     raise ValueError("invalid session number")
         busy, idle = times.get("busy"), times.get("idle")
+        # `busy` and `idle` are the timestamps of the last turn start and end.
+        # A turn that has started and not ended is working; a session that has
+        # never had a turn has neither and stays unknown.
+        if busy is None and idle is None:
+            working = None
+        elif idle is None:
+            working = True
+        elif busy is None:
+            working = False
+        else:
+            working = busy > idle
         rows.append({
             "id": item.get("id") or "",
             "title": item.get("title") or "(untitled)",
@@ -161,7 +191,7 @@ def _session_rows(payload) -> list[dict]:
             "model": "/".join(filter(None, [model.get("providerID"), model.get("id")]))
                      + (f"#{model['variant']}" if model.get("variant") else ""),
             "child": bool(item.get("parentID")),
-            "working": busy > idle if busy is not None and idle is not None else None,
+            "working": working,
             "cost": item.get("cost") or 0.0,
             "updated": times.get("updated") or times.get("created") or 0,
         })
@@ -250,11 +280,15 @@ def render(port: int) -> str:
         out.append(f"- {agents['error']}")
     else:
         working = [s for s in agents["sessions"] if s["working"]]
-        out.append(f"- {len(working)} working, {len(agents['sessions'])} known sessions")
+        idle = len(agents["sessions"]) - len(working)
+        out.append(f"- {len(working)} working · {idle} idle · {len(agents['sessions'])} known sessions")
         for s in agents["sessions"][:8]:
             state = "**working**" if s["working"] is True else "idle" if s["working"] is False else "unknown"
             kind = "subagent" if s["child"] else "session"
-            out.append(f"- {state} · {kind} · {s['title']} · `{s['model']}` · ${s['cost']:.4f}")
+            out.append(f"- {state} · {kind} · {s['title']} · `{s['model']}` · ${s['cost']:.4f}"
+                       f" · updated {_ago(s['updated'])}")
+        out.append("- A point-in-time snapshot: a session between turns shows idle, which is not the")
+        out.append("  same as abandoned. Run with `--watch 5` for a live view.")
     out.append("")
 
     out.append("## Development web server")
