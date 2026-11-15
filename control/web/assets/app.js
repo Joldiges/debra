@@ -322,6 +322,57 @@ function canonicalDeviceUrl(url) {
   return canonical.length <= 200 ? canonical : null;
 }
 let loadingDevices = false;
+// Is this row the server the page came from? Matching the origin is exact; the
+// name comparisons cover the usual case where the page was opened by IP but the
+// device advertises a .local name (or the other way round).
+function isSelfDevice(url, self) {
+  const authority = url.slice("http://".length).replace(/\/$/, "");
+  if (authority.toLowerCase() === location.host.toLowerCase()) return true;
+  const hostname = String(self?.hostname || "").toLowerCase();
+  if (!hostname || self?.port == null) return false;
+  const port = authority.slice(authority.lastIndexOf(":") + 1);
+  if (port !== String(self.port)) return false;
+  const host = authority.slice(0, authority.lastIndexOf(":")).toLowerCase();
+  return host === hostname || host === `${hostname}.local` || host.split(".")[0] === hostname;
+}
+const DEVICE_SOURCES = {configured: "Configured", discovered: "Discovered",
+                        "configured+discovered": "Configured + discovered"};
+function deviceRow(device, self) {
+  const url = canonicalDeviceUrl(device?.url);
+  if (!url) return null;
+  const row = document.createElement("div");
+  row.className = "device";
+  const identity = document.createElement("div");
+  identity.className = "device-id";
+  const name = document.createElement("span");
+  name.className = "device-name";
+  name.textContent = device.label && device.label !== device.name
+    ? `${device.name} · ${device.label}` : String(device.name);
+  const address = document.createElement("small");
+  address.className = "device-address";
+  address.textContent = url.replace(/^http:\/\//i, "").replace(/\/$/, "");
+  identity.append(name, address);
+  row.append(identity);
+  if (isSelfDevice(url, self)) {
+    // Never offer to switch to the page you are already on.
+    const badge = document.createElement("span");
+    badge.className = "badge this-device";
+    badge.textContent = "This device";
+    row.append(badge);
+  } else {
+    const link = document.createElement("a");
+    link.className = "switch";
+    link.href = url;
+    link.textContent = "Switch";
+    link.title = `Open ${url} in this tab`;
+    row.append(link);
+  }
+  const source = document.createElement("span");
+  source.className = "badge source";
+  source.textContent = DEVICE_SOURCES[device.source] || "Configured";
+  row.append(source);
+  return row;
+}
 async function loadDevices() {
   // A slow response must not overlap later refreshes or block the dashboard.
   if (loadingDevices) return;
@@ -332,16 +383,9 @@ async function loadDevices() {
     const data = await response.json();
     const list = el("device-links");
     list.replaceChildren();
-    const badges = {configured: "Configured", discovered: "Discovered",
-                    "configured+discovered": "Configured + discovered"};
     for (const device of data.devices || []) {
-      const url = canonicalDeviceUrl(device?.url);
-      if (!url) continue;
-      const link = document.createElement("a");
-      link.href = url;
-      const name = device.label ? `${device.name} · ${device.label}` : String(device.name);
-      link.textContent = `${name} · ${badges[device.source] || "Configured"}`;
-      list.append(link);
+      const row = deviceRow(device, data.self);
+      if (row) list.append(row);
     }
     // Discovery that finds nothing looks identical to discovery that is broken,
     // so say what it did and when; that is the difference the eye needs.

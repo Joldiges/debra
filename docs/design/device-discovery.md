@@ -6,10 +6,15 @@ them without knowing hostnames, and eventually apply settings to all of them.
 
 What exists: the lab device publishes `_debra._tcp` from a user unit, and the hub
 browses for it, validates each announcement and lists it as discovered
-(`control/web/discovery.py`, `control/web/server.py`). What does not exist: any
-household overview, any "apply to all", and any use of the record in TXT beyond a
-display name and label. The rest of this page is still a proposal; nothing here
-is approved work.
+(`control/web/discovery.py`, `control/web/server.py`). The page opens with a
+**Switch to another Debra** panel: one row per device with its name, label and
+address, a `Switch` button to that device's own page, and a `This device` mark on
+the row that is serving the page (so it never offers to switch to itself). The
+row's own device is matched by the page's origin, then by the serving hostname
+and port that `/api/devices` reports in `self`. What does not exist: any
+household overview, any "apply to all", any remote control of a peer without
+switching to it, and any use of the record in TXT beyond a display name and
+label. The rest of this page is still a proposal; nothing here is approved work.
 
 The hub browses in a background thread, with an 8-second timeout per browse and
 30 seconds between the end of one scan and the next. During the first scan it

@@ -763,6 +763,15 @@ class DiscoveryTests(unittest.TestCase):
             {"name": "good", "url": "http://okay.local:8787/", "label": "",
              "source": "discovered"}))
 
+    def test_device_list_says_which_host_is_serving_it(self):
+        # The page marks its own row with this, so it never offers to "switch"
+        # to the server it is already on. Nothing else about the device is added.
+        code, body = self.request("/api/devices")
+        self.assertEqual(code, 200)
+        self.assertEqual(set(body["self"]), {"hostname", "port"})
+        self.assertEqual(body["self"]["hostname"], socket.gethostname())
+        self.assertEqual(body["self"]["port"], self.server.server_address[1])
+
     def test_devices_found_both_ways_say_so_and_discovery_reports_its_state(self):
         # A working discovery that finds nothing looks identical to a broken one,
         # so the response carries when it last scanned and whether it is running.

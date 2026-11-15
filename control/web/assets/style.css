@@ -38,9 +38,16 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 .component { display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; border-bottom: 1px solid #2b3a3e; padding: 16px 0; }
 .component small { grid-column: 1 / -1; color: var(--muted); }
 .badge { color: var(--accent); font-size: 13px; }
-.device-links { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
-.device-links a { border: 1px solid #3b514c; border-radius: 9px; padding: 10px 14px; color: var(--accent); text-decoration: none; font-size: 14px; }
-.device-links a:hover { border-color: var(--accent); }
+.device-links { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.device { display: flex; align-items: center; gap: 14px; border: 1px solid #3b514c; border-radius: 11px; padding: 12px 14px; }
+.device-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.device-name { color: #e6eeed; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.device-address { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.device .source { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.device .this-device { color: var(--accent); font-size: 12px; font-weight: 700; white-space: nowrap; }
+.device-links a.switch { border: 1px solid var(--accent); border-radius: 9px; padding: 8px 16px; color: #10251d; background: var(--accent); font-size: 14px; font-weight: 650; white-space: nowrap; }
+.device-links a.switch:hover { background: #b6ecdb; }
+@media (max-width: 480px) { .device { flex-wrap: wrap; } .device-id { flex-basis: 100%; } }
 #error { color: #ffc8b8; }
 footer { padding: 6px 4px; }
 [hidden] { display: none !important; }

@@ -30,13 +30,16 @@ window.testState = {
   devices: new URLSearchParams(location.search).get("auth") === "none"
     ? [{name: "debra-3c6b3f", url: "http://debra-3c6b3f.local:8787/", label: "Lab Pi 5"}]
     : [],
+  // The harness page is served from 127.0.0.1, so this hostname matches nothing
+  // and the fixture device is correctly offered as "Switch".
+  self: {hostname: "fixture-host", port: 8787},
   discovery: {enabled: false, found: 0, seconds_since_scan: null, error: null, refused: []}
 };
 const state = window.testState;
 window.fetch = async (path, options) => {
   if (path === "/api/devices") {
     return {ok: true, status: 200,
-            json: async () => ({devices: state.devices, discovery: state.discovery})};
+            json: async () => ({devices: state.devices, self: state.self, discovery: state.discovery})};
   }
   const authorized = Boolean(options.headers && options.headers.Authorization);
   if (path === "/api/status" && !authorized && state.probe) {
@@ -346,10 +349,18 @@ window.addEventListener("load", async () => {
            "bypass control hidden although the device runs without a key");
     assert(!document.getElementById("bypass-note").hidden, "no warning about the open device");
     assert(document.getElementById("device-links").children.length === 1, "device link not rendered");
-    assert(document.getElementById("device-links").children[0].href ===
-           "http://debra-3c6b3f.local:8787/", "device link target changed");
-    assert(document.getElementById("device-links").children[0].textContent.includes("Configured"),
-           "configured device source missing");
+    const first = document.getElementById("device-links").children[0];
+    assert(first.querySelector("a.switch")?.href === "http://debra-3c6b3f.local:8787/",
+           "device switch target changed");
+    assert(first.textContent.includes("Configured"), "configured device source missing");
+    // The page must not offer to switch to the server it came from.
+    testState.self = {hostname: "debra-3c6b3f", port: 8787};
+    await loadDevices();
+    const own = document.getElementById("device-links").children[0];
+    assert(!own.querySelector("a.switch"), "offered a switch to this same device");
+    assert(own.textContent.includes("This device"), "this device not marked");
+    testState.self = {hostname: "fixture-host", port: 8787};
+    await loadDevices();
     testState.devices.push({name: "new", url: "http://new.local:8787/",
                             label: "<img src=x>", source: "discovered"});
     await loadDevices();
@@ -517,10 +528,11 @@ window.addEventListener("load", async () => {
     }
     testState.devices = Object.keys(cases).map(url => ({name: "<img>", label: "<script>", url}));
     await loadDevices();
-    const links = document.querySelectorAll("#device-links a");
+    const links = document.querySelectorAll("#device-links a.switch");
     if (links.length !== Object.values(cases).filter(Boolean).length) throw new Error("wrong URL link count");
     if (document.querySelector("#device-links img, #device-links script")) throw new Error("device label became markup");
-    if (!links[0].textContent.includes("<img>")) throw new Error("device label not literal");
+    const rows = document.querySelectorAll("#device-links .device");
+    if (!rows[0].textContent.includes("<img>")) throw new Error("device label not literal");
     result.textContent = "PASS: browser URL contract and literal labels";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;

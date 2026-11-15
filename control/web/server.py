@@ -532,7 +532,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 discovered, status = (), {"enabled": False, "found": 0,
                                           "seconds_since_scan": None, "error": "discovery unavailable"}
+            # `self` lets the page mark its own row instead of offering to switch
+            # to itself. It is the serving host's name and port, nothing else.
             self.reply(200, {"devices": merge_devices(self.server.devices, discovered),
+                             "self": {"hostname": socket.gethostname(),
+                                      "port": self.server.server_address[1]},
                              "discovery": status})
         elif self.path == "/api/status":
             try:
