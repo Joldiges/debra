@@ -23,6 +23,7 @@ and no passphrase is stored in the setup state.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -49,6 +50,10 @@ HOTSPOT_PREFIX = "Debra-Setup"
 PORTAL_PORT = 80
 SUBMIT_INTERVAL_S = 5
 MAX_ATTEMPTS = 10
+# After the last allowed attempt the page waits this long instead of refusing
+# for ever. A permanent refusal whose advice is "power-cycle" is a lockout: the
+# counter lives in the state file, so a power cycle cannot clear it.
+LOCKOUT_COOLDOWN_S = 600
 SERIAL_PATHS = ("/sys/firmware/devicetree/base/serial-number",
                 "/proc/device-tree/serial-number")
 ASSETS = Path(__file__).resolve().parent / "assets"
@@ -86,17 +91,39 @@ def hotspot_name(hostname):
     return f"{HOTSPOT_PREFIX}-{suffix}"
 
 
+def hotspot_password(hostname):
+    """The setup network's password, derived rather than stored.
+
+    A WPA2 access point without a password is a network anyone in range can
+    read, and `nmcli` silently generates a password nobody is ever shown, so
+    the setup network cannot actually be joined. Deriving it from the device
+    name means it can be printed on the card and read again without keeping a
+    secret in the setup state. It protects the setup window, not the household:
+    anyone holding the card during first boot can read it anyway.
+    """
+    seed = (hostname or "debra").encode("utf-8")
+    return "debra-" + hashlib.sha256(seed).hexdigest()[:8]
+
+
 class Onboarder:
     """Owns the phase transitions. All decisions live here, not in the portal."""
 
     def __init__(self, network, state_path, baseline_dir, hostname=None,
-                 clock=time.monotonic, serial_paths=SERIAL_PATHS):
+                 clock=time.monotonic, serial_paths=SERIAL_PATHS, root="/",
+                 card_note_path=None, keyfile_dir=None):
         self.network = network
         self.hostname = hostname
         self.state_path = Path(state_path)
         self.baseline_dir = Path(baseline_dir)
+        # Where the baseline reads from. A device uses "/"; anything that is not
+        # a device must pass a fake root, or it copies real keyfiles.
+        self.root = root
         self.clock = clock
         self.serial_paths = serial_paths
+        # The boot-partition note a person can read before joining anything.
+        self.card_note_path = Path(card_note_path) if card_note_path else None
+        # Where a Wi-Fi profile is staged before NetworkManager loads it.
+        self.keyfile_dir = Path(keyfile_dir) if keyfile_dir else None
         self._last_submit = 0.0
         self._lock = threading.Lock()
 
@@ -134,8 +161,12 @@ class Onboarder:
             "last_error": data["last_error"],
             "attempts": data["attempts"],
             "baseline": data["baseline"],
-            "hotspot": hotspot,
-            "portal": (f"http://{hotspot['interface']}/" if hotspot else None),
+            "hotspot": ({**hotspot,
+                         "password": hotspot_password(data["hostname"])}
+                        if hotspot else None),
+            # The name, not the interface: an interface name there produced
+            # http://wlan0/, which no browser can follow.
+            "portal": (f"http://{data['hostname']}.local/" if data["hostname"] else None),
             "updated": data["updated"],
         }
 
@@ -146,15 +177,30 @@ class Onboarder:
         show the reason and a retry instead of a blank form.
         """
         data = state_module.read(self.state_path)
-        hostname = data["hostname"] or self.ensure_identity()
+        if not data["hostname"]:
+            # Assign it into the record that is about to be written. Reading the
+            # name from a separate call left this dict stale, and the write below
+            # then wiped the hostname it had just set.
+            data["hostname"] = self.ensure_identity()
+        hostname = data["hostname"]
         interface = self.network.wifi_interface()
         if not interface:
             data.update(phase="failed", last_error="No Wi-Fi interface was found")
             state_module.write(self.state_path, data)
             return self.status()
+        if not data["country"]:
+            # A country is already set on most devices; asking for it again is
+            # a question the user should not have to answer twice.
+            try:
+                detected = self.network.country()
+            except (AttributeError, nm_module.NmError):
+                detected = None
+            if detected:
+                data["country"] = detected
         name = hotspot_name(hostname)
+        password = hotspot_password(hostname)
         try:
-            self.network.start_hotspot(name, interface)
+            self.network.start_hotspot(name, interface, password)
         except nm_module.NmError as exc:
             data.update(phase="failed", last_error=str(exc))
             state_module.write(self.state_path, data)
@@ -162,7 +208,26 @@ class Onboarder:
         data.update(phase=phase, hotspot={"ssid": name, "interface": interface},
                     last_error=reason)
         state_module.write(self.state_path, data)
+        self._write_card_note(name, password, hostname)
         return self.status()
+
+    def _write_card_note(self, ssid, password, hostname):
+        """Write the three things needed before any page can be loaded.
+
+        Without the password the setup network cannot be joined at all, and a
+        person with no console has no other way to learn it.
+        """
+        if self.card_note_path is None:
+            return
+        text = ("Debra setup\n\n"
+                f"Wi-Fi network: {ssid}\n"
+                f"Password:      {password}\n"
+                f"Then open:     http://{hostname}.local/\n")
+        try:
+            self.card_note_path.parent.mkdir(parents=True, exist_ok=True)
+            self.card_note_path.write_text(text, encoding="utf-8")
+        except OSError as exc:
+            LOGGER.warning("Setup note not written: %s", exc)
 
     def join(self, ssid, psk, country=None):
         """Try to join. Returns the new status; the caller answers the page first.
@@ -172,7 +237,7 @@ class Onboarder:
         """
         with self._lock:
             data = state_module.read(self.state_path)
-            if data["attempts"] >= MAX_ATTEMPTS:
+            if self._locked_out(data):
                 return self.status()
             if self.clock() - self._last_submit < SUBMIT_INTERVAL_S:
                 return self.status()
@@ -186,8 +251,11 @@ class Onboarder:
                     state_module.write(self.state_path, data)
                     return self.status()
             # The page has already answered; from here the AP is expendable.
+            # A capped counter starts again after the cooldown, so the retry
+            # the page offers is always a retry that can work.
             data.update(phase="connecting", ssid=ssid, last_error=None,
-                        attempts=data["attempts"] + 1)
+                        attempts=min(data["attempts"], MAX_ATTEMPTS - 1) + 1,
+                        last_attempt=state_module.now())
             state_module.write(self.state_path, data)
 
         try:
@@ -203,10 +271,22 @@ class Onboarder:
 
         data = state_module.read(self.state_path)
         data.update(phase="online", ssid=ssid, address=active["address"],
-                    hotspot=None, last_error=None)
+                    hotspot=None, last_error=None, attempts=0, last_attempt=None)
         state_module.write(self.state_path, data)
         self._capture_baseline()
         return self.status()
+
+    def _locked_out(self, data):
+        """True while the capped attempt counter is cooling down."""
+        if data["attempts"] < MAX_ATTEMPTS:
+            return False
+        try:
+            when = datetime.strptime(data.get("last_attempt") or "",
+                                     "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return False
+        age = (datetime.now(timezone.utc) - when).total_seconds()
+        return age < LOCKOUT_COOLDOWN_S
 
     def _capture_baseline(self):
         """One baseline, once, after the first successful join."""
@@ -214,7 +294,7 @@ class Onboarder:
         if data["baseline"]:
             return
         try:
-            manifest = baseline_module.capture(self.baseline_dir)
+            manifest = baseline_module.capture(self.baseline_dir, root=self.root)
         except (baseline_module.BaselineError, OSError) as exc:
             # A missing baseline must not undo a working network.
             LOGGER.warning("Baseline not captured: %s", exc)
@@ -227,8 +307,9 @@ class Onboarder:
         data = state_module.read(self.state_path)
         if not data["hostname"]:
             self.ensure_identity()
+            data = state_module.read(self.state_path)
         active = self.network.active()
-        if active and active["routable"]:
+        if active and active["routable"] and active.get("has_route", True):
             data = state_module.read(self.state_path)
             if data["phase"] != "online" or data["address"] != active["address"]:
                 data.update(phase="online", address=active["address"], hotspot=None)

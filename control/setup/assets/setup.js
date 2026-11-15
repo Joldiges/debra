@@ -181,8 +181,12 @@ el("retry").addEventListener("click", () => {
   const needsCountry = !status?.country;
   el("country").classList.toggle("hidden", !needsCountry);
   el("country-note").classList.toggle("hidden", !needsCountry);
+  // Keep the network name, which is probably right, and clear the password,
+  // which is probably what was wrong.
+  el("psk").value = "";
   error("");
   show("form-card");
+  el("psk").focus();
 });
 
 load();

@@ -110,10 +110,28 @@ class HotspotTests(Temp):
         network = FakeNetwork()
         status = self.onboarder(network).start_hotspot()
         self.assertEqual(status["phase"], "hotspot")
-        self.assertEqual(status["hotspot"], {"ssid": "Debra-Setup-demo1",
-                                             "interface": "wlan0"})
-        # The hostname is applied before the access point is named after it.
-        self.assertEqual(network.phases(), ["set_hostname", "wifi_interface", "start_hotspot"])
+        self.assertEqual(status["hotspot"]["ssid"], "Debra-Setup-demo1")
+        self.assertEqual(status["hotspot"]["interface"], "wlan0")
+        # A setup network nobody can join is not a setup network: the password
+        # has to be somewhere a person can read it.
+        self.assertGreaterEqual(len(status["hotspot"]["password"]), 8)
+        # The hostname is applied before the access point is named after it, and
+        # an already-set country is read rather than asked for again.
+        self.assertEqual(network.phases(),
+                         ["set_hostname", "wifi_interface", "country", "start_hotspot"])
+
+    def test_the_device_name_survives_the_first_hotspot(self):
+        # The identity is set in the same record the hotspot then writes. When
+        # the write used a record read before the name existed, it erased it.
+        status = self.onboarder(FakeNetwork()).start_hotspot()
+        self.assertEqual(status["hostname"], "debra-demo1")
+        self.assertEqual(state_module.read(self.state_path)["hostname"], "debra-demo1")
+        self.assertEqual(status["portal"], "http://debra-demo1.local/")
+
+    def test_a_boot_with_no_uplink_keeps_the_name_too(self):
+        status = self.onboarder(FakeNetwork()).resume()
+        self.assertEqual(status["hostname"], "debra-demo1")
+        self.assertEqual(state_module.read(self.state_path)["hostname"], "debra-demo1")
 
     def test_no_wifi_interface_is_reported_not_ignored(self):
         status = self.onboarder(FakeNetwork(interface=None)).start_hotspot()
@@ -146,7 +164,7 @@ class JoinTests(Temp):
         # single radio cannot do both.
         phases = network.phases()
         self.assertLess(phases.index("stop_hotspot"), phases.index("connect"))
-        self.assertEqual(network.country, "GB")
+        self.assertEqual(network.country_code, "GB")
 
     def test_a_wrong_password_brings_the_hotspot_back_with_the_reason(self):
         network = FakeNetwork(behaviour="bad-psk")
@@ -366,3 +384,187 @@ class PortalTests(Temp):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SetupPasswordTests(Temp):
+    """The setup network has to be joinable by a person with no console."""
+
+    def test_the_password_is_derived_so_it_can_be_printed_and_reread(self):
+        first = onboarding.hotspot_password("debra-345678")
+        self.assertEqual(first, onboarding.hotspot_password("debra-345678"))
+        self.assertNotEqual(first, onboarding.hotspot_password("debra-876543"))
+        self.assertGreaterEqual(len(first), 8)
+        self.assertLessEqual(len(first), 63)
+
+    def test_the_adapter_is_given_a_password_rather_than_left_to_invent_one(self):
+        network = FakeNetwork()
+        self.onboarder(network).start_hotspot()
+        hotspot_calls = [call for call in network.calls if call[0] == "start_hotspot"]
+        self.assertTrue(hotspot_calls[0][3], "start_hotspot was called without a password")
+
+    def test_the_password_is_never_written_into_the_setup_state(self):
+        onboarder = self.onboarder()
+        onboarder.start_hotspot()
+        stored = self.state_path.read_text(encoding="utf-8")
+        password = onboarding.hotspot_password(onboarder.ensure_identity())
+        self.assertNotIn(password, stored)
+        self.assertNotIn("password", stored)
+
+    def test_the_card_note_says_the_three_things_needed_before_any_page_loads(self):
+        note = self.dir / "boot" / "debra-setup.txt"
+        onboarder = self.onboarder(card_note_path=note)
+        onboarder.start_hotspot()
+        text = note.read_text(encoding="utf-8")
+        self.assertIn("Debra-Setup-demo1", text)
+        self.assertIn(onboarding.hotspot_password(onboarder.ensure_identity()), text)
+        self.assertIn("http://", text)
+
+    def test_a_missing_card_location_is_not_a_reason_to_fail_the_hotspot(self):
+        note = self.dir / "boot" / "debra-setup.txt"
+        note.parent.write_text("not a directory")  # occupies the parent path
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            status = self.onboarder(card_note_path=note).start_hotspot()
+        self.assertEqual(status["phase"], "hotspot")
+
+
+class CountryTests(Temp):
+    def test_a_country_already_on_the_device_is_adopted_not_asked_for_again(self):
+        onboarder = self.onboarder(FakeNetwork(country="GB"))
+        status = onboarder.start_hotspot()
+        self.assertEqual(status["country"], "GB")
+        self.assertEqual(state_module.read(self.state_path)["country"], "GB")
+
+    def test_with_no_country_set_the_page_still_asks(self):
+        status = self.onboarder(FakeNetwork(country=None)).start_hotspot()
+        self.assertIsNone(status["country"])
+
+
+class LockoutTests(Temp):
+    def test_the_cap_is_a_cooldown_and_not_a_permanent_lockout(self):
+        network = FakeNetwork(behaviour="bad-psk")
+        clock = [0.0]
+        onboarder = self.onboarder(network, clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        for _ in range(onboarding.MAX_ATTEMPTS):
+            clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+            onboarder.join("HomeWiFi", "wrong password", None)
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["attempts"], onboarding.MAX_ATTEMPTS)
+        # Immediately after the cap, another attempt is refused...
+        clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+        before = len(network.calls)
+        onboarder.join("HomeWiFi", "wrong password", None)
+        self.assertEqual(len(network.calls), before, "the cooldown did not hold")
+        # ...but not for ever, because a power cycle cannot clear this counter.
+        pinned = state_module.read(self.state_path)
+        pinned["last_attempt"] = "2020-01-01T00:00:00Z"
+        state_module.write(self.state_path, pinned)
+        clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+        onboarder.join("HomeWiFi", "wrong password", None)
+        self.assertGreater(len(network.calls), before,
+                           "an expired cooldown must let the retry through")
+
+    def test_a_successful_join_clears_the_failure_count(self):
+        network = FakeNetwork(behaviour="bad-psk")
+        clock = [0.0]
+        onboarder = self.onboarder(network, clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        for _ in range(3):
+            clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+            onboarder.join("HomeWiFi", "wrong password", None)
+        self.assertEqual(state_module.read(self.state_path)["attempts"], 3)
+        network.behaviour = "ok"
+        clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+        status = onboarder.join("HomeWiFi", "correct horse", None)
+        self.assertEqual(status["phase"], "online")
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["attempts"], 0)
+        self.assertIsNone(data["last_attempt"])
+
+
+class BaselineRootTests(Temp):
+    def test_the_baseline_reads_the_configured_root_and_not_the_real_one(self):
+        # On a laptop, root="/" would copy that machine's real NetworkManager
+        # keyfiles into the archive. A test run must never do that.
+        fake = self.dir / "fake-root"
+        (fake / "etc").mkdir(parents=True)
+        (fake / "etc" / "hostname").write_text("debra-demo1\n", encoding="utf-8")
+        onboarder = self.onboarder(root=str(fake))
+        onboarder.start_hotspot()
+        status = onboarder.join("HomeWiFi", "correct horse", None)
+        manifest = json.loads((Path(status["baseline"].replace(".tar.gz", ".json"))
+                               ).read_text())
+        self.assertIn("etc/hostname", manifest["captured"])
+        self.assertTrue(all(not path.startswith("var/") for path in manifest["captured"]))
+
+
+class Recorder:
+    """A stand-in for `_run` that answers like nmcli and remembers argv."""
+
+    def __init__(self, address="192.0.2.40", gateway="192.0.2.1", up_fails=False):
+        self.calls, self.contents = [], []
+        self.address, self.gateway, self.up_fails = address, gateway, up_fails
+
+    def __call__(self, argv, timeout=45):
+        self.calls.append(list(argv))
+        if argv[1:] == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
+            return "wlan0:wifi:connected\n"
+        if argv[1:3] == ["-t", "-f"] and argv[4:6] == ["device", "show"]:
+            return (f"IP4.ADDRESS[1]:{self.address}/24\n"
+                    f"IP4.GATEWAY:{self.gateway}\n")
+        if argv[1:3] == ["connection", "load"]:
+            path = Path(argv[3])
+            self.contents.append((path.read_text(encoding="utf-8"),
+                                  stat.S_IMODE(path.stat().st_mode)))
+            return ""
+        if argv[1:4] == ["connection", "up", "id"]:
+            if self.up_fails:
+                raise nm_module.NmError("Secrets were required, but not provided.")
+            return ""
+        return ""
+
+
+class AdapterTests(Temp):
+    def test_the_wi_fi_password_never_appears_in_a_command_line(self):
+        recorder = Recorder()
+        nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
+                                                 keyfile_dir=self.dir)
+        flattened = " ".join(" ".join(call) for call in recorder.calls)
+        self.assertNotIn("correct horse", flattened,
+                         "the password is visible in argv to any other process")
+        self.assertEqual(len(recorder.contents), 1)
+        text, mode = recorder.contents[0]
+        self.assertIn("psk=correct horse", text)
+        self.assertEqual(mode, 0o600, "the staged profile must be owner-only")
+        # The staged file is not left behind once NetworkManager has read it.
+        self.assertEqual(list(self.dir.glob("*.nmconnection")), [])
+
+    def test_a_keyfile_value_cannot_break_out_of_its_line(self):
+        recorder = Recorder()
+        nm_module.Nmcli(runner=recorder).connect("Caf; #1", "pass;word#1",
+                                                 keyfile_dir=self.dir)
+        text, _ = recorder.contents[0]
+        self.assertIn("ssid=Caf\\; \\#1", text)
+        self.assertIn("psk=pass\\;word\\#1", text)
+
+    def test_an_address_without_a_default_route_is_not_success(self):
+        recorder = Recorder(gateway="")
+        with self.assertRaises(nm_module.NmError) as caught:
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
+                                                     keyfile_dir=self.dir)
+        self.assertIn("default route", str(caught.exception))
+
+    def test_a_failed_activation_does_not_leave_a_competing_profile(self):
+        recorder = Recorder(up_fails=True)
+        with self.assertRaises(nm_module.NmError):
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "correct horse",
+                                                     keyfile_dir=self.dir)
+        self.assertIn(["nmcli", "connection", "delete", "id",
+                       recorder.calls[-1][4]], recorder.calls)
+
+    def test_a_bad_password_length_is_refused_before_anything_runs(self):
+        recorder = Recorder()
+        with self.assertRaises(nm_module.NmError):
+            nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "short",
+                                                     keyfile_dir=self.dir)
+        self.assertEqual(recorder.calls, [])

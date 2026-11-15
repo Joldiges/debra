@@ -8,8 +8,12 @@ access point come back?) in one testable place instead of inside shell strings.
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
+import secrets
 import subprocess
+import tempfile
+from pathlib import Path
 
 
 class NmError(Exception):
@@ -42,6 +46,50 @@ def valid_ssid(ssid):
 
 def valid_country(code):
     return isinstance(code, str) and bool(re.fullmatch(r"[A-Z]{2}", code))
+
+
+def _keyfile_value(text):
+    """Escape what a NetworkManager keyfile treats as structure.
+
+    A keyfile is an ini file, so a backslash, semicolon or hash inside a network
+    name would otherwise change the meaning of the line or start a comment.
+    """
+    return "".join("\\" + char if char in "\\;#" else char for char in text)
+
+
+def write_keyfile(directory, ssid, psk, connection_id):
+    """Write one Wi-Fi profile to a private file and return its path.
+
+    The password goes here rather than into an `nmcli` argument because argv is
+    world-readable in /proc while the command runs. The file is 0600 and is
+    deleted by the caller as soon as NetworkManager has read it.
+    """
+    lines = ["[connection]",
+             f"id={_keyfile_value(connection_id)}",
+             "type=wifi",
+             "autoconnect=true",
+             "",
+             "[wifi]",
+             "mode=infrastructure",
+             f"ssid={_keyfile_value(ssid)}",
+             ""]
+    if psk:
+        lines += ["[wifi-security]", "key-mgmt=wpa-psk", f"psk={_keyfile_value(psk)}", ""]
+    lines += ["[ipv4]", "method=auto", "", "[ipv6]", "method=auto", ""]
+    fd, path = tempfile.mkstemp(prefix="debra-wifi-", suffix=".nmconnection", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write("\n".join(lines))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(path, 0o600)
+    except BaseException:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+    return Path(path)
 
 
 class Nmcli:
@@ -92,32 +140,57 @@ class Nmcli:
         address = gateway = None
         for line in detail.splitlines():
             key, _, value = line.partition(":")
-            if key.strip() == "IP4.ADDRESS" and address is None:
+            # nmcli -t writes repeated fields with an index: "IP4.ADDRESS[1]:".
+            # Comparing against the bare name silently never matched, which made
+            # every successful join look like a network with no address.
+            key = re.sub(r"\[\d+\]$", "", key.strip())
+            if key == "IP4.ADDRESS" and address is None:
                 address = value.split("/")[0].strip() or None
-            elif key.strip() == "IP4.GATEWAY":
+            elif key == "IP4.GATEWAY":
                 gateway = value.strip() or None
         return {"interface": interface, "address": address, "gateway": gateway,
                 "routable": routable(address), "has_route": bool(gateway)}
 
-    def connect(self, ssid, psk, timeout=60):
+    def connect(self, ssid, psk, timeout=60, keyfile_dir=None):
         """Join a network and return the resulting uplink, or raise NmError.
 
-        `nmcli device wifi connect` both creates and activates the profile, which
-        is what we want: the profile is the thing that survives a reboot.
+        The profile is loaded from a private keyfile rather than built from
+        command-line arguments, so the password is never in `ps` output. Loading
+        the profile and activating it are two steps because `nmcli device wifi
+        connect` is the only path that takes a password on the command line.
+
+        A profile that fails is deleted: a leftover autoconnecting profile
+        competing with the household network is worse than no profile at all.
         """
         if not valid_ssid(ssid):
             raise NmError("Network name must be 1-32 printable characters")
-        if psk is not None and not valid_psk(psk):
+        if psk is not None and psk != "" and not valid_psk(psk):
             raise NmError("Wi-Fi password must be 8-63 characters")
-        argv = ["nmcli", "device", "wifi", "connect", ssid]
-        if psk:
-            argv += ["password", psk]
-        self._run(argv, timeout=timeout)
+        connection_id = f"debra-wifi-{secrets.token_hex(4)}"
+        path = write_keyfile(keyfile_dir, ssid, psk or None, connection_id)
+        try:
+            self._run(["nmcli", "connection", "load", str(path)], timeout=30)
+        except NmError:
+            path.unlink(missing_ok=True)
+            raise
+        path.unlink(missing_ok=True)
+        try:
+            self._run(["nmcli", "connection", "up", "id", connection_id],
+                      timeout=timeout)
+        except NmError:
+            try:
+                self._run(["nmcli", "connection", "delete", "id", connection_id],
+                          timeout=30)
+            except NmError:
+                pass
+            raise
         active = self.active()
         if active is None:
             raise NmError("Joined the network but NetworkManager reports no uplink")
         if not active["routable"]:
             raise NmError("Joined the network but received no usable address")
+        if not active["has_route"]:
+            raise NmError("Joined the network but received no default route")
         return active
 
     def start_hotspot(self, ssid, interface, password=None):

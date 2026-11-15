@@ -38,6 +38,7 @@ def blank(hostname=""):
         "address": None,
         "last_error": None,
         "attempts": 0,
+        "last_attempt": None,
         "hotspot": None,
         "baseline": None,
         "updated": now(),
@@ -65,6 +66,10 @@ def validate(data):
             raise ValueError("Country must be a two-letter code or null")
     if not isinstance(data.get("attempts"), int) or not 0 <= data["attempts"] <= 1000:
         raise ValueError("Attempts must be a whole number up to 1000")
+    last_attempt = data.get("last_attempt")
+    if last_attempt is not None and (not isinstance(last_attempt, str)
+                                     or len(last_attempt) > 40):
+        raise ValueError("last_attempt must be a timestamp or null")
     hotspot = data.get("hotspot")
     if hotspot is not None:
         if not isinstance(hotspot, dict) or set(hotspot) != {"ssid", "interface"}:

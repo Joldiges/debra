@@ -58,12 +58,22 @@ def main():
     state_module.write(state_path, data)
 
     network = FakeNetwork(country=args.country, behaviour=args.behaviour)
-    onboarder = onboarding.Onboarder(network, state_path, directory / "baseline")
+    # A fake root, so the success path cannot copy the real NetworkManager
+    # keyfiles of whatever machine this is running on.
+    fake_root = directory / "fake-root"
+    keyfiles = directory / "keyfiles"
+    for path in (fake_root, keyfiles):
+        path.mkdir(parents=True, exist_ok=True)
+    onboarder = onboarding.Onboarder(
+        network, state_path, directory / "baseline", root=fake_root,
+        card_note_path=directory / "debra-setup.txt", keyfile_dir=keyfiles)
     server = onboarding.Portal(("127.0.0.1", args.port), onboarder,
                                HERE / "assets" / "setup.html")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     print(f"setup page: http://127.0.0.1:{args.port}/  (state in {directory})", flush=True)
+    print(f"card note:  {directory / 'debra-setup.txt'}  "
+          f"(the setup-network password a person needs)", flush=True)
     try:
         thread.join()
     except KeyboardInterrupt:

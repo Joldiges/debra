@@ -19,7 +19,7 @@ class FakeNetwork:
 
     def __init__(self, interface="wlan0", country=None, behaviour="ok"):
         self.interface = interface
-        self.country = country
+        self.country_code = country
         self.behaviour = behaviour
         self.calls = []
         self.hotspot = None
@@ -38,9 +38,14 @@ class FakeNetwork:
         self.calls.append(("wifi_interface",))
         return self.interface
 
+    def country(self):
+        """The regulatory domain already set, as a real device would report it."""
+        self.calls.append(("country",))
+        return self.country_code
+
     def set_country(self, code):
         self.calls.append(("set_country", code))
-        self.country = code
+        self.country_code = code
 
     def active(self):
         self.calls.append(("active",))
@@ -54,14 +59,17 @@ class FakeNetwork:
     # -- transitions --------------------------------------------------------
 
     def start_hotspot(self, ssid, interface, password=None):
-        self.calls.append(("start_hotspot", ssid, interface))
-        self.hotspot = {"ssid": ssid, "interface": interface}
+        # The password is recorded as a flag, never as its value: a test log is
+        # not a place for a credential.
+        self.calls.append(("start_hotspot", ssid, interface, bool(password)))
+        self.hotspot = {"ssid": ssid, "interface": interface,
+                        "password": password}
 
     def stop_hotspot(self):
         self.calls.append(("stop_hotspot",))
         self.hotspot = None
 
-    def connect(self, ssid, psk, timeout=60):
+    def connect(self, ssid, psk, timeout=60, keyfile_dir=None):
         try:
             from . import nm as nm_module
         except ImportError:
