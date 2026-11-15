@@ -93,7 +93,7 @@ class DispatcherTests(unittest.TestCase):
 
     def test_catalog_and_read_only_list(self):
         result = self.run_tool("check")
-        self.assertIn("19 chains cover 63 packets", result.stdout)
+        self.assertIn("19 chains cover 64 packets", result.stdout)
         self.run_tool("list")
         self.assertFalse((self.repo / ".git/debra-work").exists())
 
