@@ -255,6 +255,8 @@ class HTTPTests(unittest.TestCase):
         if method == "POST":
             defaults.update({"Origin": "http://" + self.host, "Content-Type": "application/json"})
         defaults.update(headers)
+        # None means omit the header entirely, rather than sending an empty one.
+        defaults = {name: value for name, value in defaults.items() if value is not None}
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
         connection.request(method, path, body, defaults)
         response = connection.getresponse()
@@ -282,6 +284,86 @@ class HTTPTests(unittest.TestCase):
         for auth in ("", "Bearer wrong"):
             self.assertEqual(self.request(Authorization=auth)[0], 401)
         self.assertEqual(self.request(path="/api/status?key=" + TOKEN, Authorization="")[0], 401)
+
+    def test_audio_writes_require_key_before_any_command(self):
+        for path, body in (("/api/audio/volume", '{"percent":20}'),
+                           ("/api/audio/mute", '{"muted":true}')):
+            for label, auth in (("missing", None), ("wrong", "Bearer wrong"),
+                                ("empty bearer", "Bearer ")):
+                with self.subTest(path=path, auth=label):
+                    self.commands.calls.clear()
+                    code, _, _ = self.request("POST", path, body, Authorization=auth)
+                    # Check both together: even a 401 must not hide a command.
+                    self.assertEqual((code, self.commands.calls), (401, []),
+                                     f"{path} with {label} authorization")
+            with self.subTest(path=path, auth="valid"):
+                self.commands.calls.clear()
+                self.assertEqual(self.request("POST", path, body)[0], 200)
+                self.assertIn(["pactl", "set-sink-" + path.rsplit("/", 1)[1], SINK,
+                               "20%" if path.endswith("volume") else "1"], self.commands.calls)
+
+    def test_non_action_requests_never_control_services(self):
+        commands = FakeCommands()
+        forbidden = []
+        user_units = [unit for _, unit, user in web.SERVICES if user]
+        system_units = [unit for _, unit, user in web.SERVICES if not user]
+        user_show = ["systemctl", "--user", "show", *user_units,
+                     "--property=Id,LoadState,ActiveState,UnitFileState"]
+        system_show = ["systemctl", "show", *system_units,
+                       "--property=Id,LoadState,ActiveState,UnitFileState"]
+        allowed = [["pactl", "--format=json", "list", "sinks"], user_show, system_show,
+                   ["vcgencmd", "get_throttled"], ["vcgencmd", "pmic_read_adc"]]
+
+        def runner(argv, *, timeout=web.COMMAND_TIMEOUT):
+            if argv not in allowed:
+                # HTTP handlers run in threads: record instead of raising there,
+                # then fail in the test thread even if the handler swallows errors.
+                forbidden.append(list(argv))
+                return ""
+            return commands(argv, timeout=timeout)
+
+        browse = ["avahi-browse", "-rtp", "-t", "_debra._tcp"]
+        subprocess_calls = []
+        def subprocess_runner(argv, **kwargs):
+            subprocess_calls.append(list(argv))
+            if argv != browse:
+                forbidden.append(list(argv))
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        cache = web.DiscoveryCache()
+        with patch.object(self.backend, "runner", runner), patch.object(self.backend, "cached", None), \
+                patch.object(self.backend, "cache_time", None), \
+                patch.object(self.server, "discovery", cache), \
+                patch.object(web.subprocess, "run", side_effect=subprocess_runner):
+            def check(label, method="GET", path="/api/status", body=None, expected=200):
+                code, _, _ = self.request(method, path, body)
+                self.assertEqual(forbidden, [], f"{label} ran a forbidden command")
+                self.assertEqual(code, expected, label)
+
+            for path in ("/", "/app.js", "/style.css"):
+                check("page load", path=path)
+            check("initial status")
+            # Status genuinely probes services; only the two exact show commands
+            # are allowed, not start/stop/restart or a changed systemctl invocation.
+            self.assertEqual([call for call in commands.calls if call[0] == "systemctl"],
+                             [user_show, system_show])
+            # Keep this specifically on the cached path even under a slow host.
+            self.backend.cache_time = time.monotonic() + 3600
+            check("status poll")
+            check("device list", path="/api/devices")
+            cache.scan()
+            self.assertEqual(forbidden, [], "discovery ran a forbidden command")
+            self.assertEqual(subprocess_calls, [browse])
+            check("discovered device list", path="/api/devices")
+            # Reconnect has no server endpoint: it reloads and reads status again.
+            check("reconnect page", path="/")
+            self.backend.cached = None
+            check("reconnect status")
+            commands.present = False
+            for path, body in (("/api/audio/volume", '{"percent":20}'),
+                               ("/api/audio/mute", '{"muted":true}')):
+                check("failed audio write", "POST", path, body, expected=503)
+            self.assertEqual(subprocess_calls, [browse])
 
     def test_device_inventory_public_in_key_mode_but_status_protected(self):
         # Send no Authorization header at all, not an empty bearer value.
