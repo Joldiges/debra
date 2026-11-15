@@ -96,6 +96,24 @@ code { background: #101619; border: 1px solid var(--line); border-radius: 6px; p
        <code id="device-url">http://debra.local:8787/</code></p>
   </section>
 
+  <section id="uncertain" class="card hidden">
+    <p class="eyebrow">NOT SURE YET</p>
+    <h1>The device did not answer</h1>
+    <p>Your phone never got a reply. That does not mean anything changed: the
+       device may be trying to join <strong id="uncertain-ssid">your network</strong>
+       already, or it may have missed the request entirely.</p>
+    <p class="big">Check your phone's Wi-Fi list:</p>
+    <ul>
+      <li>If <strong id="uncertain-network">the setup network</strong> is still
+          listed, the device is still waiting. Open this page again from it and
+          try once more.</li>
+      <li>If it is gone, the device is joining. Reconnect to your home Wi-Fi and
+          look for this device by name.</li>
+    </ul>
+    <p class="detail">Nothing is rebooted, and a join that fails brings the setup
+       network back with the reason.</p>
+  </section>
+
   <section id="failed" class="card hidden">
     <p class="eyebrow">TRY AGAIN</p>
     <h1>That did not work</h1>

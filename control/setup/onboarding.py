@@ -24,7 +24,6 @@ and no passphrase is stored in the setup state.
 from __future__ import annotations
 
 import errno
-import hashlib
 import json
 import logging
 import os
@@ -112,18 +111,27 @@ def hotspot_name(hostname):
     return f"{HOTSPOT_PREFIX}-{suffix}"
 
 
-def hotspot_password(hostname):
-    """The setup network's password, derived rather than stored.
+# Letters and digits only, with the pairs that look alike left out. The
+# password is read off a card and typed on a phone, so `0`/`O` and `1`/`l` are
+# a real source of failed first attempts.
+HOTSPOT_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+HOTSPOT_PASSWORD_LENGTH = 12
 
-    A WPA2 access point without a password is a network anyone in range can
-    read, and `nmcli` silently generates a password nobody is ever shown, so
-    the setup network cannot actually be joined. Deriving it from the device
-    name means it can be printed on the card and read again without keeping a
-    secret in the setup state. It protects the setup window, not the household:
-    anyone holding the card during first boot can read it anyway.
+
+def new_hotspot_password():
+    """A generated password for the setup network.
+
+    It used to be derived from the device name. That was not a secret: the name
+    is broadcast in the setup network's own SSID, so anyone in range could
+    compute the password. Generated is the only version that protects the setup
+    window at all, and it is long enough that `nmcli` cannot fall back to WEP
+    (it does that below eight characters).
+
+    The owner learns it from the boot-partition note, which is the same route
+    the access point's name is learned from.
     """
-    seed = (hostname or "debra").encode("utf-8")
-    return "debra-" + hashlib.sha256(seed).hexdigest()[:8]
+    return "".join(secrets.choice(HOTSPOT_ALPHABET)
+                   for _ in range(HOTSPOT_PASSWORD_LENGTH))
 
 
 class Onboarder:
@@ -199,8 +207,7 @@ class Onboarder:
             "attempts": data["attempts"],
             "baseline": data["baseline"],
             "baseline_error": data.get("baseline_error"),
-            "hotspot": ({**hotspot,
-                         "password": hotspot_password(data["hostname"])}
+            "hotspot": ({**hotspot, "password": data["hotspot_password"]}
                         if hotspot else None),
             # The address the page is actually served on. A `.local` name here
             # was rejected by the portal's own same-origin check.
@@ -258,7 +265,10 @@ class Onboarder:
             # person's phone off it.
             self.refresh_networks(interface)
         name = hotspot_name(hostname)
-        password = hotspot_password(hostname)
+        # A new password each time the access point is raised: the note is
+        # rewritten with it, and a password that outlived the window it protects
+        # would be one more thing to keep.
+        password = new_hotspot_password()
         try:
             self.network.start_hotspot(name, interface, password)
         except nm_module.NmError as exc:
@@ -270,7 +280,7 @@ class Onboarder:
         except (AttributeError, nm_module.NmError):
             self._portal_address = None
         data.update(phase=phase, hotspot={"ssid": name, "interface": interface},
-                    last_error=reason)
+                    hotspot_password=password, last_error=reason)
         state_module.write(self.state_path, data)
         self._write_card_note(name, password, hostname)
         return self.status()
@@ -309,7 +319,7 @@ class Onboarder:
         if not hotspot:
             return
         self._write_card_note(hotspot.get("ssid") or hotspot_name(data["hostname"]),
-                              hotspot_password(data["hostname"]), data["hostname"])
+                              data["hotspot_password"], data["hostname"])
 
     def _write_card_note(self, ssid, password, hostname):
         """Write the three things needed before any page can be loaded.
@@ -324,6 +334,14 @@ class Onboarder:
         if self.card_note_path is None:
             return
         address = self._portal_address or DEFAULT_PORTAL_ADDRESS
+        # A note written onto the root filesystem is not on the card: the person
+        # holding it in a reader would see nothing. The write below succeeds
+        # either way, so this is the only place the difference can be seen.
+        try:
+            if not os.path.ismount(self.card_note_path.parent):
+                LOGGER.warning("The setup note is not on a mounted boot partition")
+        except OSError:
+            pass
         text = ("Debra setup\n\n"
                 f"Wi-Fi network: {ssid}\n"
                 f"Password:      {password}\n"
@@ -332,7 +350,9 @@ class Onboarder:
             self.card_note_path.parent.mkdir(parents=True, exist_ok=True)
             self.card_note_path.write_text(text, encoding="utf-8")
         except OSError as exc:
-            LOGGER.warning("Setup note not written: %s", exc)
+            # The class only: an OSError carries the path it failed on, and the
+            # note names a credential.
+            LOGGER.warning("Setup note not written: %s", exc.__class__.__name__)
 
     def admit(self, ssid):
         """Reserve the one in-flight attempt, or say why not.
@@ -388,6 +408,12 @@ class Onboarder:
             data = state_module.read(self.state_path)
             if data["phase"] != "connecting" or data["attempt_token"] != token:
                 return
+            if data["attempt_claimed"]:
+                # A worker has already taken this reservation and stopped the
+                # access point. Cancelling it here would leave the device with
+                # no radio state and no worker to fix it.
+                LOGGER.warning("Reservation was already claimed; not released")
+                return
             data.update(phase="hotspot" if data["hotspot"] else "failed",
                         ssid=None, last_attempt=None, attempt_token=None,
                         attempts=max(0, data["attempts"] - 1))
@@ -398,13 +424,44 @@ class Onboarder:
         accepted, token = self.admit(ssid)
         if not accepted:
             return self.status()
-        return self.join_reserved(ssid, psk, country, token)
+        return self.join_reserved(ssid, psk, country, token=token)
+
+    def _claim(self, ssid, token):
+        """Take exclusive ownership of a reservation, or return None.
+
+        Checking a token and then acting on it is not ownership: two workers
+        holding the same valid token both passed the check and both joined. The
+        claim is set under the lock that `admit()` uses, before any radio call,
+        and a second worker with the same token finds it already claimed.
+        """
+        with self._lock:
+            data = state_module.read(self.state_path)
+            if (not token or data["phase"] != "connecting" or data["ssid"] != ssid
+                    or data["attempt_token"] != token or data["attempt_claimed"]):
+                return None
+            data["attempt_claimed"] = True
+            state_module.write(self.state_path, data)
+            return data
+
+    def _settle(self, token, **fields):
+        """Write a transition only while this worker still owns the attempt."""
+        with self._lock:
+            data = state_module.read(self.state_path)
+            if not token or data["attempt_token"] != token:
+                return None
+            data.update(attempt_claimed=False, attempt_token=None, **fields)
+            state_module.write(self.state_path, data)
+            return data
 
     def join_reserved(self, ssid, psk, country=None, token=None):
-        """Do the slow part of a join that `admit()` already reserved."""
-        data = state_module.read(self.state_path)
-        if (data["phase"] != "connecting" or data["ssid"] != ssid
-                or (token is not None and data["attempt_token"] != token)):
+        """Do the slow part of a join that `admit()` already reserved.
+
+        `token` is required. Without it a caller could skip the ownership check
+        entirely, which is how a superseded worker used to join and then clear a
+        newer reservation's state.
+        """
+        data = self._claim(ssid, token)
+        if data is None:
             # Something else moved the state on while this worker waited; the
             # reservation is no longer this worker's to use. Checking the token
             # as well as the SSID matters: the same network can be retried with
@@ -428,22 +485,37 @@ class Onboarder:
                 data["country"] = country
                 state_module.write(self.state_path, data)
             except nm_module.NmError as exc:
-                return self.start_hotspot(reason=str(exc), phase="failed", rescan=False)
+                return self._fail(token, str(exc))
 
         try:
             active = self.network.connect(
                 ssid, psk, keyfile_dir=self.keyfile_dir,
                 interface=(data.get("hotspot") or {}).get("interface"))
         except nm_module.NmError as exc:
-            return self.start_hotspot(reason=str(exc), phase="failed", rescan=False)
+            return self._fail(token, str(exc))
 
-        data = state_module.read(self.state_path)
-        data.update(phase="online", ssid=ssid, address=active["address"],
-                    hotspot=None, last_error=None, attempts=0,
-                    last_attempt=None, attempt_token=None)
-        state_module.write(self.state_path, data)
+        # Settlement rechecks ownership under the same lock the claim used. A
+        # worker that was superseded while it was associating - the person
+        # retried after a slow attempt - must not report its result as the
+        # current attempt's, and must not clear the newer reservation's token.
+        settled = self._settle(token, phase="online", ssid=ssid,
+                               address=active["address"], hotspot=None,
+                               last_error=None, attempts=0, last_attempt=None)
+        if settled is None:
+            LOGGER.warning("Join for %s finished but the attempt was no longer current", ssid)
+            return self.status()
         self._capture_baseline()
         return self.status()
+
+    def _fail(self, token, reason):
+        """Record a failed attempt that this worker still owns, then retry the AP."""
+        # `last_attempt` is kept: it is the time the capped counter last
+        # started, and the cooldown is measured from it. Clearing it here made
+        # the cap never apply, because the record no longer said when.
+        settled = self._settle(token, phase="failed", last_error=reason, ssid=None)
+        if settled is None:
+            return self.status()
+        return self.start_hotspot(reason=reason, phase="failed", rescan=False)
 
     def _locked_out(self, data):
         """True while the capped attempt counter is cooling down."""
@@ -467,25 +539,46 @@ class Onboarder:
         data = state_module.read(self.state_path)
         pointer = data["baseline"]
         if pointer:
-            # A saved pointer is only a baseline if the archive is still there.
-            # Trusting the string alone meant a deleted or pruned archive
-            # suppressed every later capture, so the device reported a known-good
-            # point it did not have.
-            if Path(pointer).is_file():
+            # A saved pointer is only a baseline if its archive still hashes to
+            # what its manifest says. Existence is not verification: an empty or
+            # truncated file at the recorded path made the page report a
+            # known-good point that `latest()` already knew was unusable, and
+            # nothing ever retried.
+            if baseline_module.verified(self.baseline_dir, pointer):
                 return
-            LOGGER.warning("The recorded baseline is missing; capturing again")
+            LOGGER.warning("The recorded baseline does not verify; looking for a whole one")
             try:
                 data["baseline"] = None
+                data["baseline_error"] = "The saved baseline is damaged, so it is not a recovery point"
                 state_module.write(self.state_path, data)
             except (OSError, ValueError):
                 pass
+        # A capture whose pointer could not be written leaves a complete
+        # baseline on disk with nothing pointing at it. Adopt it rather than
+        # capturing another, especially when the disk is why the write failed.
+        existing = baseline_module.latest(self.baseline_dir)
+        if existing:
+            try:
+                data = state_module.read(self.state_path)
+                data["baseline"] = str(self.baseline_dir / existing["archive"])
+                data["baseline_error"] = None
+                state_module.write(self.state_path, data)
+                LOGGER.warning("Adopted an existing baseline that had no recorded pointer")
+                return
+            except (OSError, ValueError):
+                # Recording it failed again; carry on and capture as before so
+                # the failure is visible instead of silent.
+                LOGGER.warning("An existing baseline could not be recorded")
         try:
             manifest = baseline_module.capture(self.baseline_dir, root=self.root)
         except (baseline_module.BaselineError, OSError) as exc:
             # A missing baseline must not undo a working network, but it must be
             # visible: "not captured yet" with no reason reads as progress that
             # is not happening.
-            LOGGER.warning("Baseline not captured: %s", exc)
+            # The fixed sentence, not the exception. `str(exc)` is the thing the
+            # review showed carrying a path, and a path here can name a
+            # credential-bearing file.
+            LOGGER.warning("Baseline not captured: %s", _baseline_reason(exc))
             try:
                 data = state_module.read(self.state_path)
                 data["baseline_error"] = _baseline_reason(exc)
@@ -502,20 +595,44 @@ class Onboarder:
             data["baseline_error"] = None
             state_module.write(self.state_path, data)
         except (OSError, ValueError) as exc:
-            LOGGER.warning("Baseline captured but not recorded: %s",
-                           _baseline_reason(exc))
+            reason = _baseline_reason(exc)
+            LOGGER.warning("Baseline captured but not recorded: %s", reason)
+            # The page must not say "captured" when nothing points at it. The
+            # write may fail again - a full disk is the likely cause - but a
+            # silent gap is what the review found, so it is attempted.
+            try:
+                data = state_module.read(self.state_path)
+                data["baseline_error"] = reason
+                state_module.write(self.state_path, data)
+            except (OSError, ValueError):
+                LOGGER.warning("The baseline failure could not be recorded")
 
     def resume(self):
         """Decide what a boot looks like, from the recorded state."""
+        # Applied on every boot, not only when the name is missing. The name is
+        # saved before it is applied, so a `hostnamectl` failure left a non-empty
+        # name and every later boot skipped the retry: the page advertised a name
+        # the device never answered to, and fixing the tool did not fix the
+        # device. Reconciling is idempotent and never changes the chosen name.
+        self.ensure_identity()
         data = state_module.read(self.state_path)
-        if not data["hostname"]:
-            self.ensure_identity()
-            data = state_module.read(self.state_path)
         active = self.network.active()
         if active and active["routable"] and active.get("has_route", True):
             data = state_module.read(self.state_path)
-            if data["phase"] != "online" or data["address"] != active["address"]:
-                data.update(phase="online", address=active["address"], hotspot=None)
+            previous = data["phase"]
+            if previous != "online" or data["address"] != active["address"]:
+                # Adopting an already-connected network is not the same event as
+                # completing a join: there is no attempt in flight, no error and
+                # no reservation. Leaving those fields behind made a later worker
+                # look current, and made the online label claim a join that this
+                # boot never performed.
+                data.update(phase="online", address=active["address"], hotspot=None,
+                            last_error=None, attempts=0, last_attempt=None,
+                            attempt_token=None, attempt_claimed=False)
+                if previous != "online":
+                    # The network name is only known from a join this device
+                    # performed. Guessing one here would be a claim.
+                    data["ssid"] = None
                 state_module.write(self.state_path, data)
             # A device can be online without ever having taken its baseline: it
             # was already connected at boot, or the capture died with the power.

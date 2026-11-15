@@ -178,6 +178,76 @@ window.addEventListener("load", async () => {
       assert(typed.value === "HomeWiFi", "a status poll cleared what had been typed");
       assert(byId("psk").value === "", "the retry did not clear the password");
       result.textContent = "PASS: a wrong password ends on the reason and retry returns to the form";
+    } else if (mode === "spaces") {
+      // A leading or trailing space is part of the SSID on the air. The page
+      // used to trim it, so choosing " Home WiFi " joined a different network.
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      const typed = " Home WiFi ";
+      fill(typed, "correct horse battery");
+      byId("join").click();
+      assert(await until(() => shown("handover")), "the handover screen never appeared");
+      assert(posts.length === 1, "expected one join request, saw " + posts.length);
+      assert(posts[0].body.ssid === typed,
+             "the network name was rewritten on the way out: "
+             + JSON.stringify(posts[0].body.ssid));
+      result.textContent = "PASS: a network name keeps its significant spaces";
+    } else if (mode === "lost-reply") {
+      // The request never gets an answer. That is ambiguous, not a reason to
+      // tell the person to leave a setup network the device never touched.
+      const before = window.fetch;
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/join" && (options.method || "GET").toUpperCase() === "POST") {
+          throw new TypeError("Failed to fetch");
+        }
+        return before(path, options);
+      };
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      fill("HomeWiFi", "correct horse battery");
+      byId("join").click();
+      assert(await until(() => shown("uncertain")), "the uncertain card never appeared");
+      assert(!shown("handover"),
+             "a lost reply claimed the access point was about to drop");
+      assert(!shown("form-card") && !shown("failed"),
+             "another screen is showing after a lost reply");
+      assert(textOf("uncertain-ssid") === "HomeWiFi",
+             "the uncertain card does not name the network: "
+             + JSON.stringify(textOf("uncertain-ssid")));
+      assert(textOf("uncertain-network") === "Debra-Setup-demo1",
+             "the uncertain card does not name the setup network: "
+             + JSON.stringify(textOf("uncertain-network")));
+      assert(!byId("join").disabled, "the join button stayed disabled");
+      result.textContent = "PASS: a lost reply says it is not known yet, without claiming a handover";
+    } else if (mode === "stale-poll") {
+      // A status request that started before the submission describes the
+      // device as it was before the person pressed the button. Answering it
+      // later must not replace the handover card with that older form.
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      const snapshot = await (await realFetch("/api/status", {cache: "no-store"})).json();
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      const before = window.fetch;
+      let held = false;
+      window.fetch = async (path, options = {}) => {
+        if (!held && String(path) === "/api/status"
+            && (options.method || "GET").toUpperCase() === "GET") {
+          held = true;
+          await gate;
+          return new Response(JSON.stringify(snapshot),
+                              {status: 200, headers: {"Content-Type": "application/json"}});
+        }
+        return before(path, options);
+      };
+      const pending = load();           // starts, and is still unanswered
+      fill("HomeWiFi", "correct horse battery");
+      byId("join").click();
+      assert(await until(() => shown("handover")), "the handover screen never appeared");
+      release();                        // the old answer arrives after the submission
+      await pending;
+      await wait(100);
+      assert(shown("handover"),
+             "a status answer from before the submission replaced the handover");
+      assert(!shown("form-card"), "the older form came back over the handover");
+      result.textContent = "PASS: a status answer that started before the submission is ignored";
     } else if (mode === "validation") {
       assert(await formReady(), "the Wi-Fi form never appeared");
       fill("HomeWiFi", "short");
@@ -621,6 +691,17 @@ class SetupBrowserTests(unittest.TestCase):
 
     def test_the_page_keeps_polling_while_connecting(self):
         self.assert_driven("polling", "--phase", "connecting")
+
+    def test_a_network_name_keeps_its_significant_spaces(self):
+        state = self.assert_driven("spaces")
+        self.assertEqual(state["ssid"], " Home WiFi ",
+                         "the device recorded a different network name than was typed")
+
+    def test_a_lost_reply_is_not_reported_as_a_handover(self):
+        self.assert_driven("lost-reply")
+
+    def test_a_status_answer_from_before_the_submission_is_ignored(self):
+        self.assert_driven("stale-poll")
 
     def test_bad_input_is_refused_in_the_page_without_a_request(self):
         self.assert_driven("validation")

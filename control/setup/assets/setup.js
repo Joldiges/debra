@@ -2,9 +2,14 @@
 // The setup page is deliberately small and dependency-free: it is served from a
 // device that has no internet, over a network that is about to disappear.
 const el = id => document.getElementById(id);
-const SECTIONS = ["loading", "form-card", "handover", "failed", "online"];
+const SECTIONS = ["loading", "form-card", "handover", "uncertain", "failed", "online"];
 let status = null;
 let busy = false;
+// A status request that started before a submission is no longer news: the
+// answer it carries describes the device as it was before the person pressed
+// the button. Rendering it replaced the form - and the advice just shown - with
+// an older screen.
+let generation = 0;
 // True while the person is filling the form after a failure. Without it the
 // 15-second poll re-rendered the failure screen and wiped the form mid-typing.
 let editing = false;
@@ -162,10 +167,13 @@ function render() {
 }
 
 async function load() {
+  const started = generation;
   try {
     const response = await fetch("/api/status", {cache: "no-store", signal: AbortSignal.timeout(8000)});
     if (!response.ok) throw new Error("The device did not answer");
-    status = await response.json();
+    const answer = await response.json();
+    if (started !== generation) return;
+    status = answer;
     render();
   } catch {
     el("loading").querySelector("p").textContent =
@@ -224,15 +232,22 @@ el("country").addEventListener("change", () => {
 
 el("join").addEventListener("click", async () => {
   if (busy) return;
-  const ssid = (el("ssid").value || "").trim();
+  // The name is sent exactly as typed. Trimming it here silently joined a
+  // different network: a name with a leading space is a different SSID on the
+  // air, and the device was asked for the trimmed one.
+  const ssid = el("ssid").value || "";
   const psk = el("psk").value || "";
   const country = countryValue();
-  if (!ssid) { error("Enter the name of your Wi-Fi network."); return; }
+  // Refused only when nothing was really typed. Spaces inside or around a name
+  // are part of the name on the air, so they are sent exactly as typed; a field
+  // of nothing but spaces means the person has not named a network.
+  if (!ssid.trim()) { error("Enter the name of your Wi-Fi network."); return; }
   if (psk && psk.length < 8) { error("A Wi-Fi password is at least 8 characters."); return; }
   if (country === "") { error("Enter a two-letter country code, or choose one from the list."); return; }
   error("");
   busy = true;
   editing = false;
+  generation += 1;
   el("join").disabled = true;
   el("join").textContent = "Sending…";
   try {
@@ -253,11 +268,17 @@ el("join").addEventListener("click", async () => {
     // editing flag here let the next poll replace the form - and the advice
     // just shown - with the previous failure card.
     editing = true;
+    // The advice is useless on a hidden form: a poll may have swapped the card
+    // for the failure screen while this request was in flight.
+    show("form-card");
     error(data.error || "The device refused that request.");
   } catch {
-    // Losing the reply here is expected once the access point drops; the
-    // handover screen already explains what happens next.
-    show("handover");
+    // A lost reply is ambiguous, not proof that the radio changed. The previous
+    // version showed the handover card unconditionally, telling the person to
+    // leave a setup network the device may never have touched.
+    el("uncertain-ssid").textContent = ssid;
+    el("uncertain-network").textContent = status?.hotspot?.ssid || "the setup network";
+    show("uncertain");
   } finally {
     busy = false;
     el("join").disabled = false;

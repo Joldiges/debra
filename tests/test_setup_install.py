@@ -208,6 +208,28 @@ class InstalledArtifactTests(Fixture):
         # the one the installer would have written.
         self.assertFalse(self.install()["changed"])
 
+    def test_a_failed_install_rename_leaves_the_old_unit_and_no_litter(self):
+        # The restore side was covered and the install side was not: replacing
+        # the install's `os.replace` with a write in place, or with a copy,
+        # passed every test. The unit is the file systemd reads, so an
+        # interrupted install must leave exactly one of the two versions.
+        first = self.install()
+        before = self.unit.read_bytes()
+        changed = self.source_copy("v9", lambda copy: (
+            copy / "state.py").write_bytes((copy / "state.py").read_bytes() + b"\n# v9\n"))
+        with patch.object(installer.os, "replace", side_effect=OSError(5, "Input/output error")):
+            with self.assertRaises(OSError):
+                self.install(source=changed)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a failed install rewrote the unit in place")
+        self.assertEqual(sorted(path.name for path in self.unit.parent.iterdir()),
+                         [self.unit.name],
+                         "a half-written candidate was left beside the unit")
+        # A retry with the rename available completes normally.
+        second = self.install(source=changed)
+        self.assertIn(runner_path(second["release"]), self.unit.read_text())
+        self.assertNotEqual(second["release"], first["release"])
+
     def test_rollback_publishes_by_rename_not_by_writing_in_place(self):
         # The final bytes are the same either way. What matters is that a
         # service manager reading the unit can never see it half-written, so the

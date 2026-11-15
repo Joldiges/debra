@@ -1,9 +1,14 @@
 """The onboarding state, persisted so a reboot does not restart the journey.
 
 One small JSON file is the whole record: which phase the device is in, what it
-last tried, and what it last failed with. It deliberately never holds a Wi-Fi
-passphrase — NetworkManager owns the keyfile, and a copy here would be a second
-place to leak it from.
+last tried, and what it last failed with. It deliberately never holds the
+household Wi-Fi passphrase — NetworkManager owns that keyfile, and a copy here
+would be a second place to leak it from.
+
+The setup network's own password is a different credential and is kept here. It
+is generated, not derived: a password computed from the device name is computable
+by anyone who can see the name broadcast, which is everyone in range. It is also
+written to the boot-partition note, which is how the owner learns it.
 """
 
 from __future__ import annotations
@@ -44,7 +49,14 @@ def blank(hostname=""):
         # after a lost reply is exactly that - would share it. A worker that was
         # superseded must not be able to match its reservation by accident.
         "attempt_token": None,
+        # Set by the worker that claimed the token, under the lock, before it
+        # touches the radio. Checking a token is not claiming it: two workers
+        # holding the same valid token both passed the check.
+        "attempt_claimed": False,
         "hotspot": None,
+        # The setup network's generated password. Written to the boot-partition
+        # note so the owner can join; not derivable from anything public.
+        "hotspot_password": None,
         "baseline": None,
         # Why the last baseline attempt failed, in words a person can read. It
         # is separate from last_error, which is about joining: a device can be
@@ -85,10 +97,18 @@ def validate(data):
             or not 0 <= attempts <= 1000:
         # bool is an int subclass: True would otherwise pass as one attempt.
         raise ValueError("Attempts must be a whole number up to 1000")
-    for key, limit in (("last_attempt", 40), ("updated", 40), ("attempt_token", 64)):
+    if not isinstance(data.get("attempt_claimed"), bool):
+        # A truthy string here would be treated as "a worker owns this attempt".
+        raise ValueError("attempt_claimed must be true or false")
+    for key, limit in (("last_attempt", 40), ("updated", 40), ("attempt_token", 64),
+                       ("hotspot_password", 63)):
         value = data.get(key)
         if value is not None and (not isinstance(value, str) or len(value) > limit):
             raise ValueError(f"{key} must be a timestamp or null")
+    password = data.get("hotspot_password")
+    if password is not None and (not isinstance(password, str)
+                                 or not 8 <= len(password) <= 63):
+        raise ValueError("Hotspot password must be 8-63 characters or null")
     hotspot = data.get("hotspot")
     if hotspot is not None:
         if not isinstance(hotspot, dict) or set(hotspot) != {"ssid", "interface"}:

@@ -164,6 +164,24 @@ def _keyfile_value(text):
     return "".join(out)
 
 
+def _keyfile_ssid(ssid):
+    """Write the SSID as NetworkManager's explicit byte list, not as text.
+
+    `ssid` is not an ordinary string property. NetworkManager's keyfile reader
+    keeps the historical semicolon-separated integer form: a submitted
+    `65;66;` becomes the two bytes `AB`, and after GLib unescapes `A\\;B` the
+    reader applies its own SSID parser, which loses the backslash. Both were
+    checked against the installed libnm parser, not argued from the source.
+
+    The byte list has no such ambiguity: every octet is stated, so no character
+    a network name can contain is special. It is also what NetworkManager
+    itself writes when the text form would be ambiguous.
+    """
+    if not valid_ssid(ssid):
+        raise NmError("Network name must be 1-32 printable bytes")
+    return ";".join(str(octet) for octet in ssid.encode("utf-8")) + ";"
+
+
 def _fsync_directory(directory):
     """Make a rename in `directory` durable. Best effort, never raises."""
     try:
@@ -191,10 +209,11 @@ def write_keyfile(directory, ssid, psk, connection_id, autoconnect=False,
     device had no household network after a reboot.
 
     The profile is written under a name the keyfile plugin does not read and
-    renamed into place. NetworkManager watches this directory, so a file
-    created under its final name would be parsed while it was still empty or
-    half written, and a crash mid-write would leave a broken profile that looks
-    like a real one. The rename is atomic inside one directory.
+    renamed into place. Some NetworkManager builds watch this directory and
+    some do not, and the manual tells an administrator to reload after editing
+    a file by hand, so the caller runs `connection load` explicitly either way.
+    The rename still matters: a crash mid-write would otherwise leave a profile
+    that looks real but is empty or truncated.
 
     `autoconnect` stays off until the join has been verified, so a trial that
     fails never competes with the real network. `interface` pins the profile to
@@ -211,7 +230,7 @@ def write_keyfile(directory, ssid, psk, connection_id, autoconnect=False,
     lines = connection + ["",
                           "[wifi]",
                           "mode=infrastructure",
-                          f"ssid={_keyfile_value(ssid)}",
+                          f"ssid={_keyfile_ssid(ssid)}",
                           ""]
     if psk:
         lines += ["[wifi-security]", "key-mgmt=wpa-psk", f"psk={_keyfile_value(psk)}", ""]
@@ -336,7 +355,10 @@ class Nmcli:
             fields = _terse_split(line)
             if len(fields) < 3:
                 continue
-            ssid, signal, security = fields[0].strip(), fields[1].strip(), fields[2].strip()
+            # The name is not stripped. A leading or trailing space is part of
+            # the SSID on the air, so trimming it here offers the person a
+            # network that is not the one the scan found.
+            ssid, signal, security = fields[0], fields[1].strip(), fields[2].strip()
             if not ssid:
                 # A hidden network has no name to offer; typing it still works.
                 continue

@@ -144,10 +144,20 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
     # The previous unit (if any) is preserved before the atomic replacement.
     fd, name = tempfile.mkstemp(prefix="debra-web.service.", suffix=".pending", dir=unit.parent)
     candidate = Path(name)
-    with os.fdopen(fd, "w") as stream:
-        stream.write(text)
-    candidate.chmod(0o600)
-    os.replace(candidate, unit)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(text)
+        candidate.chmod(0o600)
+        os.replace(candidate, unit)
+    except BaseException:
+        # A failed rename leaves a complete candidate named `.pending` in the
+        # unit's own directory. It is not loadable, but it is litter in a
+        # system-managed folder and nothing ever removes it.
+        try:
+            candidate.unlink()
+        except OSError:
+            pass
+        raise
     return {"release": release_id, "unit": str(unit),
             "previous_unit": str(backup) if backup else None, "changed": True}
 

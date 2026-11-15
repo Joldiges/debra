@@ -84,20 +84,23 @@ class _Collector:
             return
         if not path.is_file():
             return
-        try:
-            info = path.stat()
-        except OSError as exc:
-            self.skipped.append({"path": str(path), "reason": exc.__class__.__name__})
-            return
-        if info.st_size > MAX_BYTES or self.total + info.st_size > MAX_BYTES:
-            raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
         # Read the whole file before touching the tar stream. `tar.add()` writes
         # the header and part of the body before a read can fail, and catching
         # that failure left a truncated member in the archive that every later
         # member was unreachable behind. A file that cannot be read is skipped
         # without mutating the stream at all.
+        #
+        # The metadata comes from the descriptor that was read, never from a
+        # second `stat` of the path. Asking `gettarinfo()` to stat again left a
+        # window in which a writer could truncate the file between the size
+        # check and the header: the archive then held the old buffer with the
+        # new, shorter size, so the member was silently cut and reported
+        # captured.
         try:
             with open(path, "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if info.st_size > MAX_BYTES or self.total + info.st_size > MAX_BYTES:
+                    raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
                 chunks, size = [], 0
                 while True:
                     chunk = stream.read(1 << 20)
@@ -116,13 +119,18 @@ class _Collector:
         if len(data) != info.st_size:
             # The file changed while it was being read. Recording it would put
             # a size in the header that the body does not fill.
-            self.skipped.append({"path": str(path), "reason": "changed while being read"})
+            self.skipped.append({"path": str(path.relative_to(self.root)),
+                                 "reason": "changed while being read"})
             return
         if self.total + len(data) > MAX_BYTES:
             raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
-        self.tar.addfile(self.tar.gettarinfo(str(path),
-                                             arcname=str(path.relative_to(self.root))),
-                         io.BytesIO(data))
+        member = tarfile.TarInfo(str(path.relative_to(self.root)))
+        member.size = len(data)
+        member.mtime = int(info.st_mtime)
+        member.mode = 0o600 if info.st_mode & 0o077 == 0 else 0o644
+        member.uid = member.gid = 0
+        member.uname = member.gname = "root"
+        self.tar.addfile(member, io.BytesIO(data))
         self.total += len(data)
         self.captured.append(str(path.relative_to(self.root)))
 
@@ -240,6 +248,31 @@ def _write(path, payload):
             pass
         raise
     return path
+
+
+def verified(destination, archive):
+    """The manifest for one specific archive, or None if it does not verify.
+
+    `latest()` answers "what is the best baseline here"; a saved pointer answers
+    "what did this device record". They must not disagree: a pointer to an empty
+    or truncated file used to be trusted because the path existed, so the page
+    reported a recovery point that `latest()` already knew was unusable.
+    """
+    destination = Path(destination)
+    archive = Path(archive)
+    if not archive.is_file():
+        return None
+    try:
+        manifest = json.loads(
+            archive.with_suffix("").with_suffix(".json").read_text(encoding="utf-8"))
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    except (OSError, ValueError):
+        return None
+    if not isinstance(manifest, dict) or manifest.get("archive") != archive.name:
+        return None
+    if digest != manifest.get("sha256"):
+        return None
+    return manifest
 
 
 def latest(destination):

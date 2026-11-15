@@ -330,6 +330,12 @@ class InstalledArtifactTests(unittest.TestCase):
                     self.install(source=source, hosts=["second.local:8787"])
                 self.assertEqual(self.unit.read_bytes(), old_unit,
                                  f"{label}: the unit is neither the old nor the new version")
+                # The candidate is written beside the unit before it is renamed.
+                # An interrupted install must not leave it there: the folder is
+                # systemd's, and nothing ever removes an unexplained file from it.
+                self.assertEqual(sorted(path.name for path in self.unit.parent.iterdir()),
+                                 [self.unit.name],
+                                 f"{label}: a half-written candidate was left beside the unit")
                 self.assertIn(str(old_release / "server.py"), self.unit.read_text(),
                               f"{label}: the retained unit must still name a real release")
                 self.assertEqual(content_address(self.payload_of(old_release)),

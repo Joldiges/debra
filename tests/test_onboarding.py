@@ -5,6 +5,7 @@ proves the decisions and the HTTP contract, not that a radio works.
 """
 
 import json
+import secrets
 import os
 import stat
 import sys
@@ -36,11 +37,73 @@ except (ImportError, ValueError):  # pragma: no cover - depends on the host
     GLib = None
 
 
-def _glib_parse(text):
+def _glib_parse(text):  # noqa: F401 - kept for the GLib-level assertions
     key_file = GLib.KeyFile()
     key_file.load_from_data(text, len(text.encode("utf-8")), GLib.KeyFileFlags.NONE)
     return {"ssid": key_file.get_string("wifi", "ssid"),
             "psk": key_file.get_string("wifi-security", "psk")}
+
+
+# libnm is the parser NetworkManager's keyfile plugin itself uses. GLib alone is
+# not enough: `ssid` has its own reader on top of the GLib value, which is how a
+# submitted `65;66;` became `AB`.
+def _nm_library():
+    import ctypes
+    try:
+        nm = ctypes.CDLL("libnm.so.0")
+        gio = ctypes.CDLL("libgio-2.0.so.0")
+        glib = ctypes.CDLL("libglib-2.0.so.0")
+    except OSError:  # pragma: no cover - depends on the host
+        return None
+    glib.g_key_file_new.restype = ctypes.c_void_p
+    load = glib.g_key_file_load_from_data
+    load.restype = ctypes.c_int
+    load.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                     ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+    read = nm.nm_keyfile_read
+    read.restype = ctypes.c_void_p
+    read.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int,
+                     ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    for name in ("nm_connection_get_setting_wireless", "nm_setting_wireless_get_ssid",
+                 "nm_connection_get_setting_wireless_security",
+                 "nm_setting_wireless_security_get_psk"):
+        function = getattr(nm, name)
+        function.restype = ctypes.c_void_p
+        function.argtypes = [ctypes.c_void_p]
+    gio.g_bytes_get_size.restype = ctypes.c_size_t
+    gio.g_bytes_get_size.argtypes = [ctypes.c_void_p]
+    gio.g_bytes_get_data.restype = ctypes.c_void_p
+    gio.g_bytes_get_data.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+    return ctypes, nm, gio, glib, load, read
+
+
+NM_LIBRARY = _nm_library()
+
+
+def _nm_parse(text, base_dir="/tmp/opencode"):
+    """What NetworkManager itself would read out of this keyfile."""
+    import ctypes
+    _, nm, gio, glib, load, read = NM_LIBRARY
+    key_file = glib.g_key_file_new()
+    error = ctypes.c_void_p()
+    payload = text.encode("utf-8")
+    if not load(key_file, payload, len(payload), 0, ctypes.byref(error)):
+        raise AssertionError("GLib refused the keyfile")
+    connection = read(key_file, base_dir.encode(), 0, None, None, ctypes.byref(error))
+    if not connection:
+        raise AssertionError("libnm refused the keyfile")
+    wireless = nm.nm_connection_get_setting_wireless(connection)
+    size = ctypes.c_size_t()
+    blob = nm.nm_setting_wireless_get_ssid(wireless)
+    pointer = gio.g_bytes_get_data(blob, ctypes.byref(size))
+    ssid = ctypes.string_at(pointer, gio.g_bytes_get_size(blob)).decode("utf-8")
+    security = nm.nm_connection_get_setting_wireless_security(connection)
+    psk = None
+    if security:
+        value = nm.nm_setting_wireless_security_get_psk(security)
+        if value:
+            psk = ctypes.cast(value, ctypes.c_char_p).value.decode("utf-8")
+    return {"ssid": ssid, "psk": psk}
 
 
 class Temp(unittest.TestCase):
@@ -363,6 +426,9 @@ class BaselineTests(Temp):
                 self._file = real_open(path, "rb")
                 self._served = False
 
+            def fileno(self):
+                return self._file.fileno()
+
             def read(self, size=-1):
                 if not self._served:
                     self._served = True
@@ -506,6 +572,39 @@ class PortalTests(Temp):
         self.assertTrue(seen.get("connect_saw_reply"),
                         "the join ran before the page was answered")
 
+    def test_the_access_point_is_still_up_when_the_page_is_answered(self):
+        # Answering first is not enough if the access point has already gone:
+        # the reply has to travel over the network being torn down. A review
+        # mutation stopped the AP before the 202 and kept the worker after it,
+        # and every other test still passed, because they only watched
+        # `connect()`.
+        seen = {}
+        real_reply = onboarding.PortalHandler._reply
+
+        def reply(handler, code, body, content_type="application/json"):
+            if code == 202:
+                seen["hotspot_at_reply"] = self.network.hotspot
+                seen["stops_at_reply"] = len(
+                    [call for call in self.network.calls if call[0] == "stop_hotspot"])
+            return real_reply(handler, code, body, content_type)
+
+        with patch.object(onboarding.PortalHandler, "_reply", reply):
+            code, _ = self.request("/api/join", {"ssid": "HomeWiFi",
+                                                 "psk": "correct horse"})
+            self.assertEqual(code, 202)
+            for _ in range(200):
+                if state_module.read(self.state_path)["phase"] in ("online", "failed"):
+                    break
+                threading.Event().wait(0.01)
+        self.assertTrue(seen.get("hotspot_at_reply"),
+                        "the access point was already down when the page was answered")
+        self.assertEqual(seen.get("stops_at_reply"), 0,
+                         "the access point was stopped before the page was answered")
+        # And it does go down, eventually: the join is what needs the radio.
+        self.assertEqual(len([call for call in self.network.calls
+                              if call[0] == "stop_hotspot"]), 1)
+        self.assertIsNone(self.network.hotspot)
+
     def test_a_reply_that_cannot_be_delivered_releases_the_reservation(self):
         real_reply = onboarding.PortalHandler._reply
 
@@ -548,65 +647,70 @@ if __name__ == "__main__":
 
 
 class SetupPasswordTests(Temp):
-    """The setup network has to be joinable by a person with no console."""
+    """The setup network has to be joinable by a person with no console.
 
-    def test_the_password_is_derived_so_it_can_be_printed_and_reread(self):
-        first = onboarding.hotspot_password("debra-345678")
-        self.assertEqual(first, onboarding.hotspot_password("debra-345678"))
-        self.assertNotEqual(first, onboarding.hotspot_password("debra-876543"))
+    It also has to be unguessable. The password used to be derived from the
+    device name, which is broadcast in the setup network's own SSID: anyone in
+    range could compute it, so it protected nothing.
+    """
+
+    def test_the_password_is_generated_and_not_computable_from_the_name(self):
+        first = onboarding.new_hotspot_password()
+        second = onboarding.new_hotspot_password()
+        self.assertNotEqual(first, second, "two passwords were the same")
+        name = onboarding.hotspot_name("debra-345678")
+        self.assertNotIn(name.split("-")[-1], first,
+                         "the password leaks the device name it used to be made from")
         self.assertGreaterEqual(len(first), 8)
         self.assertLessEqual(len(first), 63)
+        self.assertTrue(set(first) <= set(onboarding.HOTSPOT_ALPHABET))
 
     def test_the_adapter_is_given_a_password_rather_than_left_to_invent_one(self):
+        # Below eight characters `nmcli` falls back to WEP, and a longer one is
+        # never shown to anyone, so the page could not be joined.
         network = FakeNetwork()
         self.onboarder(network).start_hotspot()
+        # The fake records only whether a password was passed, so that a test
+        # log never holds a credential; the length is checked on the real one.
         hotspot_calls = [call for call in network.calls if call[0] == "start_hotspot"]
         self.assertTrue(hotspot_calls[0][3], "start_hotspot was called without a password")
+        self.assertGreaterEqual(len(onboarding.new_hotspot_password()), 8,
+                                "nmcli would fall back to WEP below eight characters")
 
-    def test_the_password_is_never_written_into_the_setup_state(self):
+    def test_the_household_passphrase_is_never_written_into_the_setup_state(self):
         onboarder = self.onboarder()
         onboarder.start_hotspot()
         stored = self.state_path.read_text(encoding="utf-8")
-        password = onboarding.hotspot_password(onboarder.ensure_identity())
-        self.assertNotIn(password, stored)
-        self.assertNotIn("password", stored)
+        self.assertNotIn("correct horse", stored)
+        self.assertNotIn("psk", stored)
+
+    def test_the_setup_password_is_stored_so_the_page_and_the_note_agree(self):
+        # It protects the setup window, not the household. Keeping it lets the
+        # status report it and the note be reprinted after a rebind.
+        onboarder = self.onboarder()
+        status = onboarder.start_hotspot()
+        stored = state_module.read(self.state_path)["hotspot_password"]
+        self.assertEqual(status["hotspot"]["password"], stored)
+        self.assertEqual(len(stored), onboarding.HOTSPOT_PASSWORD_LENGTH)
 
     def test_the_card_note_says_the_three_things_needed_before_any_page_loads(self):
         note = self.dir / "boot" / "debra-setup.txt"
         onboarder = self.onboarder(card_note_path=note)
-        onboarder.start_hotspot()
+        status = onboarder.start_hotspot()
         text = note.read_text(encoding="utf-8")
         self.assertIn("Debra-Setup-demo1", text)
-        self.assertIn(onboarding.hotspot_password(onboarder.ensure_identity()), text)
+        self.assertIn(status["hotspot"]["password"], text)
         self.assertIn("http://", text)
 
-    def test_a_missing_card_location_is_not_a_reason_to_fail_the_hotspot(self):
+    def test_a_reprinted_note_keeps_the_password_the_access_point_was_raised_with(self):
         note = self.dir / "boot" / "debra-setup.txt"
-        note.parent.write_text("not a directory")  # occupies the parent path
-        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
-            status = self.onboarder(card_note_path=note).start_hotspot()
-        self.assertEqual(status["phase"], "hotspot")
-
-    def test_the_note_is_reprinted_with_the_address_the_page_actually_bound(self):
-        # The note is written when the access point comes up, before the socket
-        # exists. If the page binds somewhere else, that is the address a person
-        # has to type, and the earlier guess is a dead link.
-        note = self.dir / "boot" / "debra-setup.txt"
-        onboarder = self.onboarder(card_note_path=note)
-        onboarder.start_hotspot()
-        self.assertIn("http://10.42.0.1/", note.read_text(encoding="utf-8"))
-        onboarder.announce_portal("192.168.50.1")
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, card_note_path=note)
+        first = onboarder.start_hotspot()["hotspot"]["password"]
+        onboarder.announce_portal("192.0.2.9")
         text = note.read_text(encoding="utf-8")
-        self.assertIn("http://192.168.50.1/", text)
-        self.assertNotIn("10.42.0.1", text)
-        self.assertEqual(onboarder.status()["portal"], "http://192.168.50.1/")
-
-    def test_announcing_an_address_with_no_access_point_is_harmless(self):
-        note = self.dir / "boot" / "debra-setup.txt"
-        onboarder = self.onboarder(card_note_path=note)
-        onboarder.announce_portal("192.168.50.1")
-        self.assertFalse(note.exists(), "a note was written for a network that is not up")
-        self.assertIsNone(onboarder.status()["portal"])
+        self.assertIn(first, text, "the reprinted note lost the password")
+        self.assertIn("192.0.2.9", text)
 
 
 class CountryTests(Temp):
@@ -770,21 +874,44 @@ class AdapterTests(Temp):
                        "connection.autoconnect", "yes"], recorder.calls)
 
     @unittest.skipUnless(GLib, "GLib is not installed on this host")
-    def test_a_keyfile_value_round_trips_through_a_real_parser(self):
-        # The previous escaping produced `Caf\; \#1`, which GLib rejects and
-        # which is not what the user typed. Ask the real parser.
-        for ssid, psk in (("Caf; #1", "pass;word#1"),
-                          (" Home ", " space pass "),
-                          ("back\\slash", "back\\slash1")):
+    @unittest.skipUnless(NM_LIBRARY, "libnm is not installed on this host")
+    def test_the_ssid_survives_network_managers_own_parser(self):
+        # GLib is not the whole story: `ssid` has a second reader on top of it.
+        # Writing it as text meant `65;66;` joined a network called `AB` and a
+        # name containing a backslash lost it. Ask libnm, which is what the
+        # keyfile plugin runs.
+        for ssid in ("HomeWiFi", "Caf; #1", " Home ", "back\\slash", "65;66;",
+                     "A\\;B", "x;y;z;", "123", "Café"):
             with self.subTest(ssid=ssid):
                 directory = self.dir / ("rt-" + str(abs(hash(ssid))))
                 directory.mkdir()
                 recorder = Recorder()
-                nm_module.Nmcli(runner=recorder).connect(ssid, psk, keyfile_dir=directory)
+                nm_module.Nmcli(runner=recorder).connect(
+                    ssid, "correct horse", keyfile_dir=directory)
                 text, _, _ = recorder.contents[0]
-                got = _glib_parse(text)
-                self.assertEqual(got["ssid"], ssid)
-                self.assertEqual(got["psk"], psk)
+                self.assertEqual(_nm_parse(text)["ssid"], ssid,
+                                 "NetworkManager would join a different network")
+
+    @unittest.skipUnless(NM_LIBRARY, "libnm is not installed on this host")
+    def test_the_passphrase_survives_network_managers_own_parser(self):
+        for psk in ("pass;word#1", " space pass ", "back\\slash1", "correct horse"):
+            with self.subTest(psk=psk):
+                directory = self.dir / ("psk-" + str(abs(hash(psk))))
+                directory.mkdir()
+                recorder = Recorder()
+                nm_module.Nmcli(runner=recorder).connect("Home", psk, keyfile_dir=directory)
+                text, _, _ = recorder.contents[0]
+                self.assertEqual(_nm_parse(text)["psk"], psk)
+
+    def test_glib_accepts_the_file_at_all(self):
+        # GLib is the first reader. A value GLib refuses is a file NetworkManager
+        # never gets to. This is weaker than the libnm test above and says so.
+        recorder = Recorder()
+        nm_module.Nmcli(runner=recorder).connect("Caf; #1", "pass;word#1",
+                                                 keyfile_dir=self.dir)
+        text, _, _ = recorder.contents[0]
+        GLib.KeyFile().load_from_data(text, len(text.encode("utf-8")),
+                                      GLib.KeyFileFlags.NONE)
 
     def test_a_newline_in_a_password_is_refused_not_escaped(self):
         recorder = Recorder()
@@ -1643,3 +1770,281 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, *args, **kwargs):
         return None
+
+
+class BootRepairTests(Temp):
+    """What a real boot does, not what a helper does when called twice."""
+
+    def test_a_boot_retries_a_device_name_that_was_never_applied(self):
+        # The name is saved before it is applied. The first boot fails to apply
+        # it; the second must try again, because the page advertises that name.
+        network = FakeNetwork()
+        network.fail_hostname = True
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            self.onboarder(network).resume()
+        self.assertEqual(state_module.read(self.state_path)["hostname"], "debra-demo1")
+        self.assertIsNone(getattr(network, "hostname_applied", None))
+        network.fail_hostname = False
+        # A second boot is a new Onboarder over the same state.
+        self.onboarder(network).resume()
+        applied = [call for call in network.calls if call[0] == "set_hostname"]
+        self.assertEqual(len(applied), 2, "the second boot did not retry the name")
+        self.assertEqual(network.hostname_applied, "debra-demo1")
+
+    def test_a_boot_that_is_already_online_also_applies_the_name(self):
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        self.onboarder(network).resume()
+        self.assertEqual(network.hostname_applied, "debra-demo1",
+                         "an online boot skipped applying the device name")
+        self.assertEqual(state_module.read(self.state_path)["phase"], "online")
+
+
+class DamagedBaselineTests(Temp):
+    """A saved pointer that does not verify is not a recovery point."""
+
+    def root_with(self):
+        root = self.dir / "capture-root"
+        (root / "etc").mkdir(parents=True)
+        (root / "etc" / "hostname").write_text("debra-demo1\n")
+        return root
+
+    def capture_with(self, root):
+        return baseline_module.capture(self.baseline_dir, root=root, stamp="R1")
+
+    def test_a_damaged_archive_does_not_suppress_the_next_capture(self):
+        root = self.root_with()
+        manifest = self.capture_with(root)
+        archive = self.baseline_dir / manifest["archive"]
+        archive.write_bytes(b"")
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        onboarder = self.onboarder(network, root=str(root))
+        data = state_module.blank("debra-demo1")
+        data.update(phase="online", ssid="Home", address="192.0.2.5",
+                    baseline=str(archive))
+        state_module.write(self.state_path, data)
+        status = onboarder.resume()
+        self.assertIsNotNone(status["baseline"], "an empty archive was believed")
+        self.assertNotEqual(status["baseline"], str(archive))
+        self.assertTrue(baseline_module.verified(self.baseline_dir, status["baseline"]))
+        self.assertIsNone(status["baseline_error"])
+
+    def test_the_damage_is_reported_while_it_is_still_the_record(self):
+        root = self.root_with()
+        manifest = self.capture_with(root)
+        (self.baseline_dir / manifest["archive"]).write_bytes(b"truncated")
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        onboarder = self.onboarder(network, root=str(root))
+        data = state_module.blank("debra-demo1")
+        data.update(phase="online", address="192.0.2.5",
+                    baseline=str(self.baseline_dir / manifest["archive"]))
+        state_module.write(self.state_path, data)
+        with self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+            status = onboarder.resume()
+        self.assertIn("does not verify", "\n".join(logs.output))
+        self.assertIsNotNone(status["baseline"], "no replacement was captured")
+
+    def test_a_whole_baseline_with_no_recorded_pointer_is_adopted(self):
+        # A pointer write can fail on a full disk while the archive itself was
+        # written. Capturing another one is exactly what that disk cannot afford.
+        root = self.root_with()
+        existing = self.capture_with(root)
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        onboarder = self.onboarder(network, root=str(root))
+        data = state_module.blank("debra-demo1")
+        data.update(phase="online", address="192.0.2.5")
+        state_module.write(self.state_path, data)
+        with self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+            status = onboarder.resume()
+        self.assertIn("Adopted", "\n".join(logs.output))
+        self.assertEqual(status["baseline"],
+                         str(self.baseline_dir / existing["archive"]))
+        self.assertEqual(len(list(self.baseline_dir.glob("baseline-*.tar.gz"))), 1,
+                         "a second baseline was captured on top of a whole one")
+
+
+class CaptureIntegrityTests(Temp):
+    """A member's size comes from the bytes that were read, not a second stat."""
+
+    def root_with(self, size=2048):
+        root = self.dir / "race-root"
+        (root / "etc").mkdir(parents=True)
+        (root / "etc" / "hostname").write_bytes(b"A" * size)
+        return root
+
+    def test_the_header_is_not_built_from_a_second_stat(self):
+        # `gettarinfo()` stats the path again. When a writer truncated the file
+        # between the read and that stat, the archive held the old buffer with
+        # the new, shorter size: a silently cut member reported as captured.
+        root = self.root_with()
+        import tarfile as tarfile_module
+        with patch.object(tarfile_module.TarFile, "gettarinfo",
+                          side_effect=AssertionError("metadata was taken from a second stat")):
+            manifest = baseline_module.capture(self.baseline_dir, root=str(root), stamp="S1")
+        self.assertIn("etc/hostname", manifest["captured"])
+        with tarfile_module.open(self.baseline_dir / manifest["archive"]) as tar:
+            member = tar.getmember("etc/hostname")
+            self.assertEqual(member.size, 2048)
+            self.assertEqual(tar.extractfile(member).read(), b"A" * 2048)
+
+    def test_a_file_truncated_during_the_read_is_skipped_not_cut(self):
+        # The other half of the same window: the file shrinks while it is being
+        # read, so the bytes and the size disagree. Either it is skipped or it
+        # is whole; a member that is neither is the defect.
+        root = self.root_with()
+        real_open = open
+        state = {"done": False}
+
+        class Shrinking:
+            def __init__(self, path):
+                self._file = real_open(path, "rb")
+
+            def fileno(self):
+                return self._file.fileno()
+
+            def read(self, size=-1):
+                if not state["done"]:
+                    state["done"] = True
+                    (root / "etc" / "hostname").write_bytes(b"x")
+                return self._file.read(size)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self._file.close()
+
+        def fake_open(path, *args, **kwargs):
+            if str(path).endswith("etc/hostname"):
+                return Shrinking(path)
+            return real_open(path, *args, **kwargs)
+
+        with patch("builtins.open", fake_open):
+            manifest = baseline_module.capture(self.baseline_dir, root=str(root), stamp="S2")
+        self.assertNotIn("etc/hostname", manifest["captured"],
+                         "a file that changed under the read was recorded as whole")
+        reasons = {item["path"]: item["reason"] for item in manifest["skipped"]}
+        self.assertEqual(reasons.get("etc/hostname"), "changed while being read")
+
+
+class WorkerOwnershipTests(Temp):
+    """Checking a token is not claiming it."""
+
+    def busy_network(self, gate, event, seen):
+        class Slow(FakeNetwork):
+            def stop_hotspot(slow):
+                slow.calls.append(("stop_hotspot",))
+                slow.hotspot = None
+                seen.append("stopping")
+                gate.wait(5)
+                event.set()
+        return Slow()
+
+    def test_two_workers_with_the_same_token_join_once(self):
+        gate = threading.Event()
+        event = threading.Event()
+        seen = []
+        network = self.busy_network(gate, event, seen)
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        _, token = onboarder.admit("HomeWiFi")
+        results = []
+
+        def worker():
+            results.append(onboarder.join_reserved("HomeWiFi", "correct horse", token=token))
+
+        first = threading.Thread(target=worker)
+        first.start()
+        for _ in range(500):
+            if event.is_set() or len(seen) == 1:
+                break
+            threading.Event().wait(0.01)
+        second = threading.Thread(target=worker)
+        second.start()
+        threading.Event().wait(0.05)
+        gate.set()
+        first.join(10)
+        second.join(10)
+        joins = [call for call in network.calls if call[0] == "connect"]
+        self.assertEqual(len(joins), 1, f"the same reservation joined {len(joins)} times")
+        self.assertEqual(len(results), 2)
+
+    def test_a_worker_superseded_after_its_check_cannot_settle_the_new_attempt(self):
+        gate = threading.Event()
+        event = threading.Event()
+        seen = []
+        network = self.busy_network(gate, event, seen)
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        _, old_token = onboarder.admit("HomeWiFi")
+        done = []
+
+        def worker():
+            done.append(onboarder.join_reserved("HomeWiFi", "correct horse", token=old_token))
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        for _ in range(500):
+            if seen:
+                break
+            threading.Event().wait(0.01)
+        # A new generation of the attempt appears while the old worker is still
+        # inside `stop_hotspot()`: the same effect a reboot-seeded retry or any
+        # other writer of this record would have.
+        new_token = secrets.token_hex(8)
+        data = state_module.read(self.state_path)
+        data.update(phase="connecting", ssid="HomeWiFi", attempt_token=new_token,
+                    attempt_claimed=False)
+        state_module.write(self.state_path, data)
+        gate.set()
+        thread.join(10)
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["attempt_token"], new_token,
+                         "the superseded worker cleared the current reservation")
+        self.assertEqual(data["phase"], "connecting")
+
+    def test_a_release_cannot_cancel_an_attempt_a_worker_already_took(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        _, token = onboarder.admit("HomeWiFi")
+        self.assertIsNotNone(onboarder._claim("HomeWiFi", token))
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder.release(token)
+        self.assertEqual(state_module.read(self.state_path)["phase"], "connecting")
+
+
+class JournalBoundaryTests(Temp):
+    """The journal is not a place for an exception's own text."""
+
+    def test_a_capture_failure_logs_a_sentence_not_the_error_text(self):
+        failure = PermissionError(13, "denied", "/synthetic/SYNTHETIC-SECRET-R3")
+        network = FakeNetwork()
+        network.joined = "HomeWiFi"
+        onboarder = self.onboarder(network)
+        data = state_module.blank("debra-demo1")
+        data.update(phase="online", ssid="HomeWiFi", address="192.0.2.40")
+        state_module.write(self.state_path, data)
+        with patch.object(baseline_module, "capture", side_effect=failure):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+                status = onboarder.resume()
+        text = "\n".join(logs.output)
+        self.assertNotIn("SYNTHETIC-SECRET-R3", text, "the journal carried the path")
+        self.assertIn("could not be read", text)
+        self.assertEqual(status["baseline_error"], "Some device files could not be read")
+
+
+class ScanSpaceTests(unittest.TestCase):
+    """A name's leading and trailing spaces are part of the name."""
+
+    def test_a_scan_does_not_trim_a_network_name(self):
+        # `nmcli -t` separates fields with `:` and escapes a literal colon as
+        # `\:`. The name is the first field, and its spaces are part of it.
+        out = " Home :70:WPA2\nOther:40:WPA2\n"
+        adapter = nm_module.Nmcli(runner=lambda argv, timeout=None: out)
+        found = adapter.scan("wlan0")
+        names = [item["ssid"] for item in found]
+        self.assertIn(" Home ", names, f"the scan trimmed the name: {names}")

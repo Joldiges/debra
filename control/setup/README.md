@@ -32,15 +32,21 @@ The unit runs on every boot and asks `Onboarder.resume()`
    the access point is gone, and the service closes the listening socket within
    a couple of seconds rather than leaving the page open. It then waits up to
    five seconds for the first baseline, because the join worker captures it
-   after recording the online phase. On failure the access point comes back with
-   the reason and the page keeps serving.
+   after recording the online phase. That grace is a wait, not a deadline: the
+   worker thread is deliberately not a daemon so that a capture in progress is
+   not abandoned, and a slow capture therefore keeps the process alive past
+   those five seconds. On failure the access point comes back with the reason
+   and the page keeps serving.
 5. Once the socket is bound, the note on the boot partition is reprinted with
    the address that is actually listening. The note written when the access
    point came up carries the address the radio reported, and those two are not
    always the same. A person typing an address the portal's own same-origin
    check rejects is stuck at the first step of setup.
-6. After the first successful join the baseline is captured once. It is
-   configuration recovery, not whole-device recovery, and it contains secrets.
+6. After the first successful join the baseline is captured once. It is a
+   **capture, not a recovery point in practice**: nothing in this repository
+   restores from it, no restore has been run, and the allowlist captures
+   configuration files, not a package or hardware inventory. It contains
+   secrets.
 
 Nothing reboots the device to apply Wi-Fi, nothing restarts NetworkManager, and
 no passphrase is written anywhere except NetworkManager's own keyfile.
@@ -68,11 +74,18 @@ one is `WantedBy=multi-user.target` and runs as root.
 passphrase from whoever is on the setup network. Three things limit that, and
 none of them make it a secure portal:
 
-- The page is bound to the access point's own address, not `0.0.0.0`, so it is
-  reachable only through the setup access point, not from the household network.
-- The access point is WPA2 with a password derived from the device name and
-  written to the boot partition. Anyone who can join the setup network can also
-  submit the form; the password protects the setup window, not the household.
+- The page is bound to the access point's own address rather than `0.0.0.0`.
+  That is **not** ingress-interface enforcement: binding an address decides
+  which address the kernel accepts requests on, not which interface a packet
+  arrived from, and there is no firewall rule here. What actually keeps the page
+  off the household network is that the address exists only while the access
+  point does.
+- The access point is WPA2 with a **generated** password (twelve characters from
+  an alphabet without look-alike pairs), stored in the setup state and written
+  to the boot-partition note. It is not derived from anything broadcast, so a
+  neighbour who can see the setup network's name cannot compute it. It protects
+  the setup window, not the household: anyone who can read the card, or who is
+  told the password, can also submit the form.
 - The service shuts the page down as soon as the device is online.
 
 Port 80 rather than 8080 is the same kind of choice: the journey promises
@@ -146,7 +159,7 @@ useful for inspection or imaging. `--restore <unit>` is the rollback below.
 | --- | --- | --- |
 | `/usr/local/lib/debra/setup/releases/<sha256>/` | `0700` | Fixed payload, content-addressed; old releases retained |
 | `/usr/local/lib/debra/setup/previous-units/` | `0700` | Previous generated units, retained for rollback |
-| `/var/lib/debra/setup/setup.json` | `0600` | The setup state; no passphrase |
+| `/var/lib/debra/setup/setup.json` | `0600` | The setup state. No household passphrase; it does hold the generated setup-network password, so this file is a credential |
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; it is the only copy of that passphrase |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
@@ -252,8 +265,10 @@ Ordered by how likely it is to bite on a real first boot.
    how long the scan takes, is untested. A failed or slow scan is not fatal, but
    it does delay the page appearing.
 9. **If `/boot/firmware` is not mounted when the note is written**, the note is
-   created on the root filesystem instead. The service logs a warning and the
-   access point still starts.
+   created on the root filesystem instead, where the person holding the card
+   cannot see it. The service warns (`The setup note is not on a mounted boot
+   partition`) and the access point still starts. Nothing refuses to run without
+   that partition, and no boot has been tried with it absent.
 10. **The unit has never been loaded by systemd.** The tests read the rendered
     unit as text; they do not run `systemd-analyze verify`, and they prove
     nothing about polkit, D-Bus or a radio.
@@ -298,5 +313,8 @@ python3 -B -m unittest tests.test_setup_install -v
 python3 -B -m unittest tests.test_onboarding -v
 ```
 
-They prove the artifacts on disk and the boot decisions against a recorded fake
-NetworkManager. They prove nothing about hardware.
+They check the artifacts on disk, the boot decisions, and the page's own
+behaviour in a real browser, all against a recorded fake NetworkManager. They do
+not prove anything about a radio, a real keyfile read, systemd, or hardware. Each
+of the guards above was also checked by breaking it and watching one of these
+tests fail, except where the page below says otherwise.
