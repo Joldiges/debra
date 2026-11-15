@@ -14,10 +14,20 @@ tradeoffs, blockers, and requests for physical actions or new authorization.
   19 named streams, nine bounded research starter cards, and a standard-library
   Python claim/worktree helper. It coordinates one clone's linked worktrees,
   not model permissions; production dispatch is closed until F05 approval.
-- **Not configured or verified:** restricted project-specific OpenCode worker
-  profiles, automatic model routing, enforced independent-review/merge gates, CI, or
-  protected branches. F05 pilots the roles before lower-cost editing workers
-  are used. This document does not enable or enforce those controls.
+- **Restricted role profiles exist, unverified:** `.opencode/agents/debra-research.md`
+  and `debra-review.md` are deny-by-default subagent profiles, and
+  `tools/coord.py profile` generates a per-task editing profile that allows edits
+  only on the assigned paths. OpenCode's permission layer is the enforcer, but no
+  live session has exercised these rules here, so they are proposed policy, not
+  tested isolation. See [delegation](guides/delegation.md).
+- **Delegated work has a record:** `tools/coord.py launch|capture|snapshot|verdict|status|check`
+  keeps the assignment, the returned report, the frozen review candidate, and the
+  verdict under ignored `.local/coord/<task>/`, with model, cost and token counts
+  read from OpenCode. It records work; it does not launch, review, merge or accept it.
+- **Not configured or verified:** automatic model routing, enforced
+  independent-review/merge gates, CI, or protected branches. F05 pilots the roles
+  before lower-cost editing workers are used. This document does not enable or
+  enforce those controls.
 - **Baseline observed:** commit `39b93fb` ("AI fresh start") contains the planning
   documents; the checkout/index were clean when task-chain work resumed.
   Earlier reports of uncommitted planning and staged removals are historical,

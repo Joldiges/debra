@@ -4,6 +4,10 @@
 # Project-local private records, recovery points, and generated artifacts
 /.local/
 
+# Generated per-task agent profiles from tools/coord.py: local coordination
+# state, recreated per claim, never shared configuration.
+/.opencode/agents/local-*.md
+
 # Defensive guard for environment files; keep real values under .local/
 .env
 .env.*
