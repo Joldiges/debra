@@ -15,8 +15,9 @@ catalog with its claim registry. It starts nothing, stops nothing, writes
 nothing outside ``.local/status``, and never calls a model.
 
 OpenCode sessions need the background service; when it is unreachable that
-section says so instead of guessing. Dispatch claims are not shown: dispatch is
-closed, so there is nothing to claim.
+section says so instead of guessing. The Todos tab does show dispatcher claims,
+and says when the claim registry is closed: that gates a claim by another
+clone, not a coordinator assigning a card to a subagent.
 """
 
 from __future__ import annotations
@@ -382,21 +383,38 @@ def _queued_work(path: Path | None = None) -> dict:
 
 
 def chains_snapshot() -> dict:
-    """Task chains, live claims, and why each chain is or is not being worked on.
+    """Task chains, their claims, and why each chain is or is not progressing.
 
     Eligibility is not re-derived here. The catalog, the roadmap and the claim
-    registry already own those rules, so this asks the dispatcher's own helpers
-    and adds only the roadmap state that explains the answer in plain words.
+    registry already own those rules, so this asks the dispatcher's own helpers.
+    The registry sits in ``taskchain.REGISTRY`` under the Git common directory;
+    reading the common directory itself finds no claims and looks closed.
     """
     missing = {"error": None, "policy": None, "claims": [], "chains": []}
     try:
         catalog, tasks = taskchain.catalog()
-        state = taskchain.read_state(taskchain.common_dir())
+        state = taskchain.read_state(taskchain.common_dir() / taskchain.REGISTRY)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         missing["error"] = f"not readable ({exc})"
         return missing
-    claims = [claim for claim in state.get("claims", {}).values()
-              if isinstance(claim, dict) and claim.get("status") in taskchain.LIVE]
+    # Claim records are private state written by a separate tool. Keep only the
+    # ones that can be read, and hand reason() exactly that set, so one bad
+    # record cannot take the page down or invent a different answer.
+    safe = {}
+    raw = state.get("claims")
+    for index, claim in enumerate(raw.values() if isinstance(raw, dict) else ()):
+        if not isinstance(claim, dict):
+            continue
+        fields = {key: claim.get(key) for key in ("chain", "packet", "status")}
+        if not all(isinstance(value, str) for value in fields.values()):
+            continue
+        safe_claim = {
+            "id": claim.get("id") if isinstance(claim.get("id"), str) else f"claim-{index}",
+            "chain": fields["chain"], "packet": fields["packet"], "status": fields["status"],
+            "owner": (claim.get("owner") if isinstance(claim.get("owner"), str) else "unknown"),
+        }
+        safe[safe_claim["id"]] = safe_claim
+    claims = [claim for claim in safe.values() if claim["status"] in taskchain.LIVE]
     rows = []
     for chain in catalog:
         starter = chain.get("starter")
@@ -408,46 +426,54 @@ def chains_snapshot() -> dict:
             "output": chain.get("output"),
             "packet_state": status,
             "waiting_on": [dep for dep in deps if tasks.get(dep, ("",))[0] != "done"],
-            "reason": taskchain.reason(chain, tasks, state),
+            "reason": taskchain.reason(chain, tasks, {"claims": safe}),
         })
     return {"error": None, "policy": state.get("policy"), "claims": claims, "chains": rows}
 
 
 def backlog_snapshot() -> dict:
-    """Ready research studies and whether the runner already has them.
+    """Ready research studies, and which of them the runner does not already have.
 
-    A study the queue or the runner's own history already knows is not offered
-    again: the backlog is only a source of *new* work, which is the rule the
-    runner's refill already uses.
+    This mirrors the refill rules rather than inventing a friendlier version:
+    an id that appears twice is never queued at all, a study already in the
+    queue is not offered again, and a study marked not-ready is never queued.
+    Finished studies are also withheld, which refill itself would not do; the
+    counts say which is which instead of promising what refill would add.
     """
+    empty = {"error": None, "ready": [], "unqueued": [], "not_ready": [], "duplicates": [],
+             "in_queue": 0, "finished": 0, "malformed": 0}
     try:
         with contextlib.redirect_stderr(io.StringIO()) as captured:
             entries = runner._backlog_entries(runner.BACKLOG_PATH)
     except (OSError, ValueError) as exc:
-        return {"error": f"research backlog not readable ({exc})", "ready": [],
-                "unqueued": [], "not_ready": [], "queued": 0, "malformed": 0}
+        return dict(empty, error=f"research backlog not readable ({exc})")
     try:
-        known = {task.get("id")
-                 for task in runner._read_json(runner.QUEUE_PATH, {}).get("tasks", [])}
-        known |= set(runner._read_json(runner.STATE_PATH, {}).get("tasks", {}))
+        queued = {task.get("id")
+                  for task in runner._read_json(runner.QUEUE_PATH, {}).get("tasks", [])}
+        finished = set(runner._read_json(runner.STATE_PATH, {}).get("tasks", {}))
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         # Without the queue this cannot tell new work from finished work, and
         # offering a study twice is worse than saying it does not know.
-        return {"error": f"runner queue not readable ({exc.__class__.__name__})",
-                "ready": [], "unqueued": [], "not_ready": [], "queued": 0, "malformed": 0}
-    seen, ready, unqueued, not_ready = set(), [], [], []
+        return dict(empty, error=f"runner queue not readable ({exc.__class__.__name__})")
+    counts = {}
+    for _line, task_id, _readiness, _title, _prompt in entries:
+        counts[task_id] = counts.get(task_id, 0) + 1
+    duplicates = sorted(task_id for task_id, count in counts.items() if count > 1)
+    ready, unqueued, not_ready = [], [], []
     for _line, task_id, readiness, title, _prompt in entries:
-        if task_id in seen:
-            continue  # a duplicate id is skipped by refill too
-        seen.add(task_id)
+        if counts[task_id] > 1:
+            continue  # refill skips every occurrence of a duplicated id
         if readiness != "ready":
             not_ready.append({"id": task_id, "title": title})
             continue
         ready.append({"id": task_id, "title": title})
-        if task_id not in known:
+        if task_id not in queued and task_id not in finished:
             unqueued.append({"id": task_id, "title": title})
     return {"error": None, "ready": ready, "unqueued": unqueued,
-            "not_ready": not_ready, "queued": len(ready) - len(unqueued),
+            "not_ready": not_ready, "duplicates": duplicates,
+            "in_queue": sum(1 for entry in ready if entry["id"] in queued),
+            "finished": sum(1 for entry in ready
+                            if entry["id"] in finished and entry["id"] not in queued),
             "malformed": captured.getvalue().count("skipped backlog line")}
 
 
@@ -457,90 +483,99 @@ def todos_snapshot() -> dict:
             "backlog": backlog_snapshot()}
 
 
-def _chain_group(row: dict, worked: set) -> tuple[str, str]:
-    """Which group a chain belongs to, and the sentence that explains it."""
-    if row["id"] in worked:
-        return ("worked", "a claim holds it")
-    if not row["starter"]:
+def _chain_group(row: dict, claim: dict | None) -> tuple[str, str]:
+    """Which group a chain belongs to, and the sentence that explains it.
+
+    Holding a claim is not the same as making progress: ``submitted`` waits for
+    a reviewer, ``blocked`` waits for the coordinator, and ``workspace-failed``
+    needs the workspace rebuilt. Only ``starting`` and ``active`` are work.
+    """
+    if claim:
+        if claim["status"] in taskchain.WORKING:
+            return ("working", f"packet {claim['packet']} claimed by {claim['owner']}")
+        return ("held", f"packet {claim['packet']} is {claim['status']} ({claim['owner']})")
+    starter, state, why = row["starter"], row["packet_state"], row["reason"]
+    if not starter:
         return ("carded", "no starter card: the coordinator must write the next bounded card")
-    state, starter = row["packet_state"], row["starter"]
+    if why.endswith("integrated; coordinator must advance the chain"):
+        return ("advance", why)
     if state == "review":
         return ("review", f"{starter} is in review")
     if state == "done":
-        return ("carded", f"{starter} is done: the coordinator must prepare the next packet")
+        return ("advance", f"{starter} is done: the coordinator must prepare the next packet")
     if state == "blocked":
         return ("blocked", f"{starter} is blocked on the roadmap")
-    if state == "ready" and not row["reason"]:
-        return ("eligible", f"{starter} is ready to claim")
-    return ("blocked", row["reason"] or f"{starter} is {state or 'unknown'}")
+    if state == "ready" and not why:
+        return ("eligible", f"{starter} is ready")
+    return ("blocked", why or f"{starter} is {state or 'unknown'}")
+
+
+TODOS_GROUPS = (("working", "Being worked on", "being worked on"),
+                ("held", "Claimed, not progressing", "claimed but stalled"),
+                ("eligible", "Spawnable now", "spawnable now"),
+                ("review", "Deliverable landed, waiting for review", "waiting for review"),
+                ("advance", "Finished, coordinator must advance", "to advance"),
+                ("blocked", "Prerequisites not met", "blocked"),
+                ("carded", "No card written yet", "with no card"))
 
 
 def _todos_lines(todos: dict) -> list[str]:
     """The Todos tab as Markdown, so the file and the terminal cannot disagree."""
-    groups = {name: [] for name in ("worked", "eligible", "review", "blocked", "carded")}
+    groups = {name: [] for name, _heading, _short in TODOS_GROUPS}
     chains, queued, backlog = todos["chains"], todos["queued"], todos["backlog"]
     out = []
     if chains["error"]:
         out.append(f"- Task chains {chains['error']}")
     else:
-        worked = {claim.get("chain") for claim in chains["claims"]}
+        claims = {}
+        for claim in chains["claims"]:
+            claims[claim["chain"]] = claim
         for row in chains["chains"]:
-            group, detail = _chain_group(row, worked)
+            group, detail = _chain_group(row, claims.get(row["id"]))
             groups[group].append((row, detail))
-        if chains["claims"]:
-            owners = ", ".join(sorted(f"{claim.get('chain', 'unknown')} ({claim.get('status')})"
-                                      for claim in chains["claims"]))
-            out.append(f"- {len(chains['chains'])} task chains; being worked on: {owners}")
+        working = [claim for claim in chains["claims"] if claim["status"] in taskchain.WORKING]
+        total = len(chains["chains"])
+        if working:
+            out.append(f"- {total} task chains; being worked on: " + ", ".join(
+                f"{claim['chain']} ({claim['status']})" for claim in working))
+        elif chains["claims"]:
+            out.append(f"- {total} task chains; none is making progress, "
+                       f"{len(chains['claims'])} hold a claim")
         else:
-            out.append(f"- {len(chains['chains'])} task chains; **none is being worked on right now**")
+            out.append(f"- {total} task chains; **none holds a claim**")
         if chains["policy"]:
             out.append(f"- The claim registry is open for base `{chains['policy'].get('base', 'unknown')}`.")
         else:
             out.append("- The claim registry is **closed**: another clone cannot claim a card until the")
             out.append("  coordinator opens it. Coordinator-assigned subagent work does not use it.")
-        out.append(f"- {len(groups['eligible'])} ready to claim, {len(groups['review'])} waiting for review, "
-                   f"{len(groups['blocked'])} blocked, {len(groups['carded'])} with no card.")
+        counts = ", ".join(f"{len(groups[name])} {short}"
+                           for name, _heading, short in TODOS_GROUPS
+                           if groups[name] and name not in ("working", "held"))
+        if counts:
+            out.append(f"- {counts}.")
 
-    if groups["worked"]:
+    for name, heading, _short in TODOS_GROUPS:
+        if not groups[name]:
+            continue
         out.append("")
-        out.append(f"### Being worked on ({len(groups['worked'])})")
-        for row, _detail in groups["worked"]:
-            owners = [claim for claim in chains["claims"] if claim.get("chain") == row["id"]]
-            who = ", ".join(str(claim.get("owner", "unknown")) for claim in owners) or "unknown"
-            status = ", ".join(str(claim.get("status", "unknown")) for claim in owners) or "unknown"
-            packets = " ".join(str(claim.get("packet", "")) for claim in owners).strip() or "unknown"
-            out.append(f"- **{row['id']}** — packet `{packets}` owned by {who} ({status})")
-
-    if groups["eligible"]:
-        out.append("")
-        label = "Ready to claim" + ("" if chains.get("policy") else " once dispatch opens")
-        out.append(f"### {label} ({len(groups['eligible'])})")
-        for row, detail in groups["eligible"]:
+        out.append(f"### {heading} ({len(groups[name])})")
+        if name == "review":
+            out.append("- Each needs a reviewer who did not write it before it can be integrated.")
+        elif name == "eligible":
+            out.append("- The coordinator can assign each card to a subagent now; the closed")
+            out.append("  registry only stops another clone from claiming it.")
+        elif name == "carded":
+            out.append("- " + ", ".join(f"`{row['id']}`" for row, _detail in groups[name]))
+            out.append("  These are roadmap directions, not assignments: the coordinator decides")
+            out.append("  which one is worth a bounded card next.")
+            continue
+        for row, detail in groups[name]:
             rest = [packet for packet in row["packets"] if packet != row["starter"]]
             out.append(f"- **{row['id']}** — {detail}"
-                       + (f", then {' '.join(rest)}" if rest else ""))
-            card = f"docs/work/cards/{row['starter']}.md"
-            out.append(f"  Card `{card}`" + (f" → `{row['output']}`" if row["output"] else ""))
-
-    if groups["review"]:
-        out.append("")
-        out.append(f"### Deliverable landed, waiting for review ({len(groups['review'])})")
-        out.append("- Each needs a reviewer who did not write it before it can be integrated.")
-        for row, detail in groups["review"]:
-            out.append(f"- **{row['id']}** — {detail}")
-
-    if groups["blocked"]:
-        out.append("")
-        out.append(f"### Prerequisites not met ({len(groups['blocked'])})")
-        for row, detail in groups["blocked"]:
-            out.append(f"- **{row['id']}** — {detail}")
-
-    if groups["carded"]:
-        out.append("")
-        out.append(f"### No card written yet ({len(groups['carded'])})")
-        out.append("- " + ", ".join(f"`{row['id']}`" for row, _detail in groups["carded"]))
-        out.append("  These are roadmap directions, not assignments: the coordinator decides which")
-        out.append("  one is worth a bounded card next.")
+                       + (f", then {' '.join(rest)}" if rest and name == "eligible" else ""))
+            if name == "eligible" and row["starter"]:
+                card = f"docs/work/cards/{row['starter']}.md"
+                out.append(f"  Card `{card}`" + (f" → `{row['output']}`" if row["output"] else ""))
 
     out.append("")
     if queued["error"]:
@@ -553,21 +588,29 @@ def _todos_lines(todos: dict) -> list[str]:
     else:
         out.append("### Queued work packets (0)")
         out.append("- Nothing is queued for an interactive worker.")
+    if queued["skipped"]:
+        out.append(f"- {queued['skipped']} further queued row(s) could not be read and were skipped.")
 
     out.append("")
     if backlog["error"]:
         out.append(f"- {backlog['error']}")
     else:
-        out.append(f"### Unattended research ({len(backlog['unqueued'])} ready to queue"
-                   + (f"; {backlog['queued']} already in the runner" if backlog["queued"] else "") + ")")
+        out.append(f"### Unattended research ({len(backlog['unqueued'])} ready to queue)")
         if backlog["unqueued"]:
             for entry in backlog["unqueued"]:
                 out.append(f"- `{entry['id']}` — {entry['title']}")
-            out.append("- `python tools/scheduled_runner.py refill` queues these; each is one")
-            out.append("  bounded desk study that runs without anyone present.")
+            out.append("- `python tools/scheduled_runner.py refill` adds them while a task is not")
+            out.append("  running and fewer than its pending minimum are queued (3 by default).")
         else:
-            out.append("- Nothing ready is waiting: `refill` would add nothing until the backlog")
-            out.append("  gains a new ready entry.")
+            out.append("- Nothing ready is waiting to be queued.")
+        known = [f"{backlog['in_queue']} already in the runner queue"] if backlog["in_queue"] else []
+        if backlog["finished"]:
+            known.append(f"{backlog['finished']} already finished")
+        if known:
+            out.append("- " + " and ".join(known) + ", so they are not offered again.")
+        if backlog["duplicates"]:
+            out.append(f"- {len(backlog['duplicates'])} duplicated id(s) are never queued: "
+                       + ", ".join(f"`{entry}`" for entry in backlog["duplicates"]))
         if backlog["not_ready"]:
             out.append(f"- {len(backlog['not_ready'])} marked not-ready, never queued: "
                        + ", ".join(f"`{entry['id']}`" for entry in backlog["not_ready"]))

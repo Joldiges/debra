@@ -25,7 +25,12 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = "docs/work/chains.json"
+# One registry per clone, under the Git common directory so every linked
+# worktree reads the same claims. Named here so a reader of the state cannot
+# invent a second path.
+REGISTRY = "debra-work"
 LIVE = {"starting", "active", "blocked", "submitted", "workspace-failed"}
+WORKING = {"starting", "active"}
 
 
 def require(condition, message):
@@ -387,7 +392,7 @@ def main():
         chains, tasks = catalog()
         print(f"PASS: {len(chains)} chains cover {len(tasks)} packets; starter cards/paths valid.")
         return
-    directory = common_dir() / "debra-work"
+    directory = common_dir() / REGISTRY
     if args.command == "list":
         chains, tasks = catalog()
         view(read_state(directory), chains, tasks)

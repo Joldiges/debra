@@ -1006,10 +1006,22 @@ class TodosTests(unittest.TestCase):
             "chains": {"error": None, "policy": None, "claims": [], "chains": []},
             "queued": {"items": [], "skipped": 0, "error": None},
             "backlog": {"error": None, "ready": [], "unqueued": [], "not_ready": [],
-                        "queued": 0, "malformed": 0},
+                        "duplicates": [], "in_queue": 0, "finished": 0, "malformed": 0},
         }
         base.update(overrides)
         return base
+
+    def chain(self, **changes):
+        row = {"id": "x", "starter": "R01", "packet_state": "ready", "reason": "",
+               "packets": ["R01"], "output": "docs/x.md", "waiting_on": []}
+        row.update(changes)
+        return row
+
+    def claim(self, **changes):
+        claim = {"id": "c1", "chain": "x", "packet": "R01", "status": "active",
+                 "owner": "worker"}
+        claim.update(changes)
+        return claim
 
     def write_backlog(self, body, queue=(), state=()):
         path = self.root / "backlog.md"
@@ -1020,6 +1032,12 @@ class TodosTests(unittest.TestCase):
         (self.root / "state.json").write_text(
             json.dumps({"tasks": {task: {"status": "done"} for task in state}}))
         return path
+
+    def read_backlog(self, path):
+        with mock.patch.object(runner, "BACKLOG_PATH", path), \
+             mock.patch.object(runner, "QUEUE_PATH", self.root / "queue.json"), \
+             mock.patch.object(runner, "STATE_PATH", self.root / "state.json"):
+            return activity.backlog_snapshot()
 
     def test_queued_work_reads_the_table_and_counts_what_it_cannot_read(self):
         path = self.root / "work-queue.md"
@@ -1034,93 +1052,148 @@ class TodosTests(unittest.TestCase):
                           for item in queued["items"]],
                          [("Acceptance review", "—", "must follow the contract")])
         self.assertEqual(queued["skipped"], 1)
+        lines = "\n".join(activity._todos_lines(self.empty_todos(queued=queued)))
+        self.assertIn("1 further queued row(s) could not be read", lines)
         other = self.root / "other.md"
         other.write_text("# Work queue\n\nnothing here\n")
         self.assertIn("no Queued section", activity._queued_work(other)["error"])
         self.assertIn("not readable", activity._queued_work(self.root / "gone.md")["error"])
 
     def test_chain_groups_name_what_is_missing(self):
-        def row(**changes):
-            base = {"id": "x", "starter": "R01", "packet_state": "ready", "reason": "",
-                    "packets": ["R01"], "output": "docs/x.md", "waiting_on": []}
-            base.update(changes)
-            return base
-        self.assertEqual(activity._chain_group(row(), set())[0], "eligible")
-        self.assertEqual(activity._chain_group(row(), {"x"})[0], "worked")
-        self.assertEqual(activity._chain_group(row(starter=None), set())[0], "carded")
-        self.assertEqual(activity._chain_group(row(packet_state="review"), set())[0], "review")
-        self.assertEqual(activity._chain_group(row(packet_state="done"), set())[0], "carded")
-        self.assertEqual(activity._chain_group(row(packet_state="blocked"), set())[0], "blocked")
+        eligible = self.chain()
+        self.assertEqual(activity._chain_group(eligible, None)[0], "eligible")
+        self.assertEqual(activity._chain_group(eligible, self.claim())[0], "working")
+        # A claim is not work: submitted waits for a reviewer, blocked waits for
+        # the coordinator, and a failed workspace waits to be rebuilt.
+        for status in ("submitted", "blocked", "workspace-failed"):
+            group, detail = activity._chain_group(eligible, self.claim(status=status))
+            self.assertEqual(group, "held", status)
+            self.assertIn(status, detail)
+        self.assertEqual(activity._chain_group(self.chain(starter=None), None)[0], "carded")
+        self.assertEqual(activity._chain_group(self.chain(packet_state="review"), None)[0],
+                         "review")
+        self.assertEqual(activity._chain_group(self.chain(packet_state="done"), None)[0],
+                         "advance")
+        self.assertEqual(activity._chain_group(self.chain(packet_state="blocked"), None)[0],
+                         "blocked")
         group, why = activity._chain_group(
-            row(reason="R01: roadmap prerequisites/state do not permit dispatch"), set())
+            self.chain(reason="R01: roadmap prerequisites/state do not permit dispatch"), None)
         self.assertEqual(group, "blocked")
         self.assertIn("prerequisites", why)
+        # An integrated claim is a finished packet, not a prerequisite failure.
+        group, why = activity._chain_group(
+            self.chain(reason="R01: integrated; coordinator must advance the chain"), None)
+        self.assertEqual(group, "advance")
+        self.assertIn("integrated", why)
 
-    def test_backlog_offers_only_new_ready_studies(self):
+    def test_backlog_offers_only_new_ready_studies_and_skips_duplicates(self):
         path = self.write_backlog(
-            "R01-OLD | ready | Already run | A scope long enough for the backlog format.\n"
-            "R02-NEW | ready | Waiting to run | A scope long enough for the backlog format.\n"
+            "R01-OLD | ready | Already queued | A scope long enough for the backlog format.\n"
+            "R03-FRESH | ready | Waiting to run | A scope long enough for the backlog format.\n"
             "N01-SLOW | not-ready | Needs a person | A scope long enough for the backlog format.\n"
-            "R02-NEW | ready | Duplicate id | A scope long enough for the backlog format.\n"
+            "R02-DUP | ready | Duplicated once | A scope long enough for the backlog format.\n"
+            "R02-DUP | ready | Duplicated twice | A scope long enough for the backlog format.\n"
             "this line is malformed",
             queue=("R01-OLD",))
-        with mock.patch.object(runner, "BACKLOG_PATH", path), \
-             mock.patch.object(runner, "QUEUE_PATH", self.root / "queue.json"), \
-             mock.patch.object(runner, "STATE_PATH", self.root / "state.json"):
-            snapshot = activity.backlog_snapshot()
+        snapshot = self.read_backlog(path)
         self.assertIsNone(snapshot["error"])
-        self.assertEqual([entry["id"] for entry in snapshot["ready"]], ["R01-OLD", "R02-NEW"])
-        self.assertEqual([entry["id"] for entry in snapshot["unqueued"]], ["R02-NEW"])
+        self.assertEqual([entry["id"] for entry in snapshot["ready"]], ["R01-OLD", "R03-FRESH"])
+        self.assertEqual([entry["id"] for entry in snapshot["unqueued"]], ["R03-FRESH"])
         self.assertEqual([entry["id"] for entry in snapshot["not_ready"]], ["N01-SLOW"])
-        self.assertEqual(snapshot["queued"], 1)
+        # refill skips every occurrence of a duplicated id, so the tab may not
+        # offer either of them.
+        self.assertEqual(snapshot["duplicates"], ["R02-DUP"])
+        self.assertEqual(snapshot["in_queue"], 1)
+        self.assertEqual(snapshot["finished"], 0)
         self.assertEqual(snapshot["malformed"], 1)
+        lines = "\n".join(activity._todos_lines(self.empty_todos(backlog=snapshot)))
+        self.assertIn("1 duplicated id(s) are never queued: `R02-DUP`", lines)
+        self.assertIn("1 already in the runner queue", lines)
 
     def test_a_study_the_runner_already_finished_is_not_offered_again(self):
         path = self.write_backlog(
             "Z01-DONE | ready | Already studied | A scope long enough for the backlog format.",
             state=("Z01-DONE",))
-        with mock.patch.object(runner, "BACKLOG_PATH", path), \
-             mock.patch.object(runner, "QUEUE_PATH", self.root / "queue.json"), \
-             mock.patch.object(runner, "STATE_PATH", self.root / "state.json"):
-            snapshot = activity.backlog_snapshot()
+        snapshot = self.read_backlog(path)
         self.assertEqual(snapshot["unqueued"], [])
-        self.assertEqual(snapshot["queued"], 1)
+        self.assertEqual(snapshot["finished"], 1)
+        lines = "\n".join(activity._todos_lines(self.empty_todos(backlog=snapshot)))
+        self.assertIn("1 already finished", lines)
+        self.assertIn("Nothing ready is waiting to be queued.", lines)
 
     def test_backlog_that_cannot_be_read_is_reported_not_hidden(self):
         path = self.root / "backlog.md"
         path.write_text("# no backlog block here\n")
-        with mock.patch.object(runner, "BACKLOG_PATH", path):
-            snapshot = activity.backlog_snapshot()
+        snapshot = self.read_backlog(path)
         self.assertIn("not readable", snapshot["error"])
         self.assertIn("not readable", "\n".join(activity._todos_lines(
             self.empty_todos(backlog=snapshot))))
 
-    def test_chains_snapshot_asks_the_dispatcher_instead_of_redeciding(self):
-        catalog = [
-            {"id": "zero-w", "packets": ["Z01", "Z02"], "starter": "Z01",
-             "output": "docs/research/Z01-armv6.md"},
-            {"id": "audio", "packets": ["A01"]},
-        ]
-        tasks = {"Z01": ("ready", []), "Z02": ("blocked", ["Z01"]), "A01": ("blocked", [])}
-        state = {"version": 1, "policy": None,
-                 "claims": {"c1": {"chain": "zero-w", "packet": "Z01",
-                                   "status": "active", "owner": "worker"}}}
-        with mock.patch.object(activity.taskchain, "catalog", return_value=(catalog, tasks)), \
-             mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
-             mock.patch.object(activity.taskchain, "read_state", return_value=state), \
-             mock.patch.object(activity.taskchain, "reason",
-                               side_effect=lambda chain, _tasks, _state: ""):
+    def test_the_registry_is_read_from_the_git_common_directory_subdirectory(self):
+        # The registry lives in <git-common-dir>/debra-work. Reading the common
+        # directory itself found no state and reported a closed, idle registry.
+        registry = self.root / activity.taskchain.REGISTRY
+        registry.mkdir()
+        (registry / "state.json").write_text(json.dumps({
+            "version": 1, "policy": None,
+            "claims": {"c1": {"id": "c1", "chain": "zero-w", "packet": "Z01",
+                              "status": "active", "owner": "worker"}}}))
+        with mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
+             mock.patch.object(activity.taskchain, "catalog",
+                               return_value=([{"id": "zero-w", "packets": ["Z01"],
+                                               "starter": "Z01"}],
+                                             {"Z01": ("ready", [])})):
             snapshot = activity.chains_snapshot()
         self.assertIsNone(snapshot["error"])
-        self.assertEqual([claim["owner"] for claim in snapshot["claims"]], ["worker"])
-        by_id = {row["id"]: row for row in snapshot["chains"]}
-        self.assertEqual(by_id["zero-w"]["packet_state"], "ready")
-        self.assertIsNone(by_id["audio"]["starter"])
-        lines = "\n".join(activity._todos_lines(self.empty_todos(chains=snapshot)))
-        self.assertIn("Being worked on (1)", lines)
-        self.assertIn("zero-w (active)", lines)
-        self.assertIn("No card written yet (1)", lines)
-        self.assertIn("`audio`", lines)
+        self.assertEqual([(claim["chain"], claim["status"], claim["owner"])
+                          for claim in snapshot["claims"]],
+                         [("zero-w", "active", "worker")])
+        self.assertIsNone(snapshot["policy"])
+
+    def test_a_malformed_claim_is_ignored_instead_of_breaking_the_page(self):
+        registry = self.root / activity.taskchain.REGISTRY
+        registry.mkdir()
+        (registry / "state.json").write_text(json.dumps({
+            "version": 1, "policy": None,
+            "claims": {
+                "list": ["not a record"],
+                "missing": {"status": "active"},
+                "wrong": {"chain": 5, "packet": "Z01", "status": "active"},
+                "good": {"chain": "zero-w", "packet": "Z01", "status": "active"},
+            }}))
+        with mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
+             mock.patch.object(activity.taskchain, "catalog",
+                               return_value=([{"id": "zero-w", "packets": ["Z01"],
+                                               "starter": "Z01"}],
+                                             {"Z01": ("ready", [])})):
+            snapshot = activity.chains_snapshot()
+        self.assertIsNone(snapshot["error"])
+        self.assertEqual([claim["owner"] for claim in snapshot["claims"]], ["unknown"])
+        self.assertIn("Being worked on (1)",
+                      "\n".join(activity._todos_lines(self.empty_todos(chains=snapshot))))
+
+    def test_claims_that_are_not_a_mapping_are_ignored(self):
+        registry = self.root / activity.taskchain.REGISTRY
+        registry.mkdir()
+        (registry / "state.json").write_text(json.dumps(
+            {"version": 1, "policy": None, "claims": ["not", "a", "mapping"]}))
+        with mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
+             mock.patch.object(activity.taskchain, "catalog",
+                               return_value=([{"id": "zero-w", "packets": ["Z01"],
+                                               "starter": "Z01"}],
+                                             {"Z01": ("ready", [])})):
+            snapshot = activity.chains_snapshot()
+        self.assertEqual(snapshot["claims"], [])
+
+    def test_the_dispatchers_own_reason_reaches_the_page(self):
+        catalog = [{"id": "hardware-value", "packets": ["R01"], "starter": "R01"}]
+        tasks = {"R01": ("ready", ["F00"]), "F00": ("blocked", [])}
+        with mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
+             mock.patch.object(activity.taskchain, "catalog", return_value=(catalog, tasks)):
+            snapshot = activity.chains_snapshot()
+        row = snapshot["chains"][0]
+        self.assertIn("prerequisites", row["reason"])
+        self.assertEqual(activity._chain_group(row, None)[0], "blocked")
 
     def test_an_unreadable_registry_keeps_the_rest_of_the_page(self):
         with mock.patch.object(activity.taskchain, "catalog",
@@ -1133,32 +1206,51 @@ class TodosTests(unittest.TestCase):
 
     def test_todos_lines_separate_the_three_channels(self):
         todos = self.empty_todos(
-            chains={"error": None, "policy": None, "claims": [], "chains": [
-                {"id": "zero-w", "packets": ["Z01", "Z02"], "starter": "Z01",
-                 "output": "docs/research/Z01-armv6.md", "packet_state": "ready",
-                 "reason": "", "waiting_on": []},
-                {"id": "recovery", "packets": ["B01"], "starter": "B01",
-                 "output": "docs/research/B01-recovery.md", "packet_state": "review",
-                 "reason": "B01: roadmap prerequisites/state do not permit dispatch",
-                 "waiting_on": []}]},
+            chains={"error": None, "policy": None,
+                    "claims": [self.claim(chain="zero-w", packet="Z01", status="active"),
+                               self.claim(id="c2", chain="recovery", packet="B01",
+                                          status="submitted")],
+                    "chains": [
+                        {"id": "zero-w", "packets": ["Z01", "Z02"], "starter": "Z01",
+                         "output": "docs/research/Z01-armv6.md", "packet_state": "ready",
+                         "reason": "", "waiting_on": []},
+                        {"id": "recovery", "packets": ["B01"], "starter": "B01",
+                         "output": "docs/research/B01-recovery.md", "packet_state": "ready",
+                         "reason": "", "waiting_on": []},
+                        {"id": "audio", "packets": ["A01"], "starter": "A01",
+                         "output": "docs/research/A01.md", "packet_state": "review",
+                         "reason": "A01: roadmap prerequisites/state do not permit dispatch",
+                         "waiting_on": []}]},
             queued={"items": [{"packet": "Device run", "ids": "N02",
                                "why": "needs a spare card"}], "skipped": 0, "error": None},
             backlog={"error": None, "ready": [{"id": "R01", "title": "Study"}],
-                     "unqueued": [{"id": "R01", "title": "Study"}],
-                     "not_ready": [{"id": "A03", "title": "Needs a device"}],
-                     "queued": 0, "malformed": 1})
+                     "unqueued": [{"id": "R01", "title": "Study"}], "not_ready": [],
+                     "duplicates": [], "in_queue": 0, "finished": 0, "malformed": 1})
         text = "\n".join(activity._todos_lines(todos))
-        self.assertIn("2 task chains; **none is being worked on right now**", text)
+        self.assertIn("3 task chains; being worked on: zero-w (active)", text)
         self.assertIn("The claim registry is **closed**", text)
-        self.assertIn("Ready to claim once dispatch opens (1)", text)
-        self.assertIn("docs/work/cards/Z01.md", text)
+        self.assertIn("Being worked on (1)", text)
+        self.assertIn("Claimed, not progressing (1)", text)
+        self.assertIn("packet B01 is submitted (worker)", text)
         self.assertIn("Deliverable landed, waiting for review (1)", text)
         self.assertIn("Queued work packets (1)", text)
         self.assertIn("**Device run** (N02) — needs a spare card", text)
         self.assertIn("Unattended research (1 ready to queue)", text)
-        self.assertIn("`A03`", text)
+        self.assertIn("`R01` — Study", text)
         self.assertIn("1 malformed backlog line(s) were skipped.", text)
-        self.assertNotIn("### Being worked on", text)
+        self.assertNotIn("### Spawnable now", text)
+
+    def test_spawnable_now_does_not_wait_for_the_registry(self):
+        todos = self.empty_todos(chains={
+            "error": None, "policy": None, "claims": [],
+            "chains": [{"id": "zero-w", "packets": ["Z01"], "starter": "Z01",
+                        "output": "docs/research/Z01-armv6.md", "packet_state": "ready",
+                        "reason": "", "waiting_on": []}]})
+        text = "\n".join(activity._todos_lines(todos))
+        self.assertIn("### Spawnable now (1)", text)
+        self.assertIn("The coordinator can assign each card to a subagent now", text)
+        self.assertIn("docs/work/cards/Z01.md", text)
+        self.assertNotIn("once dispatch opens", text)
 
     def test_an_open_registry_stops_claiming_it_is_closed(self):
         todos = self.empty_todos(chains={
@@ -1170,7 +1262,6 @@ class TodosTests(unittest.TestCase):
         text = "\n".join(activity._todos_lines(todos))
         self.assertIn("claim registry is open for base `abc1234`", text)
         self.assertNotIn("**closed**", text)
-        self.assertIn("### Ready to claim (1)", text)
 
     def test_the_report_and_the_tab_share_one_todos_section(self):
         meta = {}
@@ -1187,8 +1278,10 @@ class TodosTests(unittest.TestCase):
         self.assertIn("task chains",
                       "\n".join(entry[1] for entry in tabs["Todos"]["entries"]))
 
-    def test_todos_flag_prints_only_that_section(self):
-        with mock.patch.object(activity, "todos_snapshot",
+    def test_todos_flag_prints_only_that_section_and_writes_nothing(self):
+        status = self.root / "status"
+        with mock.patch.object(activity, "STATUS_DIR", status), \
+             mock.patch.object(activity, "todos_snapshot",
                                return_value=self.empty_todos()), \
              contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(activity.main(["--todos"]), 0)
@@ -1196,6 +1289,7 @@ class TodosTests(unittest.TestCase):
         self.assertTrue(text.startswith("## Todos"))
         self.assertNotIn("## Agent sessions", text)
         self.assertNotIn("## Research runner", text)
+        self.assertFalse(status.exists())
 
 
 if __name__ == "__main__":
