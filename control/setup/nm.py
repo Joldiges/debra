@@ -25,9 +25,13 @@ def _run(argv, timeout=45):
         result = subprocess.run(argv, capture_output=True, text=True,
                                 timeout=timeout, check=False)
     except FileNotFoundError as exc:
-        raise NmError("nmcli is not installed") from exc
+        # Name the binary that is actually missing. `raspi-config` and `iw` use
+        # this too, and telling someone their NetworkManager is absent when it
+        # is `raspi-config` that is absent is a false statement about their
+        # device, shown on the setup page.
+        raise NmError(f"{argv[0]} is not installed") from exc
     except subprocess.TimeoutExpired as exc:
-        raise NmError(f"nmcli {argv[1]} timed out") from exc
+        raise NmError(f"{argv[0]} {argv[1]} timed out") from exc
     if result.returncode != 0:
         # nmcli writes the reason to stderr; the browser never sees raw output,
         # so only a short, single-line form is kept.
@@ -150,6 +154,26 @@ class Nmcli:
                 gateway = value.strip() or None
         return {"interface": interface, "address": address, "gateway": gateway,
                 "routable": routable(address), "has_route": bool(gateway)}
+
+    def device_address(self, interface):
+        """The IPv4 address a device holds, or None.
+
+        The setup page is bound to the address the access point actually got,
+        not to the 10.42.0.1 that shared mode usually assigns. A different
+        subnet would otherwise make the bind fail and leave a person with a
+        setup network and no page.
+        """
+        if not interface:
+            return None
+        detail = self._run(["nmcli", "-t", "-f", "IP4.ADDRESS",
+                            "device", "show", interface])
+        for line in detail.splitlines():
+            key, _, value = line.partition(":")
+            if re.sub(r"\[\d+\]$", "", key.strip()) == "IP4.ADDRESS":
+                address = value.split("/")[0].strip()
+                if address:
+                    return address
+        return None
 
     def connect(self, ssid, psk, timeout=60, keyfile_dir=None):
         """Join a network and return the resulting uplink, or raise NmError.

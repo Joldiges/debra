@@ -568,3 +568,27 @@ class AdapterTests(Temp):
             nm_module.Nmcli(runner=recorder).connect("HomeWiFi", "short",
                                                      keyfile_dir=self.dir)
         self.assertEqual(recorder.calls, [])
+
+
+class MissingToolTests(unittest.TestCase):
+    def test_the_error_names_the_tool_that_is_missing(self):
+        # `iw` and `raspi-config` go through the same runner. Telling someone
+        # their NetworkManager is absent when it is `raspi-config` that is
+        # absent is a false statement about their device, shown on the page.
+        with self.assertRaises(nm_module.NmError) as caught:
+            nm_module._run(["/nonexistent/debra-test-tool", "--version"])
+        self.assertIn("debra-test-tool", str(caught.exception))
+        self.assertNotIn("nmcli", str(caught.exception))
+
+
+class DeviceAddressTests(Temp):
+    def test_the_access_point_address_is_read_from_the_device(self):
+        recorder = Recorder()
+        self.assertEqual(nm_module.Nmcli(runner=recorder).device_address("wlan0"),
+                         "192.0.2.40")
+
+    def test_a_device_with_no_address_is_none_rather_than_a_guess(self):
+        def runner(argv, timeout=45):
+            return ""
+        self.assertIsNone(nm_module.Nmcli(runner=runner).device_address("wlan0"))
+        self.assertIsNone(nm_module.Nmcli(runner=runner).device_address(None))
