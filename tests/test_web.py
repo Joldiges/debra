@@ -588,6 +588,35 @@ class NoAuthTests(unittest.TestCase):
                          [dict(device, source="configured") for device in self.devices])
 
 
+class StartupTests(unittest.TestCase):
+    def test_invalid_listening_ports_exit_with_a_message_not_a_traceback(self):
+        with tempfile.TemporaryDirectory(prefix="web-port-", dir="/tmp/opencode") as temp:
+            # Keep key mode and an absent state directory: a regressed validator
+            # fails on the key before it can bind port 80 or probe host audio.
+            for port in (80, 70000, 0, 1023, 65536, -1):
+                with self.subTest(port=port):
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(SOURCE / "server.py"), "serve",
+                         "--sink", SINK, "--port", str(port),
+                         "--state-dir", str(Path(temp) / "absent")],
+                        capture_output=True, text=True, timeout=5)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("--port must be an integer from 1024 to 65535", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertNotIn("listening", result.stdout)
+
+    def test_unprivileged_listening_port_boundaries_are_accepted(self):
+        with tempfile.TemporaryDirectory(prefix="web-port-", dir="/tmp/opencode") as temp:
+            for port in (1024, 65535):
+                with self.subTest(port=port):
+                    argv = ["server.py", "serve", "--state-dir", temp, "--sink", SINK,
+                            "--auth", "none", "--port", str(port)]
+                    with patch.object(sys, "argv", argv), patch.object(web, "Server") as server, \
+                            patch.object(web, "DiscoveryCache"), patch("builtins.print"):
+                        web.main()
+                    self.assertEqual(server.call_args.args[0], ("127.0.0.1", port))
+
+
 class DeviceListTests(unittest.TestCase):
     def load(self, value):
         with tempfile.TemporaryDirectory(prefix="web-devices-", dir="/tmp/opencode") as temp:
@@ -720,6 +749,10 @@ class DiscoveryTests(unittest.TestCase):
         records = [
             {"name": "badhost", "url": "http://bad-.local:8787/", "label": ""},
             {"name": "badport", "url": "http://okay.local:65536/", "label": ""},
+            {"name": "defaultport", "url": "http://okay.local:80/", "label": ""},
+            {"name": "nonlocal", "url": "http://okay.example:8787/", "label": ""},
+            {"name": "ip", "url": "http://192.0.2.1:8787/", "label": ""},
+            {"name": "x" * 65, "url": "http://okay.local:8787/", "label": ""},
             {"name": "bad name", "url": "http://okay.local:8787/", "label": ""},
             {"name": "badlabel", "url": "http://okay.local:8787/", "label": "x" * 81},
             {"name": "good", "url": "http://okay.local:8787/"},
@@ -818,6 +851,49 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(self.request("/api/devices")[1]["devices"][-1]["name"], "new")
         release.set()
 
+    def test_cli_and_hub_accept_the_same_records(self):
+        from tools import discover
+        cases = [
+            ("lowest", "low.local", "1", "Low"),
+            ("highest", "high.local", "65535", "High"),
+            ("canonical", "UPPER.LOCAL", "08787", "Canonical"),
+            ("x" * 64, "limit.local", "8787", "y" * 80),
+            ("defaultport", "default.local", "80", "Default"),
+            ("nonlocal", "device.example", "8787", "External"),
+            ("notlocal", "notlocal", "8787", "Not .local"),
+            ("ip", "192.0.2.1", "8787", "IP"),
+            ("zero", "zero.local", "0", "Zero"),
+            ("highport", "highport.local", "65536", "High"),
+            ("badhost", "bad-.local", "8787", "Bad"),
+            ("x" * 65, "longname.local", "8787", "Long name"),
+            ("bad name", "space.local", "8787", "Bad name"),
+            ("longlabel", "longlabel.local", "8787", "y" * 81),
+        ]
+        text = "\n".join(
+            f'=;eth0;IPv4;instance-{i};_debra._tcp;local;{host};192.0.2.1;{port};'
+            f'"name={name}" "label={label}"'
+            for i, (name, host, port, label) in enumerate(cases))
+        self.cache.browse = web.DiscoveryCache().browse
+        output = StringIO()
+        with patch.object(discovery.subprocess, "run", return_value=
+                          subprocess.CompletedProcess([], 0, text, "")), \
+                self.assertLogs(discovery.LOGGER, level="WARNING") as logs:
+            with redirect_stdout(output):
+                self.assertEqual(discover.main(["--json"]), 0)
+            self.cache.scan()
+        cli_devices = json.loads(output.getvalue())["devices"]
+        code, body = self.request("/api/devices")
+        self.assertEqual(code, 200)
+        discovered = [row for row in body["devices"] if row["source"] == "discovered"]
+        self.assertEqual([row["name"] for row in cli_devices],
+                         ["canonical", "highest", "lowest", "x" * 64])
+        self.assertEqual(discovered, [
+            {"name": row["name"], "url": row["url"], "label": row["label"], "source": "discovered"}
+            for row in cli_devices])
+        self.assertEqual(cli_devices[0]["url"], "http://upper.local:8787/")
+        self.assertIn("Port 80", "\n".join(logs.output))
+        self.assertIn("must end with .local", "\n".join(logs.output))
+
     def test_shared_parser_change_reaches_cli_and_server(self):
         from tools import discover
         text = '\n'.join([
@@ -873,12 +949,20 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIs(server.call_args.args[5], cache.return_value)
         server.return_value.__enter__.return_value.serve_forever.assert_called_once_with()
 
-    def test_worker_start_failure_leaves_configured_links_available(self):
-        with patch.object(threading.Thread, "start", side_effect=RuntimeError("no threads")):
-            self.cache.start()
-        self.assertIsNone(self.cache.thread)
-        code, body = self.request("/api/devices")
-        self.assertEqual((code, body["devices"]), (200, self.served()))
+    def test_worker_start_failure_reports_reason_and_keeps_configured_links(self):
+        for stage in ("construct", "start"):
+            for error in (RuntimeError("no threads"), OSError("resource exhausted")):
+                with self.subTest(stage=stage, error=type(error).__name__):
+                    target, name = ((threading, "Thread") if stage == "construct"
+                                    else (threading.Thread, "start"))
+                    with patch.object(target, name, side_effect=error):
+                        self.cache.start()
+                    self.assertIsNone(self.cache.thread)
+                    code, body = self.request("/api/devices")
+                    self.assertEqual((code, body["devices"]), (200, self.served()))
+                    self.assertEqual(body["discovery"], {
+                        "enabled": False, "found": 0, "seconds_since_scan": None,
+                        "error": f"Discovery thread could not start ({type(error).__name__}: {error})"})
 
 
 class InstallerTests(unittest.TestCase):
@@ -1061,6 +1145,14 @@ class InstallerTests(unittest.TestCase):
             with self.subTest(hosts=hosts), self.assertRaises(ValueError):
                 self.install(hosts)
         self.assertFalse(self.state.exists())
+
+    def test_invalid_listening_port_refused_before_installer_writes(self):
+        for port in (80, 70000, 1023, 65536):
+            with self.subTest(port=port), self.assertRaisesRegex(ValueError, "1024 to 65535"):
+                installer.install(self.home, SOURCE, SINK, "127.0.0.1", port,
+                                  [f"device.local:{port}"], "/usr/bin/python3")
+            self.assertFalse(self.state.exists())
+            self.assertFalse(self.unit.exists())
 
     def test_systemd_quoting(self):
         self.assertEqual(installer.quoted('a % " \\'), '"a %% \\" \\\\"')

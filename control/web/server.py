@@ -8,7 +8,6 @@ import argparse
 from contextlib import contextmanager
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import ipaddress
 import json
 import math
 import os
@@ -68,13 +67,9 @@ class DiscoveryCache:
                     raise ValueError("Invalid discovery result")
                 valid = []
                 for record in records:
-                    try:
-                        # host and addresses are auxiliary discovery data, not links.
-                        item = {key: record[key] for key in ("name", "url")}
-                        item["label"] = record.get("label", "")
-                        valid.append(dict(validate_device(item), source="discovered"))
-                    except (AttributeError, KeyError, TypeError, ValueError):
-                        continue
+                    item, reason = discovery.accept_record(record)
+                    if reason is None:
+                        valid.append(dict(item, source="discovered"))
                 devices = tuple(valid)
         except Exception:
             # A broken discovery implementation must not take down the page.
@@ -107,9 +102,11 @@ class DiscoveryCache:
         try:
             self.thread = threading.Thread(target=self.run, daemon=True, name="debra-discovery")
             self.thread.start()
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError) as exc:
             # Resource exhaustion must not prevent configured links being served.
-            self.thread = None
+            with self.lock:
+                self.thread = None
+                self.last_error = f"Discovery thread could not start ({type(exc).__name__}: {exc})"
 
 
 def merge_devices(configured, discovered):
@@ -601,52 +598,16 @@ def valid_hosts(hosts):
 
 
 def canonical_device_url(url):
-    # Restrict the grammar before parsing: URL parsers otherwise discard some
-    # whitespace and normalize numeric hostnames differently across platforms.
-    if not isinstance(url, str) or len(url) > 200:
-        raise ValueError("URL must be a string up to 200 characters")
-    match = re.fullmatch(r"(?i:http)://([A-Za-z0-9.-]+):([0-9]{1,5})/?", url, re.ASCII)
-    if not match:
-        raise ValueError("Expected http://host:port/ without a path, query or fragment")
-    host, port_text = match.groups()
-    host, port = host.lower(), int(port_text)
-    labels = host.split(".")
-    if (len(host) > 253 or not 1 <= port <= 65535 or
-            any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
-                for label in labels)):
-        raise ValueError("Invalid host or port")
-    if port == 80:
-        # Browsers drop a default port, so the anchor would become http://host/
-        # and the Host check would then reject the page it just linked to.
-        raise ValueError("Port 80 is unsupported: browsers drop the default port, "
-                         "so the link would not match this service's Host check")
-    if labels[-1].isdigit() or re.fullmatch(r"0x[0-9a-f]*", labels[-1]):
-        try:
-            if str(ipaddress.IPv4Address(host)) != host:
-                raise ValueError("Noncanonical IPv4 address")
-        except ipaddress.AddressValueError as exc:
-            raise ValueError("Invalid IPv4 address") from exc
-    canonical = f"http://{host}:{port}/"
-    if len(canonical) > 200:
-        raise ValueError("Canonical URL exceeds 200 characters")
-    return canonical
+    return discovery.canonical_device_url(url)
 
 
 def validate_device(item):
-    if not isinstance(item, dict) or set(item) - {"name", "url", "label"}:
-        raise ValueError("Each device allows only name, url and label")
-    name, url, label = item.get("name"), item.get("url"), item.get("label", "")
-    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", name):
-        raise ValueError("Device name must be 1-64 letters, digits, dot, dash or underscore")
-    if not isinstance(url, str) or len(url) > 200:
-        raise ValueError(f"Device {name}: url must be a string up to 200 characters")
-    try:
-        url = canonical_device_url(url)
-    except ValueError as exc:
-        raise ValueError(f"Device {name}: invalid URL: {exc}") from exc
-    if not isinstance(label, str) or len(label) > 80:
-        raise ValueError(f"Device {name}: label must be a string up to 80 characters")
-    return {"name": name, "url": url, "label": label}
+    return discovery.validate_device(item)
+
+
+def validate_listening_port(port):
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError("--port must be an integer from 1024 to 65535 (an unprivileged port)")
 
 
 def load_devices(path):
@@ -686,6 +647,10 @@ def main():
             parser.error(str(exc))
         print("Access key created" if created else "Existing access key preserved")
         return
+    try:
+        validate_listening_port(args.port)
+    except ValueError as exc:
+        parser.error(str(exc))
     if not args.sink:
         parser.error("--sink is required")
     hosts = args.host or (["127.0.0.1:" + str(args.port)] if args.bind == "127.0.0.1" else [])

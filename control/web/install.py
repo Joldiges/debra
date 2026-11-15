@@ -15,7 +15,7 @@ import stat
 import sys
 import tempfile
 
-from server import Backend, init_state, load_devices, valid_hosts
+from server import Backend, init_state, load_devices, valid_hosts, validate_listening_port
 
 
 PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css", "assets/app.js")
@@ -66,7 +66,8 @@ def store_devices(state, devices):
 def install(home, source, sink, bind, port, hosts, python, auth="key", devices=None):
     if auth not in ("key", "none"):
         raise ValueError("auth must be 'key' or 'none'")
-    if not valid_hosts(hosts) or not 1024 <= port <= 65535:
+    validate_listening_port(port)
+    if not valid_hosts(hosts):
         raise ValueError("Use explicit hostname:port authorities and an unprivileged port")
     if any(int(host.rsplit(":", 1)[1]) != port for host in hosts):
         raise ValueError("Every allowed Host must use the listening port")

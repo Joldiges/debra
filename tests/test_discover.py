@@ -2,8 +2,11 @@
 no avahi daemon, no device. The parser is the part worth testing; the browse
 call is stubbed."""
 
+import json
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -38,10 +41,10 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(records[0]["addresses"], ["192.168.0.8"])
 
     def test_missing_txt_falls_back_to_the_instance_name(self):
-        line = '=;eth0;IPv4;Debra ab;_debra._tcp;local;ab.local;10.0.0.2;8787;'
+        line = '=;eth0;IPv4;debra-ab;_debra._tcp;local;ab.local;10.0.0.2;8787;'
         records = discover.parse(line)
-        self.assertEqual(records[0]["name"], "Debra ab")
-        self.assertEqual(records[0]["label"], "Debra ab")
+        self.assertEqual(records[0]["name"], "debra-ab")
+        self.assertEqual(records[0]["label"], "debra-ab")
 
     def test_rejects_hosts_ports_and_services_that_are_not_plain_debra(self):
         bad = [
@@ -52,7 +55,8 @@ class ParseTests(unittest.TestCase):
             '=;eth0;IPv4;x;_debra._tcp;local;ok.local;1.2.3.4;8787',
             'not an avahi line',
         ]
-        self.assertEqual(discover.parse("\n".join(bad)), [])
+        with self.assertLogs(discover.LOGGER, level="WARNING"):
+            self.assertEqual(discover.parse("\n".join(bad)), [])
 
     def test_sorted_by_name(self):
         text = "\n".join([
@@ -62,9 +66,49 @@ class ParseTests(unittest.TestCase):
         self.assertEqual([r["name"] for r in discover.parse(text)], ["aaa", "bbb"])
 
     def test_device_list_matches_the_configured_record_shape(self):
-        devices = [{"name": r["name"], "url": r["url"], "label": r["label"]}
-                   for r in discover.parse(RESOLVED)]
-        self.assertEqual(set(devices[0]), {"name", "url", "label"})
+        # Exercise the real adapter, browse wrapper and parser, not a comprehension
+        # in this test that builds exactly the shape it then asserts.
+        with mock.patch.object(discover.subprocess, "run", return_value=
+                               subprocess.CompletedProcess([], 0, RESOLVED, "")):
+            devices = cli.device_list()
+        self.assertEqual(devices, [{"name": "debra-3c6b3f", "label": "Lab Pi 5",
+                                    "url": "http://debra-3c6b3f.local:8787/"}])
+
+    def test_acceptance_returns_specific_drop_reasons(self):
+        good = {"name": "debra", "url": "http://debra.local:8787/", "label": "Lab"}
+        cases = [
+            (None, "must be an object"),
+            ({"name": "debra"}, "missing url"),
+            ({"url": good["url"]}, "missing name"),
+            (dict(good, name="x" * 65), "1-64"),
+            (dict(good, name="bad name"), "1-64"),
+            (dict(good, label="x" * 81), "up to 80"),
+            (dict(good, label=None), "up to 80"),
+            (dict(good, url="http://debra.local:80/"), "Port 80"),
+            (dict(good, url="http://debra.example:8787/"), "must end with .local"),
+            (dict(good, url="http://192.0.2.1:8787/"), "must end with .local"),
+            (dict(good, url="http://bad-.local:8787/"), "Invalid host or port"),
+            (dict(good, url="http://debra.local:0/"), "Invalid host or port"),
+            (dict(good, url="http://debra.local:65536/"), "Invalid host or port"),
+            (dict(good, url="http://debra.local:no/"), "Expected http://host:port/"),
+            (dict(good, url="https://debra.local:8787/"), "Expected http://host:port/"),
+            (dict(good, url="x" * 201), "up to 200"),
+        ]
+        for record, expected in cases:
+            with self.subTest(record=record):
+                entry, reason = discover.accept_record(record)
+                self.assertIsNone(entry)
+                self.assertIn(expected, reason)
+        entry, reason = discover.accept_record(dict(good, url="HTTP://DEBRA.LOCAL:08787"))
+        self.assertEqual((entry, reason), (good, None))
+
+    def test_parser_applies_acceptance_before_interface_coalescing(self):
+        # A rejected interface must not suppress a later acceptable announcement.
+        bad = RESOLVED.replace('"name=debra-3c6b3f"', '"name=' + "x" * 65 + '"')
+        with self.assertLogs(discover.LOGGER, level="WARNING") as logs:
+            records = discover.parse(bad + "\n" + RESOLVED)
+        self.assertEqual([r["name"] for r in records], ["debra-3c6b3f"])
+        self.assertIn("1-64", logs.output[0])
 
 
 class BrowseTests(unittest.TestCase):
@@ -98,10 +142,34 @@ class BrowseTests(unittest.TestCase):
         self.assertEqual(argv[0], "avahi-browse")
         self.assertIn("-t", argv)
         self.assertEqual(argv[-1], discover.SERVICE)
-        self.assertEqual(run.call_args.kwargs["timeout"], discover.BROWSE_TIMEOUT_S)
+        self.assertEqual(run.call_args.kwargs["timeout"], 8)
 
 
 class CliTests(unittest.TestCase):
+    def test_cli_reports_dropped_records_on_stderr_in_both_output_modes(self):
+        # A fake executable supplies avahi -rtp text to the actual CLI process;
+        # no daemon, multicast scan, HTTP device or audio command is used.
+        text = "\n".join([RESOLVED, RESOLVED.replace(";8787;", ";80;")])
+        with tempfile.TemporaryDirectory(prefix="discover-cli-", dir="/tmp/opencode") as temp:
+            avahi = Path(temp) / "avahi-browse"
+            avahi.write_text(f"#!{sys.executable}\nprint({text!r})\n")
+            avahi.chmod(0o700)
+            for args in ([], ["--json"]):
+                with self.subTest(args=args):
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(SOURCE / "tools/discover.py"), *args],
+                        env=dict(os.environ, PATH=temp), capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("Dropped discovery record", result.stderr)
+                    self.assertIn("Port 80 is unsupported", result.stderr)
+                    self.assertNotIn("Dropped", result.stdout)
+                    if args:
+                        records = json.loads(result.stdout)["devices"]
+                        self.assertEqual([r["url"] for r in records],
+                                         ["http://debra-3c6b3f.local:8787/"])
+                    else:
+                        self.assertIn("http://debra-3c6b3f.local:8787/", result.stdout)
+
     def run_cli(self, result, args=()):
         output = StringIO()
         with mock.patch.object(discover, "browse", return_value=result), redirect_stdout(output):
