@@ -9,10 +9,10 @@ nothing durable recorded the next item. A harvest note lists findings; it does
 not say which ones are claimed, finished, or stuck. This page does.
 
 Visible: the activity TUI's Todos tab (`python tools/activity.py --todos`)
-answers "what could run next" from three files instead of one screen — this
-page's Queued table, the ready entries of the [research backlog](research-backlog.md),
-and the task-chain catalog's claim registry. It reads them; it never adds a
-fourth list that could disagree.
+answers "what could run next" from what already records it — this page's Queued
+table, the ready entries of the [research backlog](research-backlog.md), and the
+task-chain catalog with its claim registry in `<git-common-dir>/debra-work/`.
+It reads those files and never keeps a fourth list that could disagree.
 
 ## States
 
@@ -64,7 +64,7 @@ not commit, push, or approve their own work.
 | The lid checked against the reconstructed body | D02 | `models/assemblies/rpispeaker-v17-body-lid/` — 0 mm³ interference at the lid's defaults, with a 0.5 mm per-side oversize control that is caught; a composed assembly, no duplicate `.sc`; still nothing printed |
 | Tabbed TUI that redraws only changed lines, and drops columns instead of truncating them | — | this round |
 | Two unattended studies: the ARMv6 audio stack, first-boot identity | — | `35d43c3` |
-| Todos tab: what nothing is working on | — | `fafb8f2` — 12 tests; reads the work queue, the research backlog and the dispatcher registry |
+| Todos tab: what nothing is working on | — | `fafb8f2`, fixed by `f355347` — the first review found it read `.git/state.json` instead of `.git/debra-work/state.json`, so claims were never seen; 15 Todos tests, one of them a real registry file |
 
 ## Queued
 

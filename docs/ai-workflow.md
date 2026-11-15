@@ -53,7 +53,8 @@ model so another machine can resume it.
   an instruction not to commit. Several run at once when their files do not
   overlap. [activity.py](../tools/activity.py) is the live view of them, and
   its Todos tab (`--todos` for the same text once) lists what nothing is
-  working on: chains with no card, chains waiting for review, queued packets
+  working on: chains spawnable now, chains waiting for review, chains whose
+  claim is stalled rather than progressing, chains with no card, queued packets
   and ready studies.
 - **The taskchain registry is a different mechanism.** It coordinates *one
   clone's linked worktrees* and lets another clone claim prepared cards. Its
