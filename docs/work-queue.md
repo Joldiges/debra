@@ -74,7 +74,9 @@ not commit, push, or approve their own work.
 | Retained releases are never re-verified | B13 | an upgraded-away release is never re-checked, so a corrupted old release is restored by rollback without complaint. Either verify every retained release at install, or record that rollback may restore bad content |
 | Staging files can be `0644` | B13 | an interrupted copy is retained with files created before `chmod`; the containing directory is `0700`, so the README's "private staging files" is true only at directory level |
 | `install()` does not validate the device list | B13 | only `main()` does, so a programmatic caller can install a list the server then refuses at startup |
-| No captive portal | N02 | the setup page exists but no phone will offer to open it. A person has to read the password from the boot-partition note and type `10.42.0.1` — workable, not seamless |
+| Captive-portal probes may never arrive | N02 | the portal answers Android/Apple/Windows/Firefox probe paths with a `302`, but whether a phone reaches them depends on the setup network's DNS, which Debra does not configure. The `getent`/`curl` check is in `control/setup/README.md` |
+| A real NetworkManager has never loaded the Wi-Fi profile | N02 | the profile is written into `/etc/NetworkManager/system-connections` with `autoconnect=false` and promoted after a verified join. That the keyfile plugin reads it, that it survives a reboot, and that the promotion takes effect are all unproven |
+| The radio handover has never run | N02 | stop the access point, associate, verify, and restore the access point on failure is only exercised against the fake. No `nmcli`, `hostnamectl` or `raspi-config` call has been made by Debra |
 | No baseline restore demo | N02 | a baseline is captured and can be inspected, but nothing restores from one, so "recovery" is untested in the direction that matters |
 
 ## In review
@@ -95,7 +97,7 @@ not commit, push, or approve their own work.
 
 | Item | Blocker | What would unblock it |
 |---|---|---|
-| The four-screw square speaker mount | The body has no square pattern and only two Ø4.5 pilots, which are **4.1875 mm outside** the shelf a speaker stands on and also hold the lid. A [cover carrying the pattern](../models/parts/rpispeaker-v17-cover/README.md) exists, but it intersects the [lid](../models/parts/rpispeaker-v17-lid/README.md) by **785.08 mm³** ([conflict note](notes/2026-11-15-v17-cover-lid-conflict.md)), and its `SQ_PITCH` is an assumption | a decision on whether the front panel or a separate cover carries the speaker; then the real speaker's frame, height and four-screw pitch |
+| The v17 speaker mounting | The [lid](../models/parts/rpispeaker-v17-lid/README.md) is now the single front panel and the [cover](../models/parts/rpispeaker-v17-cover/README.md) is retired ([decision](notes/2026-11-15-v17-one-front-panel.md)), but the real driver is unmeasured: diameter, depth, frame outline, mounting pitch and thread. `SQ_PITCH` = 32 mm and `DRIVER_DEPTH` = 10 mm are assumptions, and only 5.40 mm separates the lid's plate underside from the bay's raised surfaces | the real speaker's measurements, then a mounting choice: protruding sleeve, or a flat plate with a rear clamp |
 | Speaker and board purchase decisions | DWEII listings return HTTP 503; Pi Zero 2 W out of stock at US sellers | re-checked listings, or a different supplier |
 
 ## Open engineering work the harvest did not contain
