@@ -182,7 +182,8 @@ class ActivityTests(unittest.TestCase):
             result = activity.sessions_snapshot()
         run.assert_called_once()
         self.assertEqual(run.call_args.args[0], ["opencode", "api", "get", "/api/session"])
-        self.assertEqual(run.call_args.kwargs["timeout"], activity.OPENCODE_TIMEOUT_S)
+        # Do not use the production constant: this must catch an accidental change to it.
+        self.assertEqual(run.call_args.kwargs["timeout"], 15)
         self.assertIsNone(result["error"])
         self.assertIsNone(result["sessions"][0]["working"])
         self.assertEqual(result["sessions"][0]["model"], "example/model")
@@ -373,6 +374,18 @@ class ActivityTests(unittest.TestCase):
         self.assertIn(activity.ORANGE + " openai/gpt-6.1-sol#flex-high ", painted)
         self.assertNotEqual(activity._paint(text, rates).count(activity.YELLOW), 2)
 
+    def test_two_clock_helpers_do_not_shadow_each_other(self):
+        # A refactor once added a second _seconds_since, which shadowed the
+        # UTC-string one the runner uses; the suite stayed green while the
+        # runner's elapsed time silently became None. Both names must work.
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 90))
+        self.assertIsInstance(activity._seconds_since(stamp), int)
+        self.assertAlmostEqual(activity._seconds_ago(time.time() - 90), 90, places=3)
+
+    def test_a_running_task_reports_its_elapsed_time_in_words(self):
+        text = activity.render(8787, 5)
+        self.assertNotIn("start time not readable (", "\n".join(text))
+
     def test_why_says_what_the_snapshot_can_prove(self):
         now = 1_700_000_000.0
         def row(**kw):
@@ -479,6 +492,132 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("status file unavailable (PermissionError)", error.getvalue())
         self.assertNotIn("Traceback", error.getvalue())
+
+    def test_tui_column_sizing_at_several_widths(self):
+        minimum = sum(activity.TUI_MIN_WIDTHS) + 6 * len(activity.TUI_SEPARATOR)
+        self.assertIsNone(activity._tui_widths(minimum - 1))
+        self.assertEqual(activity._tui_widths(minimum), activity.TUI_MIN_WIDTHS)
+        for width in (minimum, 60, 80, 120, 200):
+            with self.subTest(width=width):
+                sizes = activity._tui_widths(width)
+                self.assertEqual(len(sizes), 7)
+                self.assertLessEqual(sum(sizes) + 6 * len(activity.TUI_SEPARATOR), width)
+                for size, low, high in zip(sizes, activity.TUI_MIN_WIDTHS,
+                                           activity.TUI_MAX_WIDTHS):
+                    self.assertGreaterEqual(size, low)
+                    self.assertLessEqual(size, high)
+
+    def test_tui_fit_truncates_pads_and_removes_controls(self):
+        self.assertEqual(activity._tui_fit("abcdefgh", 5), "abcd…")
+        self.assertEqual(activity._tui_fit("abcdefgh", 1), "…")
+        self.assertEqual(activity._tui_fit("abc", 0), "")
+        self.assertEqual(activity._tui_fit("abc", 5), "abc  ")
+        self.assertEqual(activity._tui_fit("a\nb\tc", 5), "a b c")
+        self.assertEqual(activity._tui_fit("ab界z", 4), "ab… ")
+        self.assertEqual(activity._tui_fit("a界", 3), "a界")
+        self.assertEqual(activity._tui_fit("e\u0301xx", 2), "e\u0301…")
+
+    def test_tui_tiny_terminal_decision(self):
+        minimum = sum(activity.TUI_MIN_WIDTHS) + 6 * len(activity.TUI_SEPARATOR)
+        self.assertTrue(activity._tui_too_small(0, 0))
+        self.assertTrue(activity._tui_too_small(3, minimum))
+        self.assertTrue(activity._tui_too_small(4, minimum - 1))
+        self.assertFalse(activity._tui_too_small(4, minimum))
+        self.assertFalse(activity._tui_too_small(24, 80))
+
+    def test_tui_supporting_text_can_scroll_horizontally(self):
+        self.assertEqual(activity._tui_text_window("abcdefghij", 5, 0), "abcd…")
+        self.assertEqual(activity._tui_text_window("abcdefghij", 5, 3), "…def…")
+        self.assertEqual(activity._tui_text_window("abcdefghij", 5, 7), "…hij ")
+        self.assertEqual(activity._tui_text_window("a界bc", 3, 3), "…bc")
+
+    def test_recent_session_tie_keeps_markdown_idle_before_unknown(self):
+        unknown = self.session("unknown-session", working=None, updated=1)
+        idle = self.session("idle-session", working=False, updated=1)
+        text = self.render_with_sessions([unknown, idle])
+        self.assertLess(text.index("idle-session"), text.index("unknown-session"))
+
+    def test_tui_model_rate_band_boundaries(self):
+        for rate, band in ((None, 0), (0.0, 1), (0.049, 1), (0.05, 2),
+                           (0.119, 2), (0.12, 3), (0.299, 3), (0.30, 4)):
+            with self.subTest(rate=rate):
+                self.assertEqual(activity._rate_band(rate), band)
+
+    def test_tui_refuses_redirected_stdout_without_rendering(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(activity, "render") as render, \
+             mock.patch.object(activity.curses, "wrapper") as wrapper, \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertNotEqual(activity.main(["--tui"]), 0)
+        self.assertIn("requires a terminal", err.getvalue())
+        self.assertEqual(out.getvalue(), "")
+        self.assertNotIn("\033", err.getvalue())
+        render.assert_not_called()
+        wrapper.assert_not_called()
+
+    def test_tui_argument_and_default_markdown_path(self):
+        output = io.StringIO()
+        with mock.patch.object(output, "isatty", return_value=True), \
+             mock.patch.object(activity.curses, "wrapper") as wrapper, \
+             mock.patch.object(activity, "render", return_value="# snapshot") as render, \
+             mock.patch.object(activity, "write", return_value=Path("/tmp/opencode/x.md")), \
+             mock.patch.dict(os.environ, {"NO_COLOR": "1"}), \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(activity.main(["--tui", "--interval", "0.5", "--limit", "3"]), 0)
+            wrapper.assert_called_once_with(activity._tui_screen, 8787, 3, 0.5, False)
+            render.assert_not_called()
+            self.assertEqual(activity.main([]), 0)
+            render.assert_called_once()
+        self.assertIn("# snapshot", output.getvalue())
+        self.assertIn("(written to /tmp/opencode/x.md)", output.getvalue())
+
+    def test_tui_default_interval(self):
+        output = io.StringIO()
+        with mock.patch.object(output, "isatty", return_value=True), \
+             mock.patch.object(activity.curses, "wrapper") as wrapper, \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(activity.main(["--tui"]), 0)
+        self.assertEqual(wrapper.call_args.args[3], 2.0)
+
+    def test_invalid_tui_intervals_are_rejected(self):
+        for value in ("0", "-1", "nan", "inf", "nonsense"):
+            with self.subTest(value=value), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as exc:
+                    activity.main(["--interval", value])
+                self.assertEqual(exc.exception.code, 2)
+
+    def test_tui_content_preserves_order_limit_and_supporting_details(self):
+        sessions = [self.session("older work", working=True, created=1, updated=100),
+                    self.session("newer work", working=True, created=2, updated=1),
+                    self.session("recent", updated=3), self.session("hidden", updated=2)]
+        sessions[1]["tokens"] = 1_000_000
+        meta = {}
+        with mock.patch.object(activity, "sessions_snapshot",
+                               return_value={"error": None, "sessions": sessions}), \
+             mock.patch.object(activity, "web_snapshot",
+                               return_value={"port": 8787, "listening": False}):
+            text = activity.render(8787, 3, meta)
+        content = activity._tui_content(text, meta, 3)
+        rows = [(row, band) for row, band in content if isinstance(row, list)]
+        self.assertEqual([row[2] for row, _ in rows], ["newer work", "older work", "recent"])
+        self.assertEqual(rows[0][1], 2)
+        supporting = "\n".join(row for row, _ in content if isinstance(row, str))
+        self.assertIn("## Research runner", supporting)
+        self.assertIn("## Agent sessions", supporting)
+        self.assertIn("1 hidden", supporting)
+        self.assertIn("Model rate, blended", supporting)
+        self.assertIn("Not listening on port 8787", supporting)
+
+    def test_tui_content_reports_unavailable_sessions(self):
+        meta = {}
+        with mock.patch.object(activity, "sessions_snapshot",
+                               return_value={"error": "opencode unavailable", "sessions": []}), \
+             mock.patch.object(activity, "web_snapshot",
+                               return_value={"port": 8787, "listening": False}):
+            text = activity.render(8787, 24, meta)
+        content = activity._tui_content(text, meta, 24)
+        self.assertIn(("opencode unavailable", 0), content)
+        self.assertIn(("## Development web server", 0), content)
 
 
 if __name__ == "__main__":

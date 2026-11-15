@@ -2,6 +2,7 @@
 
     python tools/activity.py             # print once
     python tools/activity.py --watch 5   # refresh every 5 seconds
+    python tools/activity.py --tui       # interactive terminal view
 
 It reads the research runner's own state, the local OpenCode session list, and
 whether the development web server is listening, then prints a Markdown
@@ -18,14 +19,18 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import curses
 import json
 import math
 import os
+import queue
 import re
 import socket
 import subprocess
 import sys
+import threading
 import time
+import unicodedata
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parent.parent
@@ -152,7 +157,7 @@ def _span(seconds: float) -> str:
     return f"{seconds / 86400:.1f}d"
 
 
-def _seconds_since(stamp, now: float | None = None) -> float | None:
+def _seconds_ago(stamp, now: float | None = None) -> float | None:
     """Seconds between a session timestamp and ``now``, or None if unusable.
 
     The service reports either seconds or milliseconds depending on version, so
@@ -171,7 +176,7 @@ def _seconds_since(stamp, now: float | None = None) -> float | None:
 
 def _age(stamp, now: float | None = None) -> str:
     """Render a session timestamp as a compact age for a table cell."""
-    seconds = _seconds_since(stamp, now)
+    seconds = _seconds_ago(stamp, now)
     return "unknown" if seconds is None else _span(seconds)
 
 
@@ -230,7 +235,7 @@ def _why(session: dict, by_id: dict, now: float) -> str:
         return "never started"
     if session.get("working"):
         busy = session.get("busy_at")
-        elapsed = _seconds_since(busy, now)
+        elapsed = _seconds_ago(busy, now)
         if elapsed is None:
             return "running"
         # A turn still open after five minutes is worth naming: it is either a
@@ -247,7 +252,7 @@ def _why(session: dict, by_id: dict, now: float) -> str:
         if parent.get("working"):
             return "finished; parent busy"
         return "finished"
-    ended = _seconds_since(session.get("idle_at"), now)
+    ended = _seconds_ago(session.get("idle_at"), now)
     if ended is not None and ended < 90:
         return "just finished"
     return "waiting for you"
@@ -257,21 +262,26 @@ def _session_table(sessions: list[dict], by_id: dict | None = None,
                    now: float | None = None) -> list[str]:
     now = time.time() if now is None else now
     by_id = {row["id"]: row for row in sessions} if by_id is None else by_id
-    rows = []
-    for session in sessions:
-        state = ("working" if session["working"] is True
-                 else "idle" if session["working"] is False else "unknown")
-        rows.append([
-            state,
-            "sub" if session["child"] else "main",
-            session["title"],
-            _model_label(session),
-            f"${session['cost']:.4f}",
-            _age(session["updated"], now),
-            _why(session, by_id, now),
-        ])
+    rows = [_session_cells(session, by_id, now) for session in sessions]
     return _table(["State", "Kind", "Title", "Model", "Cost", "Age", "Why"], rows,
                   caps={2: 34, 3: 30, 6: 20})
+
+
+def _session_cells(session: dict, by_id: dict, now: float) -> list[str]:
+    state = ("working" if session["working"] is True
+             else "idle" if session["working"] is False else "unknown")
+    return [state, "sub" if session["child"] else "main", session["title"],
+            _model_label(session), f"${session['cost']:.4f}",
+            _age(session["updated"], now), _why(session, by_id, now)]
+
+
+def _ordered_sessions(sessions: list[dict], limit: int) -> tuple[list[dict], list[dict]]:
+    working = sorted((s for s in sessions if s["working"] is True),
+                     key=lambda s: s["created"], reverse=True)
+    idle = [s for s in sessions if s["working"] is False]
+    unknown = [s for s in sessions if s["working"] is None]
+    recent = sorted(idle + unknown, key=lambda s: s["updated"], reverse=True)
+    return working, recent[:max(0, limit - len(working))]
 
 
 def _session_rows(payload) -> list[dict]:
@@ -484,6 +494,8 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
         web = web_snapshot(port)
     except OSError as exc:
         web = {"error": f"unavailable ({exc.__class__.__name__})"}
+    if meta is not None:
+        meta.update(agents=agents, refreshed=now)
     out = [f"# What is running — {now}", ""]
 
     out.append("## Research runner")
@@ -491,9 +503,11 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
         out.append(f"- Research runner {run['error']}")
     elif run["running"]:
         r = run["running"]
-        elapsed = f"{r['elapsed_s'] // 60}m {r['elapsed_s'] % 60}s" if r["elapsed_s"] is not None else "unknown"
-        out.append(f"- **Running now:** `{r['task']}` — {r['title']}")
-        out.append(f"- Started {_local(r['since'])} local ({elapsed} ago) · model `{r['model']}`")
+        elapsed = ("start time not readable" if r["elapsed_s"] is None
+                   else f"started {r['elapsed_s'] // 60}m {r['elapsed_s'] % 60}s ago")
+        title = f" — {r['title']}" if r["title"] else ""
+        out.append(f"- **Running now:** `{r['task']}`{title}")
+        out.append(f"- {elapsed} ({_local(r['since'])} local) · model `{r['model']}`")
     elif run["stop_file"]:
         out.append("- **Stopped by STOP file**; nothing will start until it is removed.")
     else:
@@ -525,14 +539,14 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
         # changes, so the table does not reshuffle on every refresh. The recent
         # list is ordered by last activity, which only moves when a session
         # actually finishes a turn.
-        working.sort(key=lambda s: s["created"], reverse=True)
+        working, shown_recent = _ordered_sessions(sessions, limit)
         recent = sorted(idle + unknown, key=lambda s: s["updated"], reverse=True)
         # A parent is resolved against every known session, not the rows on
         # display: a parent hidden by --limit is still a parent that exists.
         now = time.time()
         by_id = {s["id"]: s for s in sessions}
         total = sum(s["cost"] for s in sessions)
-        shown = working + recent[: max(0, limit - len(working))]
+        shown = working + shown_recent
         out.append(f"- {len(working)} working · {len(idle)} idle · {len(unknown)} unknown"
                    f" · {len(sessions)} known sessions")
         out.append(f"- Session cost: **${total:.4f}** in total, ${sum(s['cost'] for s in shown):.4f}"
@@ -544,12 +558,12 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
         else:
             out.append("### Working now (0)")
             out.append("Nothing is working right now; the rows below are sessions between turns.")
-        hidden = len(recent) - len(recent[: max(0, limit - len(working))])
+        hidden = len(recent) - len(shown_recent)
         if recent:
             out.append("")
             out.append(f"### Recently active ({min(len(recent), max(0, limit - len(working)))} of {len(recent)}"
                        + (f", {hidden} hidden — `--all` to show every session" if hidden else "") + ")")
-            out.extend(_session_table(recent[: max(0, limit - len(working))],
+            out.extend(_session_table(shown_recent,
                                       by_id=by_id, now=now))
         out.append("")
         out.append("- `working` is a turn in progress. `idle` is between turns, which is not the")
@@ -588,10 +602,268 @@ def write(markdown: str) -> Path:
     return target
 
 
+TUI_HEADERS = ["State", "Kind", "Title", "Model", "Cost", "Age", "Why"]
+TUI_MIN_WIDTHS = [7, 4, 5, 5, 6, 3, 5]
+TUI_MAX_WIDTHS = [7, 4, 34, 30, 12, 8, 20]
+TUI_SEPARATOR = " | "
+
+
+def _tui_widths(columns: int) -> list[int] | None:
+    """Fit all seven columns, or return None if even their minima will not fit."""
+    widths = TUI_MIN_WIDTHS.copy()
+    remaining = columns - sum(widths) - len(TUI_SEPARATOR) * (len(widths) - 1)
+    if remaining < 0:
+        return None
+    # Share additional space between the variable columns rather than letting a
+    # long title push the model or explanation entirely off-screen.
+    while remaining:
+        grew = False
+        for index in (2, 3, 6, 4, 5):
+            if remaining and widths[index] < TUI_MAX_WIDTHS[index]:
+                widths[index] += 1
+                remaining -= 1
+                grew = True
+        if not grew:
+            break
+    return widths
+
+
+def _tui_too_small(lines: int, columns: int) -> bool:
+    return lines < 4 or _tui_widths(columns) is None
+
+
+def _cell_width(char: str) -> int:
+    if unicodedata.combining(char):
+        return 0
+    return 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+
+
+def _tui_fit(text: str, width: int) -> str:
+    """Pad/truncate to terminal cells; never let a control character wrap a row."""
+    text = "".join(" " if unicodedata.category(char).startswith("C") else char
+                   for char in text)
+    length = sum(_cell_width(char) for char in text)
+    if length > width:
+        if width <= 0:
+            return ""
+        chars, used = [], 0
+        for char in text:
+            size = _cell_width(char)
+            if used + size > width - 1:
+                break
+            chars.append(char)
+            used += size
+        text = "".join(chars) + "…"
+        length = used + 1
+    return text + " " * max(0, width - length)
+
+
+def _tui_text_window(text: str, width: int, offset: int) -> str:
+    """Scroll supporting text horizontally; session table columns stay fixed."""
+    text = "".join(" " if unicodedata.category(char).startswith("C") else char
+                   for char in text)
+    skipped = 0
+    index = 0
+    while index < len(text) and skipped < offset:
+        skipped += _cell_width(text[index])
+        index += 1
+    if offset:
+        return "…" + _tui_fit(text[index:], max(0, width - 1)) if width else ""
+    return _tui_fit(text, width)
+
+
+def _rate_band(rate: float | None) -> int:
+    """Curses pair number for the existing absolute model-rate bands."""
+    if rate is None:
+        return 0
+    return 1 if rate < 0.05 else 2 if rate < 0.12 else 3 if rate < 0.30 else 4
+
+
+def _tui_content(text: str, meta: dict, limit: int) -> list:
+    """Table rows first, then the same supporting information as Markdown."""
+    agents = meta["agents"]
+    sessions = agents["sessions"]
+    working, recent = _ordered_sessions(sessions, limit)
+    by_id = {s["id"]: s for s in sessions}
+    now = time.time()
+    rates = meta.get("rates", {})
+    content = [(_session_cells(s, by_id, now), _rate_band(rates.get(_model_label(s))))
+               for s in working + recent]
+    if agents["error"]:
+        content.append((agents["error"], 0))
+    elif not content:
+        content.append(("No sessions to display.", 0))
+
+    # Preserve the runner, summary, explanatory text, model-rate legend and web
+    # sections from this very snapshot. Session rows themselves are rebuilt from
+    # their untruncated data so the TUI can use the available terminal width.
+    lines = text.splitlines()
+    agent_start = lines.index("## Agent sessions")
+    content.extend((line, 0) for line in lines[:agent_start])
+    summary_end = next((i for i in range(agent_start + 1, len(lines))
+                        if lines[i].startswith("### Working now")), None)
+    if summary_end is not None:
+        content.extend((line, 0) for line in lines[agent_start:summary_end])
+        details_start = next((i for i in range(summary_end, len(lines))
+                              if lines[i].startswith("- `working`")), len(lines))
+        content.extend((line, 0) for line in lines[summary_end:details_start]
+                       if line.startswith("### "))
+        content.extend((line, 0) for line in lines[details_start:])
+    else:
+        content.extend((line, 0) for line in lines[agent_start:])
+    return content
+
+
+def _tui_colours(enabled: bool) -> bool:
+    if not enabled or not curses.has_colors():
+        return False
+    try:
+        curses.start_color()
+        try:
+            curses.use_default_colors()
+            background = -1
+        except curses.error:
+            background = curses.COLOR_BLACK
+        orange = 208 if curses.COLORS > 208 else curses.COLOR_YELLOW
+        for pair, colour in enumerate((curses.COLOR_GREEN, curses.COLOR_YELLOW,
+                                       orange, curses.COLOR_RED), 1):
+            curses.init_pair(pair, colour, background)
+        return True
+    except curses.error:
+        return False
+
+
+def _tui_put(screen, y: int, x: int, text: str, attr: int = 0) -> None:
+    # A resize can happen between getmaxyx and addstr, and curses raises on the
+    # bottom-right cell even when it successfully wrote it.
+    try:
+        screen.addstr(y, x, text, attr)
+    except curses.error:
+        pass
+
+
+def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) -> None:
+    screen.timeout(100)
+    try:
+        curses.curs_set(0)
+    except curses.error:
+        pass
+    colours = _tui_colours(colour)
+    results: queue.Queue = queue.Queue()
+    pending = False
+    next_refresh = 0.0
+    snapshot = None
+    error = None
+    offset = 0
+    text_offset = 0
+
+    def collect() -> None:
+        try:
+            meta: dict = {}
+            text = render(port, limit, meta)
+            write(text)
+            meta["refreshed"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            results.put((text, meta, None))
+        except Exception as exc:
+            results.put((None, None, f"refresh unavailable ({exc.__class__.__name__})"))
+
+    while True:
+        if not pending and time.monotonic() >= next_refresh:
+            pending = True
+            next_refresh = time.monotonic() + interval
+            threading.Thread(target=collect, daemon=True).start()
+        try:
+            text, meta, error = results.get_nowait()
+            pending = False
+            if text is not None:
+                snapshot = (text, meta)
+        except queue.Empty:
+            pass
+
+        height, width = screen.getmaxyx()
+        screen.erase()
+        if _tui_too_small(height, width):
+            if height and width:
+                _tui_put(screen, 0, 0, _tui_fit("terminal too small", max(0, width - 1)))
+        else:
+            widths = _tui_widths(width)
+            header = TUI_SEPARATOR.join(_tui_fit(cell, size)
+                                        for cell, size in zip(TUI_HEADERS, widths))
+            _tui_put(screen, 0, 0, header, curses.A_BOLD)
+            if snapshot is None:
+                content = [(error or "Loading snapshot…", 0)]
+                working, total, refreshed = "?", "?", "pending"
+            else:
+                text, meta = snapshot
+                content = _tui_content(text, meta, limit)
+                if error:
+                    content.insert(0, (error, 0))
+                agents = meta["agents"]
+                if agents["error"]:
+                    working, total = "?", "?"
+                else:
+                    working = str(sum(s["working"] is True for s in agents["sessions"]))
+                    total = f"${sum(s['cost'] for s in agents['sessions']):.4f}"
+                refreshed = meta["refreshed"].split()[-1]
+            visible = height - 2
+            offset = max(0, min(offset, max(0, len(content) - visible)))
+            for y, (row, band) in enumerate(content[offset:offset + visible], 1):
+                if isinstance(row, str):
+                    _tui_put(screen, y, 0, _tui_text_window(row, width, text_offset))
+                else:
+                    x = 0
+                    for index, (cell, size) in enumerate(zip(row, widths)):
+                        attr = curses.color_pair(band) if index == 3 and band and colours else 0
+                        if index == 3 and band == 3 and colours and curses.COLORS <= 208:
+                            attr |= curses.A_BOLD
+                        _tui_put(screen, y, x, _tui_fit(cell, size), attr)
+                        x += size
+                        if index < len(widths) - 1:
+                            _tui_put(screen, y, x, TUI_SEPARATOR)
+                            x += len(TUI_SEPARATOR)
+            footer = f"port:{port} | {working} working | {total} | {refreshed} | q ↑↓←→"
+            if error:
+                footer += f" | {error}"
+            _tui_put(screen, height - 1, 0, _tui_fit(footer, width - 1), curses.A_REVERSE)
+        try:
+            screen.refresh()
+            key = screen.getch()
+        except curses.error:
+            continue
+        if key in (ord("q"), ord("Q")):
+            return
+        if key in (curses.KEY_DOWN, ord("j")):
+            offset += 1
+        elif key in (curses.KEY_UP, ord("k")):
+            offset -= 1
+        elif key == curses.KEY_NPAGE:
+            offset += max(1, height - 2)
+        elif key == curses.KEY_PPAGE:
+            offset -= max(1, height - 2)
+        elif key in (curses.KEY_RIGHT, ord("l")):
+            text_offset += 10
+        elif key in (curses.KEY_LEFT, ord("h")):
+            text_offset = max(0, text_offset - 10)
+
+
+def _positive_interval(value: str) -> float:
+    try:
+        interval = float(value)
+        if math.isfinite(interval) and interval > 0:
+            return interval
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError("interval must be a positive finite number")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--watch", type=float, metavar="SECONDS",
                         help="refresh continuously instead of printing once")
+    parser.add_argument("--tui", action="store_true",
+                        help="interactive terminal table (q quits; arrows scroll)")
+    parser.add_argument("--interval", type=_positive_interval, default=2.0, metavar="SECONDS",
+                        help="TUI refresh interval (default: 2 seconds)")
     parser.add_argument("--port", type=int, default=8787,
                         help="development web server port to probe")
     parser.add_argument("--limit", type=int, default=24, metavar="N",
@@ -602,6 +874,17 @@ def main(argv: list[str] | None = None) -> int:
                         help="never colour terminal output (NO_COLOR is also honoured)")
     args = parser.parse_args(argv)
     limit = 10**6 if args.all else max(0, args.limit)
+    if args.tui:
+        if not sys.stdout.isatty():
+            print("--tui requires a terminal on stdout", file=sys.stderr)
+            return 1
+        try:
+            curses.wrapper(_tui_screen, args.port, limit, args.interval,
+                           not args.no_color and not os.environ.get("NO_COLOR"))
+        except (curses.error, OSError) as exc:
+            print(f"TUI unavailable ({exc})", file=sys.stderr)
+            return 1
+        return 0
     # Colour is for a terminal only: the status file stays plain Markdown, and a
     # redirected or captured run must not gain escape sequences.
     paint = (sys.stdout.isatty() and not args.no_color
