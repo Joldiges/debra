@@ -39,6 +39,7 @@ import tools.scheduled_runner as runner  # noqa: E402  (path set above)
 STATUS_DIR = SOURCE / ".local" / "status"
 
 GREEN = "\033[1;32m"
+ORANGE = "\033[38;5;208m"
 YELLOW = "\033[33m"
 RED = "\033[31m"
 DIM = "\033[2m"
@@ -330,7 +331,8 @@ def _paint(markdown: str, rates: dict[str, float] | None = None) -> str:
     is dim (so the eye skips it), an unknown one is amber, a failure is red.
     Cost and age use the same direction: cheap and fresh are green, expensive
     and stale are red. The model cell is coloured by the model's blended rate
-    across the sessions shown, so a cheaper model reads greener than a dear one.
+    across the sessions shown, so a cheaper model reads greener than a dear one,
+    with yellow and orange separating the two middle tiers.
     Table cells are painted after padding, so the columns still line up.
     """
     palette = {
@@ -342,11 +344,17 @@ def _paint(markdown: str, rates: dict[str, float] | None = None) -> str:
 
     def model_colour(label: str) -> str:
         # Absolute bands, not rank: one outlier model must not push a cheap one
-        # into the amber band just because it is the fourth cheapest.
+        # into a warmer band just because it is the fourth cheapest. Four bands,
+        # because a three-band scale put terra (~$0.08/Mtok) and sol (~$0.17) in
+        # the same yellow and hid the fact that sol costs about twice as much.
         if not ordered or label not in ordered:
             return ""
         rate = rates[label]
-        return GREEN if rate < 0.05 else YELLOW if rate < 0.20 else RED
+        if rate < 0.05:
+            return GREEN
+        if rate < 0.12:
+            return YELLOW
+        return ORANGE if rate < 0.30 else RED
 
     def cell_colour(word: str) -> str:
         match = COST_CELL.match(word)
@@ -493,6 +501,8 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
             out.append("- Model rate, blended cost per million tokens, cheapest first: "
                        + " · ".join(f"`{label}` ${rates[label]:.2f}" for label in cheapest))
             out.append("  A blend, not a list price: it mixes input, output, reasoning and cache.")
+            out.append("  Colour bands on that rate: green under $0.05, yellow under $0.12,")
+            out.append("  orange under $0.30, red at or above it.")
     out.append("")
 
     out.append("## Development web server")

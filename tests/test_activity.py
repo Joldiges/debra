@@ -350,13 +350,28 @@ class ActivityTests(unittest.TestCase):
         self.assertIn(activity.RED + " 3.0h ", painted)
 
     def test_paint_colours_model_by_absolute_rate(self):
-        rates = {"cheap#high": 0.02, "mid#high": 0.10, "dear#high": 0.90}
+        rates = {"cheap#high": 0.02, "mid#high": 0.10, "dearer#high": 0.17, "dear#high": 0.90}
         text = ("| State | Model |\n| --- | --- |\n"
-                "| working | cheap#high |\n| working | mid#high |\n| working | dear#high |")
+                "| working | cheap#high |\n| working | mid#high |\n"
+                "| working | dearer#high |\n| working | dear#high |")
         painted = activity._paint(text, rates)
         self.assertIn(activity.GREEN + " cheap#high ", painted)
         self.assertIn(activity.YELLOW + " mid#high ", painted)
+        self.assertIn(activity.ORANGE + " dearer#high ", painted)
         self.assertIn(activity.RED + " dear#high ", painted)
+
+    def test_paint_separates_two_middle_models(self):
+        # Regression: terra (~$0.08) and sol (~$0.17) both fell in one yellow
+        # band, so the table showed a model costing twice as much identically.
+        rates = {"openai/gpt-6.1-terra#flex-high": 0.084,
+                 "openai/gpt-6.1-sol#flex-high": 0.165}
+        text = ("| State | Model |\n| --- | --- |\n"
+                "| working | openai/gpt-6.1-terra#flex-high |\n"
+                "| working | openai/gpt-6.1-sol#flex-high |")
+        painted = activity._paint(text, rates)
+        self.assertIn(activity.YELLOW + " openai/gpt-6.1-terra#flex-high ", painted)
+        self.assertIn(activity.ORANGE + " openai/gpt-6.1-sol#flex-high ", painted)
+        self.assertNotEqual(activity._paint(text, rates).count(activity.YELLOW), 2)
 
     def test_session_rates_ignore_zero_cost_and_missing_tokens(self):
         sessions = [
