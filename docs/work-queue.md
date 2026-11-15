@@ -63,6 +63,7 @@ not commit, push, or approve their own work.
 | The lid checked against the reconstructed body | D02 | `models/assemblies/rpispeaker-v17-body-lid/` — 0 mm³ interference at the lid's defaults, with a 0.5 mm per-side oversize control that is caught; a composed assembly, no duplicate `.sc`; still nothing printed |
 | Tabbed TUI that redraws only changed lines, and drops columns instead of truncating them | — | this round |
 | Two unattended studies: the ARMv6 audio stack, first-boot identity | — | `35d43c3` |
+| Todos tab: what nothing is working on | — | `fafb8f2` — 12 tests; reads the work queue, the research backlog and the dispatcher registry |
 
 ## Queued
 
