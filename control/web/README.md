@@ -158,6 +158,10 @@ port from 1 to 65535, and a DNS-style ASCII hostname or canonical IPv4 address;
 paths other than `/`, whitespace, control characters, credentials, `?` and `#`
 are refused. The server returns lowercase hostnames and scheme, a decimal port
 and a trailing slash. Both server and browser apply this same restricted form.
+**Port 80 is refused on purpose**: a browser drops a default port, so
+`http://device.local:80/` becomes `http://device.local/`, and the Host check this
+service applies would then reject the page it had just linked to. An entry that
+cannot round-trip is worse than one that never appears.
 
 Local `_debra._tcp` mDNS discovery is on when the web service runs; it needs
 `avahi-browse` and a working Avahi daemon, but no Python packages. The first

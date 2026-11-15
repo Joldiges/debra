@@ -582,6 +582,11 @@ def canonical_device_url(url):
             any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
                 for label in labels)):
         raise ValueError("Invalid host or port")
+    if port == 80:
+        # Browsers drop a default port, so the anchor would become http://host/
+        # and the Host check would then reject the page it just linked to.
+        raise ValueError("Port 80 is unsupported: browsers drop the default port, "
+                         "so the link would not match this service's Host check")
     if labels[-1].isdigit() or re.fullmatch(r"0x[0-9a-f]*", labels[-1]):
         try:
             if str(ipaddress.IPv4Address(host)) != host:

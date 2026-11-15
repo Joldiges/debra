@@ -516,12 +516,22 @@ class DeviceListTests(unittest.TestCase):
         self.assertEqual(self.load([{"name": "debra-1", "url": "http://debra-1.local:8787/"}])[0]["name"],
                          "debra-1")
 
+    def test_default_port_is_refused_with_a_reason(self):
+        # Chromium normalizes http://host:80/ to http://host/, which the Host
+        # allowlist cannot accept; an accepted-then-broken link is worse than a
+        # link that never appears.
+        with self.assertRaises(ValueError) as caught:
+            web.canonical_device_url("http://device.local:80/")
+        self.assertIn("Port 80", str(caught.exception))
+
     def test_canonical_url_contract(self):
         cases = {
             "HTTP://DEVICE.Local:08787": "http://device.local:8787/",
             "http://127.0.0.1:1/": "http://127.0.0.1:1/",
             "http://device.local:65535": "http://device.local:65535/",
-            "http://device.local:80/": "http://device.local:80/",
+            # A browser drops the default port, so a :80 link could never
+            # satisfy the Host check this service applies.
+            "http://device.local:80/": None,
             "http://device.local:0/": None,
             "http://device.local:65536/": None,
             "http://device.local:99999/": None,

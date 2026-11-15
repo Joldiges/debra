@@ -461,7 +461,9 @@ URL_CASES = {
     "HTTP://DEVICE.Local:08787": "http://device.local:8787/",
     "http://127.0.0.1:1/": "http://127.0.0.1:1/",
     "http://device.local:65535": "http://device.local:65535/",
-    "http://device.local:80/": "http://device.local:80/",
+    # A browser drops the default port, so a :80 anchor could never satisfy
+    # this service's Host check. Refused by both validators.
+    "http://device.local:80/": None,
     "http://device.local:0/": None,
     "http://device.local:65536/": None,
     "http://device.local:99999/": None,

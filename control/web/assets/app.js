@@ -312,7 +312,9 @@ function canonicalDeviceUrl(url) {
   if (!match || match[0] !== url) return null;
   const host = match[1].toLowerCase(), port = Number(match[2]);
   const labels = host.split(".");
-  if (host.length > 253 || port < 1 || port > 65535 ||
+  // Port 80 is refused to match the server: a browser would drop the default
+  // port from the anchor and the real host check would then reject it.
+  if (host.length > 253 || port < 1 || port > 65535 || port === 80 ||
       labels.some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
   if (/^(?:[0-9]+|0x[0-9a-f]*)$/.test(labels[labels.length - 1]) &&
       (labels.length !== 4 || labels.some(label => !/^(?:0|[1-9][0-9]{0,2})$/.test(label) || Number(label) > 255))) return null;
