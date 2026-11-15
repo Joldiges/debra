@@ -264,6 +264,70 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(activity._ago(None), "unknown")
         self.assertEqual(activity._ago(0), "unknown")
 
+    def session(self, title, working=False, created=1, updated=1, cost=0.1,
+                provider="openrouter", model_id="m", variant=""):
+        return {
+            "id": title, "title": title, "agent": "", "child": True,
+            "working": working, "cost": cost, "created": created, "updated": updated,
+            "model": "/".join(filter(None, [provider, model_id]))
+                     + (f"#{variant}" if variant else ""),
+            "provider": provider, "model_id": model_id, "variant": variant,
+        }
+
+    def render_with_sessions(self, sessions, limit=24):
+        with mock.patch.object(activity, "sessions_snapshot",
+                               return_value={"error": None, "sessions": sessions}), \
+             mock.patch.object(activity, "web_snapshot",
+                               return_value={"port": 8787, "listening": False}):
+            return activity.render(8787, limit)
+
+    def test_working_rows_keep_creation_order_when_activity_changes(self):
+        # Ordering by `updated` reshuffles on every refresh; creation does not move.
+        first = self.session("older", working=True, created=100, updated=900)
+        second = self.session("newer", working=True, created=200, updated=100)
+        text = self.render_with_sessions([first, second])
+        self.assertLess(text.index("newer"), text.index("older"))
+        first["updated"], second["updated"] = 100, 900
+        text = self.render_with_sessions([first, second])
+        self.assertLess(text.index("newer"), text.index("older"))
+
+    def test_limit_hides_only_recent_sessions(self):
+        sessions = [self.session(f"work{i}", working=True, created=i) for i in range(3)]
+        sessions += [self.session(f"rest{i}", created=i, updated=i) for i in range(5)]
+        text = self.render_with_sessions(sessions, limit=5)
+        for i in range(3):
+            self.assertIn(f"work{i}", text)
+        self.assertIn("rest4", text)
+        self.assertIn("rest3", text)
+        self.assertNotIn("rest2", text)
+        self.assertIn("3 hidden", text)
+
+    def test_all_shows_every_known_session(self):
+        sessions = [self.session(f"s{i}", created=i, updated=i) for i in range(40)]
+        text = self.render_with_sessions(sessions, limit=10**6)
+        self.assertIn("s39", text)
+        self.assertIn("s0", text)
+        self.assertNotIn("hidden", text)
+
+    def test_table_truncates_long_cells_to_the_cap(self):
+        lines = activity._table(["A"], [["x" * 50]], caps={0: 10})
+        cell = lines[2].split("|")[1].strip()
+        self.assertEqual(len(cell), 10)
+        self.assertTrue(cell.endswith("…"))
+
+    def test_model_label_drops_the_common_provider_only(self):
+        self.assertEqual(activity._model_label(self.session(
+            "t", model_id="deepseek/deepseek-v4.1-flash-1017", variant="high")),
+            "deepseek/deepseek-v4.1-flash-1017#high")
+        self.assertEqual(activity._model_label(self.session(
+            "t", provider="anthropic", model_id="claude", variant="fast")),
+            "anthropic/claude#fast")
+
+    def test_session_cost_total_is_shown(self):
+        text = self.render_with_sessions([self.session("a", cost=1.25),
+                                          self.session("b", cost=0.5)])
+        self.assertIn("$1.7500", text)
+
     def test_web_probe_oserror_is_reported(self):
         with mock.patch.object(activity, "sessions_snapshot", return_value={"error": None, "sessions": []}), \
              mock.patch.object(activity, "web_snapshot", side_effect=PermissionError("denied")):

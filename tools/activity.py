@@ -131,8 +131,8 @@ def _seconds_since(utc_stamp: str) -> int | None:
     return max(0, int(time.time() - started))
 
 
-def _ago(stamp) -> str:
-    """Render a session timestamp as a rough age. Accepts seconds or milliseconds."""
+def _age(stamp) -> str:
+    """Render a session timestamp as a compact age for a table cell."""
     try:
         value = float(stamp)
     except (TypeError, ValueError):
@@ -142,12 +142,72 @@ def _ago(stamp) -> str:
     seconds = time.time() - (value / 1000 if value > 10**11 else value)
     seconds = max(0.0, seconds)
     if seconds < 90:
-        return f"{int(seconds)}s ago"
+        return f"{int(seconds)}s"
     if seconds < 5400:
-        return f"{int(seconds / 60)}m ago"
+        return f"{int(seconds / 60)}m"
     if seconds < 172800:
-        return f"{seconds / 3600:.1f}h ago"
-    return f"{seconds / 86400:.1f}d ago"
+        return f"{seconds / 3600:.1f}h"
+    return f"{seconds / 86400:.1f}d"
+
+
+def _ago(stamp) -> str:
+    """Render a session timestamp as a rough age in prose."""
+    age = _age(stamp)
+    return "unknown" if age == "unknown" else f"{age} ago"
+
+
+def _table(headers: list[str], rows: list[list[str]], caps: dict[int, int] | None = None) -> list[str]:
+    """A padded Markdown table. Long cells are truncated to a per-column cap."""
+    caps = caps or {}
+    widths = []
+    for index, header in enumerate(headers):
+        cells = [header] + [row[index] for row in rows]
+        widths.append(min(max(len(cell) for cell in cells), caps.get(index, 200)))
+
+    def line(cells: list[str]) -> str:
+        padded = []
+        for cell, width in zip(cells, widths):
+            if len(cell) > width:
+                cell = cell[: max(1, width - 1)] + "…"
+            padded.append(cell.ljust(width))
+        return "| " + " | ".join(padded) + " |"
+
+    out = [line(headers), "| " + " | ".join("-" * width for width in widths) + " |"]
+    out.extend(line(row) for row in rows)
+    return out
+
+
+def _model_label(session: dict) -> str:
+    """The model and variant, without a provider prefix that adds no information.
+
+    Almost every session here runs through one provider, so printing
+    ``openrouter/`` on every row only pushes the variant off the end of the
+    column. A different provider is kept, because then it does distinguish.
+    """
+    label = session["model_id"] or "unknown"
+    if session["variant"]:
+        label += f"#{session['variant']}"
+    provider = session["provider"]
+    if provider and provider != "openrouter":
+        label = f"{provider}/{label}"
+    return label
+
+
+def _session_table(sessions: list[dict]) -> list[str]:
+    rows = []
+    for session in sessions:
+        state = ("working" if session["working"] is True
+                 else "idle" if session["working"] is False else "unknown")
+        rows.append([
+            state,
+            "sub" if session["child"] else "main",
+            session["title"],
+            _model_label(session),
+            f"${session['cost']:.4f}",
+            _age(session["updated"]),
+        ])
+    return _table(["State", "Kind", "Title", "Model", "Cost", "Age"], rows,
+                  caps={2: 38, 3: 42})
 
 
 def _session_rows(payload) -> list[dict]:
@@ -190,9 +250,13 @@ def _session_rows(payload) -> list[dict]:
             "agent": item.get("agent") or "",
             "model": "/".join(filter(None, [model.get("providerID"), model.get("id")]))
                      + (f"#{model['variant']}" if model.get("variant") else ""),
+            "provider": model.get("providerID") or "",
+            "model_id": model.get("id") or "",
+            "variant": model.get("variant") or "",
             "child": bool(item.get("parentID")),
             "working": working,
             "cost": item.get("cost") or 0.0,
+            "created": times.get("created") or 0,
             "updated": times.get("updated") or times.get("created") or 0,
         })
     rows.sort(key=lambda row: row["updated"], reverse=True)
@@ -238,7 +302,7 @@ def web_snapshot(port: int) -> dict:
     return {"port": port, "listening": listening}
 
 
-def render(port: int) -> str:
+def render(port: int, limit: int = 24) -> str:
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
         run = runner_snapshot()
@@ -271,24 +335,51 @@ def render(port: int) -> str:
         spend = f"- Spent today: **${run['spent_today']:.4f}**"
         out.append(spend + (f" of ${float(cap):.2f} cap" if cap is not None else " (no local cap)"))
         if run["recent"]:
-            out.append("- Recent: " + ", ".join(
-                f"`{r['task']}` {r['status']} ${r['cost']:.4f}" for r in run["recent"]))
+            out.append("")
+            out.extend(_table(
+                ["Recent task", "Status", "Cost"],
+                [[f"`{r['task']}`", r["status"], f"${r['cost']:.4f}"] for r in run["recent"]],
+                caps={0: 34}))
     out.append("")
 
     out.append("## Agent sessions")
     if agents["error"]:
         out.append(f"- {agents['error']}")
     else:
-        working = [s for s in agents["sessions"] if s["working"]]
-        idle = len(agents["sessions"]) - len(working)
-        out.append(f"- {len(working)} working · {idle} idle · {len(agents['sessions'])} known sessions")
-        for s in agents["sessions"][:8]:
-            state = "**working**" if s["working"] is True else "idle" if s["working"] is False else "unknown"
-            kind = "subagent" if s["child"] else "session"
-            out.append(f"- {state} · {kind} · {s['title']} · `{s['model']}` · ${s['cost']:.4f}"
-                       f" · updated {_ago(s['updated'])}")
-        out.append("- A point-in-time snapshot: a session between turns shows idle, which is not the")
-        out.append("  same as abandoned. Run with `--watch 5` for a live view.")
+        sessions = agents["sessions"]
+        working = [s for s in sessions if s["working"] is True]
+        idle = [s for s in sessions if s["working"] is False]
+        unknown = [s for s in sessions if s["working"] is None]
+        # Working sessions are ordered by when they were created, which never
+        # changes, so the table does not reshuffle on every refresh. The recent
+        # list is ordered by last activity, which only moves when a session
+        # actually finishes a turn.
+        working.sort(key=lambda s: s["created"], reverse=True)
+        recent = sorted(idle + unknown, key=lambda s: s["updated"], reverse=True)
+        total = sum(s["cost"] for s in sessions)
+        shown = working + recent[: max(0, limit - len(working))]
+        out.append(f"- {len(working)} working · {len(idle)} idle · {len(unknown)} unknown"
+                   f" · {len(sessions)} known sessions")
+        out.append(f"- Session cost: **${total:.4f}** in total, ${sum(s['cost'] for s in shown):.4f}"
+                   f" across the {len(shown)} rows below")
+        out.append("")
+        if working:
+            out.append(f"### Working now ({len(working)})")
+            out.extend(_session_table(working))
+        else:
+            out.append("### Working now (0)")
+            out.append("Nothing is working right now; the rows below are sessions between turns.")
+        hidden = len(recent) - len(recent[: max(0, limit - len(working))])
+        if recent:
+            out.append("")
+            out.append(f"### Recently active ({min(len(recent), max(0, limit - len(working)))} of {len(recent)}"
+                       + (f", {hidden} hidden — `--all` to show every session" if hidden else "") + ")")
+            out.extend(_session_table(recent[: max(0, limit - len(working))]))
+        out.append("")
+        out.append("- `working` is a turn in progress. `idle` is between turns, which is not the")
+        out.append("  same as abandoned. `unknown` is a session that has not run a turn yet.")
+        out.append("- Rows are ordered by creation (working) and last activity (recent), so the")
+        out.append("  table stays put instead of reshuffling on every refresh.")
     out.append("")
 
     out.append("## Development web server")
@@ -317,9 +408,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="refresh continuously instead of printing once")
     parser.add_argument("--port", type=int, default=8787,
                         help="development web server port to probe")
+    parser.add_argument("--limit", type=int, default=24, metavar="N",
+                        help="most session rows to show; working sessions always all show")
+    parser.add_argument("--all", action="store_true",
+                        help="show every known session, ignoring --limit")
     args = parser.parse_args(argv)
+    limit = 10**6 if args.all else max(0, args.limit)
     while True:
-        text = render(args.port)
+        text = render(args.port, limit)
         try:
             target = write(text)
         except OSError as exc:
