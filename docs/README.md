@@ -18,6 +18,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [SolidCraft enclosure requirements](design/enclosures.md) | Candidate dimensions, reusable parts, case variants, wiring/card/power access, lids and speaker grilles/cloth |
 | [Corrected preliminary research](research/2026-11-14-preliminary-findings.md) | Useful mechanical, ARMv6, onboarding, recovery and reuse findings; not completed packets |
 | [F01/F05 readiness](testing/results/2026-11-14-ai-readiness.md) | Baseline closure, partial permission evidence, unresolved extra file and closed dispatch |
+| [F05 source-test feasibility](testing/results/2026-11-15-f05-source-feasibility.md) | Version-pinned upstream test helpers, interception pitfalls and missing isolated runtime; no new executed permission coverage |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
 

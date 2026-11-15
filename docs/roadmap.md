@@ -311,6 +311,9 @@ Separate observed results from proposed fixes. Do not mark a packet done on
 
 F01's baseline assessment is recorded; finish F05's missing execution evidence
 and claim-specific policy review before any production dispatch activation.
+The [version-pinned source investigation](testing/results/2026-11-15-f05-source-feasibility.md)
+identifies reusable model-free test helpers, but no safe harness has run and no
+isolated Bun/dependency environment has been established.
 Use the [corrected preliminary research](research/2026-11-14-preliminary-findings.md)
 as scoped evidence, not completed packets or dependency selections. Capable
 coordinator work and bounded sanitized read-only research may continue.
