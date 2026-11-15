@@ -108,6 +108,13 @@ def _write_json(path: Path, data) -> None:
     os.replace(tmp, path)
 
 
+def _activity_write(entry: dict) -> None:
+    """Append one JSON line to activity.log. `tail -f` on it is the live view."""
+    RUNNER_DIR.mkdir(parents=True, exist_ok=True)
+    with (RUNNER_DIR / "activity.log").open("a") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+
 def ensure_layout() -> None:
     RUNNER_DIR.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -394,6 +401,9 @@ def cmd_run(args) -> int:
     try:
         run_dir = RUNS_DIR / f"{_today()}-{uuid.uuid4().hex[:8]}"
         run_dir.mkdir(parents=True, exist_ok=True)
+        _activity_write({"event": "start", "utc": _now(), "task": task["id"],
+                         "title": task.get("title", ""), "run_dir": str(run_dir),
+                         "model": task.get("model") or cfg["default_model"]})
         record = run_task(task, cfg, run_dir)
         task["status"] = "done" if record["ok"] else "failed"
         task["finished_utc"] = _now()
@@ -408,14 +418,13 @@ def cmd_run(args) -> int:
             "finished_utc": task["finished_utc"],
         }
         _write_json(STATE_PATH, state)
-        activity = RUNNER_DIR / "activity.log"
-        with activity.open("a") as fh:
-            fh.write(json.dumps({
-                "utc": record.get("started_utc"), "task": record["task"],
-                "ok": record["ok"], "cost_usd": record["cost_usd"],
-                "duration_s": record.get("duration_s"),
-                "report": str(run_dir / f"{task['id']}.report.md"),
-            }) + "\n")
+        _activity_write({
+            "event": "finish", "utc": record.get("started_utc"),
+            "task": record["task"], "ok": record["ok"],
+            "cost_usd": record["cost_usd"],
+            "duration_s": record.get("duration_s"),
+            "report": str(run_dir / f"{task['id']}.report.md"),
+        })
         print(json.dumps({k: record[k] for k in
                           ("task", "ok", "rc", "cost_usd", "duration_s", "session")
                           if k in record}, indent=2))
