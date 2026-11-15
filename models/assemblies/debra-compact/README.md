@@ -14,7 +14,7 @@ to "some assembly of those case parts for full products".
 | --- | --- |
 | Overall | **71.02 × 54.37 × 33.2 mm** |
 | Bodies | 20 |
-| Total solid volume | 64 351 mm³ (`measure`) |
+| Total solid volume | 65 384 mm³ (`measure`) |
 
 ## What it looks like
 

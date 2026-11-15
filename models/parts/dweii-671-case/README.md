@@ -15,13 +15,14 @@ the first complete case, built to hold the parts James actually selected — the
 | --- | --- |
 | Overall | **71.02 × 54.37 × 33.2 mm** |
 | Interior | 66.22 × 49.57 × 28.4 mm |
-| Tub | **25 127 mm³** (`measure`) |
+| Tub | **26 160 mm³** (`measure`) |
 | Lid | **8 986 mm³** (`measure`) |
 | Walls, floor, lid | 2.4 mm |
 | Screws | 4 × M2.5, Ø2.2 pilots, Ø2.7 lid clearance |
 | Corners | 5 mm rounds; the wall thins to 1.3 mm on the corner diagonal |
 | Edges | 2 mm round on the base, 1.2 mm on the lid's top, 0.6 mm chamfer under the lid |
 | Grille | Ø26 through, stepped to Ø28 × 1 mm at the face |
+| Module stop | two ribs 1.5 mm thick across the cavity at Y 15.4–16.9, 0–5 mm and 23–28.4 mm high |
 
 ## What it looks like
 
@@ -47,12 +48,14 @@ opening itself.*
 *Side. The front face is on the right. The power slot sits at 15.7 mm above the
 interior floor, which is the height of the HAT's micro-USB socket.*
 
-![The tub with the lid removed: four screw bosses, the grille opening through the front wall, and the power slot](assets/open.png)
+![The tub with the lid removed: four screw bosses, two ribs across the cavity, the grille opening through the front wall, and the power slot](assets/open.png)
 
 *Interior. Two full-height bosses at the front, two short ones thickened into the
 back wall. The front pair sit in the free space beside the module because the
 boards are 65 mm wide in a 66.2 mm cavity, leaving no room for a boss at the back
-corners.*
+corners. The two ribs across the cavity are the module stop: they leave a 0.4 mm
+gap to the speaker module's back face so it cannot slide backwards, and the slot
+between them at 5–23 mm high is where the speaker lead leaves.*
 
 ## With the device inside
 
@@ -150,9 +153,10 @@ cable and two hands.
 
 ## What is missing
 
-- **Nothing holds the module back.** It is trapped forward by the front wall and
-  down by the lid, but it can slide 4 mm backwards. A rib or a foam pad behind it
-  would fix that; neither is modelled.
+- **The module stop limits travel, it does not clamp.** Two ribs 0.4 mm behind
+  the module's back face mean it can move 0.4 mm and no further, which is a
+  rattle rather than a loose part. A 0.4 mm foam pad closes it; foam is not
+  modelled.
 - **No speaker-lead routing.** The module's 110 mm lead and its JST plug have to
   get to the HAT's JST socket at Y ≈ 20–28. The lead's exit point on the module
   is unknown.
