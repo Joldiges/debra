@@ -15,6 +15,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [AI model and provider strategy](ai-model-strategy.md) | Named role selections, allowance priorities, paid Flex choices, costs, and unresolved quota/connection gaps |
 | [Evidence conventions](evidence.md) | Sources, uncertainty, compatibility claims, and test records |
 | [Development workspace](development.md) | Private storage, reuse, provenance, and contribution boundaries |
+| [SolidCraft enclosure requirements](design/enclosures.md) | Candidate dimensions, reusable parts, case variants, wiring/card/power access, lids and speaker grilles/cloth |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
 
@@ -27,7 +28,7 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/` top-level | Short project maps, requirements, evidence rules, workflow, and development guidance | Exists |
 | `docs/notes/` | Dated, scoped discoveries, assumptions, failed attempts, corrections, and session handoffs | Exists; deliberately not an unstructured dump |
 | `docs/research/` | Task-specific, source-linked investigations and comparisons | Planned; see R01–R04/R07 |
-| `docs/design/` | Reviewed decisions: rationale, alternatives, consequences, and what supersedes them | Planned; see F02 |
+| `docs/design/` | Requirements and reviewed decisions, with status made explicit | Enclosure requirements exist; architecture decisions remain planned under F02 |
 | `docs/comparisons/` | Curated hardware/software comparisons with evidence and scope | Planned; see R05 |
 | `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Planned; see R06 |
 | `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | Planned; see T01 |

@@ -137,6 +137,17 @@ Keep editable CAD sources, printable exports, exact component/revision lists,
 assembly guidance, and provenance together. Check mounting, access, wiring,
 ventilation, microphone/speaker placement, and serviceability.
 
+James clarified on 2026-11-14 that a dedicated subagent should inventory the
+candidate components and their dimensions, create reusable component/printed
+parts, then combine them into a useful variety of SolidCraft enclosures. Allow
+actual wiring/plug space, powered-off microSD access and reachable power, with
+appropriate removable tops, buttons or covers. Keep speaker output unobstructed
+and provide an optional replaceable speaker-cloth/mesh arrangement. Track every
+concrete candidate, but prioritize sensible exact combinations rather than
+promising the Cartesian product of all parts. See the
+[enclosure requirements](design/enclosures.md) for dimensional evidence,
+deliverables and separate fit/thermal/acoustic maturity labels.
+
 Distinguish modeled, physically fit-tested, and thermally/acoustically tested
 variants. A plausible render or successful CAD operation does not prove fit or
 audio quality. Model creation, printing, and device tests remain future work;

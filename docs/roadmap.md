@@ -270,15 +270,20 @@ must not masquerade as restoration guarantees.
 
 ## Long-term 3D models and enclosures
 
-Future work requested by James, using **AI + SolidCraft** for selected Pi +
-HAT + speaker + accessory combinations. This lane is outside the initial
-software critical path; no CAD models or physical validation exist yet.
-The `models/` paths below are proposed deliverables, not existing tooling.
+Work requested by James, using **AI + SolidCraft** for selected Pi + HAT +
+speaker + accessory combinations. His expanded
+[enclosure requirements](design/enclosures.md) call for a dedicated subagent,
+candidate-wide dimensional coverage, reusable parts and a useful variety of
+assemblies with wiring, microSD/power access and removable lids/grilles or cloth.
+This lane is outside the initial software critical path; no Debra CAD models or
+physical validation exist yet. The `models/` paths below are proposed
+deliverables, not existing tooling. Read-only dimensional preparation can run
+alongside research without marking these prerequisite-gated packets complete.
 
 | ID / state | Depends on | Deliverable and acceptance |
 | --- | --- | --- |
-| D01 / blocked | R01, F04 | Prioritize hardware combinations and inventory reusable CAD/enclosure designs. Record exact part revisions, dimension sources or measurements, mounting/connector clearances, header/stack heights, speakers, controls/displays, fasteners, and licensing/provenance. Identify shared parameters and unknown dimensions; do not invent fit from product photos. |
-| D02 / blocked | D01 | Develop the first selected enclosure with AI + SolidCraft, using reusable parameter-driven component layouts where practical. Proposed `models/<variant>/` holds editable sources, printable exports, component/revision list, attribution, and assembly/print guidance. Check geometry, clearances, cable routes, port/microSD access, ventilation, microphone/speaker openings, and serviceability; exercise parameter changes. Label CAD-only variants unverified, not print-tested. |
+| D01 / blocked | R01, F04 | Inventory all concrete candidate Pi/HAT/speaker/accessory identities and prioritize sensible combinations and reusable CAD. Record exact revisions, dimension sources or measurements, mounting/connector clearances, header/stack heights, speaker envelopes/openings, controls/displays, fasteners, and licensing/provenance. Return the coverage/missing-measurement table and shared component/interface parameters required by the [enclosure brief](design/enclosures.md); do not invent fit from photos or merge similar seller listings. |
+| D02 / blocked | D01 | Use a dedicated, bounded AI + SolidCraft assignment to develop reusable component envelopes, printable trays/carriers/lids/grilles and a small useful variety of exact assemblies, beginning with one reviewed layout. Proposed `models/` organization and acceptance are in the [enclosure brief](design/enclosures.md). Deliver editable sources, parameter sets, printable exports, BOM/attribution and assembly/print guidance. Verify wiring/plug/service space, powered-off microSD and power access, buttons/covers, optional cloth/mesh retention, cooling and microphone/speaker paths; exercise parameter changes. Distinguish provisional/dimension-sourced geometry from CAD-only/physically tested assemblies. |
 | D03 / blocked | D02, L01, A01 | With separately agreed printing/device-test scope, physically check the selected variant's fit, assembly, controls, access, thermal behavior, and microphone/speaker performance against a documented baseline. Record hardware, model revision, material/print settings, measurements, and failures; iterate before marking that exact combination validated. Add further variants incrementally rather than claiming all parameter combinations work. |
 
 ## Handoff format
