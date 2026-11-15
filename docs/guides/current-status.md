@@ -39,8 +39,14 @@ These run on a Fedora development computer, not on the Pi.
   in a content-addressed release, an owner-only key and a systemd user unit, with
   previous units kept for rollback. No packages, sudo, audio writes or service starts.
 - Discovery shares one mDNS parser (`control/web/discovery.py`, `tools/discover.py`)
-  and lists announced devices (12 tests). The activity table had 43 tests, the task
-  helper and research runner 15 and 9 ([unattended runner](scheduled-runner.md)).
+  and lists announced devices (12 tests). The activity table has 78 tests and its
+  notices checklist 22; the task helper and research runner 15 and 9
+  ([unattended runner](scheduled-runner.md)).
+- The activity TUI has a **Notices** tab: one checklist of everything worth not
+  missing (blockers, confirmations, failed research tasks, a turn running too
+  long), ticked off with `x` and kept as a dimmed "checked off" count so a
+  mistake is one keystroke to undo. Marks live in `.local/status/notices.json`,
+  are owner-only, and are dropped when the notice itself goes away.
 
 **Honest label:** the roadmap files this as WEB01 `/ prototype`. An independent
 review of `code-r5` returned *changes requested*; the fix round `code-r6` then

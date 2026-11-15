@@ -43,6 +43,7 @@ if __name__ == "__main__":
 if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
+import tools.notices as notices  # noqa: E402  (path set above)
 import tools.scheduled_runner as runner  # noqa: E402  (path set above)
 
 STATUS_DIR = SOURCE / ".local" / "status"
@@ -643,6 +644,22 @@ def render(port: int, limit: int = 24, meta: dict | None = None) -> str:
     out.extend(_needs_lines(needs))
     out.append("")
 
+    # Second, because it is the checklist of everything the rest of this page
+    # can tell him: derived from the same snapshots, never a separate source.
+    notice_state = notices.load()
+    found = notices.collect(needs=needs, run=run, agents=agents, web=web)
+    decorated = notices.apply(found, notice_state)
+    if meta is not None:
+        # The raw list and the marks travel separately so the TUI can re-apply
+        # them the moment a box is ticked, without re-probing the machine.
+        meta["notices"] = found
+        meta["notice_state"] = notice_state
+    tally = notices.counts(decorated)
+    out.append("## Notices"
+               + (f" ({tally['unread']} unread of {tally['total']})" if tally["total"] else ""))
+    out.extend(notices.lines(decorated))
+    out.append("")
+
     out.append("## Research runner")
     if run.get("error"):
         out.append(f"- Research runner {run['error']}")
@@ -889,8 +906,9 @@ def _rate_band(rate: float | None) -> int:
     return 1 if rate < 0.05 else 2 if rate < 0.12 else 3 if rate < 0.30 else 4
 
 
-TUI_TABS = (("What I need from you", "Needs"), ("Agent sessions", "Sessions"),
-            ("Research runner", "Research"), ("Development web server", "Status"))
+TUI_TABS = (("What I need from you", "Needs"), ("Notices", "Notices"),
+            ("Agent sessions", "Sessions"), ("Research runner", "Research"),
+            ("Development web server", "Status"))
 
 
 def _tui_plain(text: str) -> str:
@@ -962,6 +980,49 @@ def _tui_table_entries(block: list[str]) -> list[tuple]:
     return entries
 
 
+def _tui_notice_entries(meta: dict) -> tuple[list, int]:
+    """The checklist tab: unread first, checked ones behind one line.
+
+    A checked notice is not deleted. It moves under a count, so a mistyped tick
+    costs one keystroke to undo and the number still says how much there was.
+    """
+    raw = meta.get("notices")
+    if raw is None:
+        return [("text", "No notice data in this snapshot.", "dim")], 0
+    decorated = notices.apply(raw, meta.get("notice_state") or {})
+    if not decorated:
+        return [("text", "Nothing outstanding — no notice is waiting.", "normal")], 0
+    unread = [notice for notice in decorated if not notice["read"]]
+    checked = [notice for notice in decorated if notice["read"]]
+    entries = [("notice", notice, "unread") for notice in unread]
+    if checked:
+        if unread:
+            entries.append(("blank", "", 0))
+        entries.append(("text", f"Checked off ({len(checked)})"
+                                + ("" if meta.get("show_checked") else " — u to show"),
+                        "bold"))
+        if meta.get("show_checked"):
+            entries.extend(("notice", notice, "read") for notice in checked)
+    return entries, len(unread)
+
+
+def _tui_notice_rows(notice: dict, state: str, width: int) -> list[tuple]:
+    """One notice as a checkbox line plus its indented reason."""
+    box = "[x] " if state == "read" else "[ ] "
+    head = f"{box}{notices.label(notice)} · {notice['title']}"
+    style = ("dim" if state == "read"
+             else "bold" if notice["kind"] == "blocker" else "normal")
+    rows, first = [], True
+    for piece in _tui_wrap(head, max(8, width - 4)):
+        rows.append(("text", piece if first else "    " + piece, style,
+                     notice["id"] if first else None))
+        first = False
+    for piece in _tui_wrap(notice.get("detail") or "", max(8, width - 4)):
+        if piece:
+            rows.append(("text", "    " + piece, "dim", None))
+    return rows
+
+
 def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
     """Split the report into fixed-order tabs.
 
@@ -984,8 +1045,11 @@ def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
         base = heading.split(" (")[0].strip()
         if base not in allowed:
             continue
+        unread = 0
         if base == "Agent sessions":
             entries = _tui_sessions_entries(meta, limit)
+        elif base == "Notices":
+            entries, unread = _tui_notice_entries(meta)
         else:
             entries = []
             lines = sections[heading]
@@ -1013,7 +1077,9 @@ def _tui_tabs(text: str, meta: dict, limit: int) -> list[dict]:
                                     "bold" if line.startswith("- ") else "normal"))
                 else:
                     entries.append(("text", plain, "normal"))
-        tabs.append({"label": allowed[base], "base": base, "entries": entries})
+        tabs.append({"label": (f"{allowed[base]} {unread}" if base == "Notices" and unread
+                               else allowed[base]),
+                     "base": base, "entries": entries})
     rank = {heading: index for index, (heading, _label) in enumerate(TUI_TABS)}
     tabs.sort(key=lambda tab: rank[tab["base"]])
     if not tabs:
@@ -1086,6 +1152,8 @@ def _tui_lines(tab: dict, width: int) -> list[tuple]:
             # Aligned columns must survive to the screen: wrapping them would
             # collapse the padding that makes them columns at all.
             rows.append(("table", entry[1], entry[2]))
+        elif entry[0] == "notice":
+            rows.extend(_tui_notice_rows(entry[1], entry[2], width))
         else:
             raw = entry[1]
             indent = len(raw) - len(raw.lstrip(" "))
@@ -1124,6 +1192,10 @@ def _tui_key_action(key, tab_count: int) -> tuple[str, int] | None:
         return ("pause", 0)
     if key in (ord("r"), ord("R")):
         return ("refresh", 0)
+    if key in (ord("x"), ord("X"), 10, 13):
+        return ("check", 0)
+    if key in (ord("u"), ord("U")):
+        return ("unchecked", 0)
     if key in next_tab:
         return ("tab", 1)
     if key in prev_tab:
@@ -1216,6 +1288,8 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
     error = None
     active = 0
     offsets: dict[int, int] = {}
+    selected = None          # the notice under the cursor, by stable id
+    show_checked = False
     frame = None
     size = (0, 0)
 
@@ -1262,6 +1336,9 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
                 return
             continue
 
+        if snapshot:
+            # The tab builder reads this, and only the loop knows the toggle.
+            snapshot[1]["show_checked"] = show_checked
         tabs = (_tui_tabs(snapshot[0], snapshot[1], limit) if snapshot
                 else [{"label": "Loading", "base": "",
                        "entries": [("text", error or "Loading snapshot…", "normal")]}])
@@ -1288,6 +1365,17 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
 
         rows = _tui_lines(tabs[active], width)
         visible = max(1, height - 5)
+        notice_ids = [row[3] for row in rows if len(row) > 3 and row[3]]
+        if tabs[active]["base"] == "Notices":
+            if selected not in notice_ids:
+                selected = notice_ids[0] if notice_ids else None
+            if selected is not None:
+                # A refresh can reorder or shorten the list; keep the cursor
+                # on a row that still exists, and in view.
+                cursor_row = next(index for index, row in enumerate(rows)
+                                  if len(row) > 3 and row[3] == selected)
+                if cursor_row < offsets.get(active, 0):
+                    offsets[active] = cursor_row
         offset = _tui_clamp(offsets.get(active, 0), len(rows), visible)
         offsets[active] = offset
         needs = _tui_needs(tabs[active])
@@ -1316,12 +1404,18 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
                 pieces[y] = line
             else:
                 attr = curses.A_BOLD if row[2] == "bold" else dim() if row[2] == "dim" else 0
+                if len(row) > 3 and row[3] and row[3] == selected:
+                    attr |= curses.A_REVERSE
                 pieces[y] = [(0, _tui_fit(row[1], width), attr)]
 
         span = (f" rows {offset + 1}-{min(len(rows), offset + visible)}/{len(rows)}"
                 if len(rows) > visible else "")
-        footer = (" j/k scroll · h/l tab · 1-4 select · space pause · r refresh · q quit"
-                  + span + f" · {tabs[active]['label']}")
+        if tabs[active]["base"] == "Notices":
+            keys = " j/k select · x check off · u show checked · h/l tab · r refresh · q quit"
+        else:
+            keys = (f" j/k scroll · h/l tab · 1-{len(tabs)} select · space pause"
+                    " · r refresh · q quit")
+        footer = keys + span + f" · {tabs[active]['label']}"
         pieces[height - 2] = [(0, _tui_rule(width), dim())]
         pieces[height - 1] = [(0, _tui_fit(footer, width), curses.A_REVERSE)]
         frame = _tui_paint(screen, pieces, frame, width)
@@ -1334,6 +1428,42 @@ def _tui_screen(screen, port: int, limit: int, interval: float, colour: bool) ->
         if action is None:
             continue
         kind, amount = action
+        if kind in ("check", "unchecked"):
+            # These keys mean nothing outside the checklist; ignoring them is
+            # better than letting a stray x quit or refresh something.
+            if tabs[active]["base"] != "Notices" or not snapshot:
+                continue
+            meta = snapshot[1]
+            raw = meta.get("notices") or []
+            marks = meta.get("notice_state") or {}
+            if kind == "unchecked":
+                show_checked = not show_checked
+            elif selected and raw:
+                already = {notice["id"]: notice["read_at"]
+                           for notice in notices.apply(raw, marks)}
+                meta["notice_state"] = notices.mark(
+                    raw, marks, [selected], read=not already.get(selected))
+            continue
+        if tabs[active]["base"] == "Notices" and kind in ("scroll", "top", "bottom"):
+            # The checklist moves a cursor, not the page: a tick must land on
+            # the notice the highlight is on, which a scrolled page cannot say.
+            if not notice_ids:
+                continue
+            if kind == "top":
+                index = 0
+            elif kind == "bottom":
+                index = len(notice_ids) - 1
+            else:
+                index = ((notice_ids.index(selected) if selected in notice_ids else 0)
+                         + amount)
+            selected = notice_ids[max(0, min(index, len(notice_ids) - 1))]
+            row_index = next(position for position, row in enumerate(rows)
+                             if len(row) > 3 and row[3] == selected)
+            if row_index < offset:
+                offsets[active] = row_index
+            elif row_index >= offset + visible:
+                offsets[active] = row_index - visible + 1
+            continue
         if kind == "quit":
             return
         if kind == "tab":

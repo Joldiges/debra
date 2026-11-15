@@ -862,7 +862,9 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(keys(ord("9"), 4), None)
         self.assertEqual(keys(ord(" "), 4), ("pause", 0))
         self.assertEqual(keys(ord("r"), 4), ("refresh", 0))
-        self.assertEqual(keys(ord("x"), 4), None)
+        self.assertEqual(keys(ord("x"), 4), ("check", 0))
+        self.assertEqual(keys(ord("u"), 4), ("unchecked", 0))
+        self.assertEqual(keys(ord("z"), 4), None)
 
     def test_tab_bar_degrades_to_numbers_when_narrow(self):
         tabs = [{"label": "Needs *", "entries": []}, {"label": "Sessions *", "entries": []}]
@@ -945,14 +947,18 @@ class ActivityTests(unittest.TestCase):
             text = activity.render(8787, 3, meta)
         tabs = activity._tui_tabs(text, meta, 3)
         # Fixed tab order, whatever order the sections appear in the report.
-        self.assertEqual([tab["label"] for tab in tabs],
-                         ["Needs", "Sessions", "Research", "Status"])
-        entries = tabs[1]["entries"]
+        self.assertEqual([tab["base"] for tab in tabs],
+                         ["What I need from you", "Notices", "Agent sessions",
+                          "Research runner", "Development web server"])
+        # The checklist's count comes from the work queue, so only its place and
+        # its prefix are this test's business.
+        self.assertTrue(tabs[1]["label"].startswith("Notices"))
+        entries = tabs[2]["entries"]
         rows = [entry for entry in entries if entry[0] == "row"]
         self.assertEqual([row[1][2] for row in rows], ["newer work", "older work", "recent"])
         self.assertEqual(rows[0][2], 2)
         self.assertIn(("header", activity.TUI_HEADERS), entries)
-        status = "\n".join(entry[1] for entry in tabs[3]["entries"] if entry[0] == "text")
+        status = "\n".join(entry[1] for entry in tabs[4]["entries"] if entry[0] == "text")
         self.assertIn("Not listening on port 8787", status)
 
     def test_tui_tabs_report_unavailable_sessions(self):
