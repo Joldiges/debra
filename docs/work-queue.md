@@ -82,7 +82,7 @@ not commit, push, or approve their own work.
 
 | Item | Blocker | What would unblock it |
 |---|---|---|
-| The four-screw square speaker mount | The pattern is not in the body and does not belong there: the two Ø4.5 pilots sit 36.5 mm apart, **4.1875 mm outside** the shelf a speaker stands on, so they anchor a cover that clamps the speaker. A [cover carrying the pattern](../models/parts/rpispeaker-v17-cover/README.md) now exists, but its `SQ_PITCH` is an assumption and at 32 mm two screw axes sit over the divider | the real speaker's frame, height and four-screw pitch. Then set `SQ_PITCH` and re-check interference |
+| The four-screw square speaker mount | The body has no square pattern and only two Ø4.5 pilots, which are **4.1875 mm outside** the shelf a speaker stands on and also hold the lid. A [cover carrying the pattern](../models/parts/rpispeaker-v17-cover/README.md) exists, but it intersects the [lid](../models/parts/rpispeaker-v17-lid/README.md) by **785.08 mm³** ([conflict note](notes/2026-11-15-v17-cover-lid-conflict.md)), and its `SQ_PITCH` is an assumption | a decision on whether the front panel or a separate cover carries the speaker; then the real speaker's frame, height and four-screw pitch |
 | Speaker and board purchase decisions | DWEII listings return HTTP 503; Pi Zero 2 W out of stock at US sellers | re-checked listings, or a different supplier |
 
 ## Open engineering work the harvest did not contain

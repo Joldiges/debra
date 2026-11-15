@@ -5,6 +5,14 @@ It is a tentative cover for the [editable v17 body](../rpispeaker-v17-body/READM
 not a reconstruction of a known original cover. A particular speaker has not
 been identified or measured. Confirm its mounting and height before printing.
 
+**It cannot be assembled with the current [lid](../rpispeaker-v17-lid/README.md).**
+The two intersect by **785.083645226661 mm³** in one Boolean-intersected pair:
+the Ø8 feet pass through the lid's rear screw pads, and the raised plate passes
+through the lid's sleeve. The two parts are alternative front plates over one
+bay, not a cover that fits behind the lid. See
+[the conflict note](../../../docs/notes/2026-11-15-v17-cover-lid-conflict.md)
+for the measurement and the two ways out.
+
 ![Front isometric view of the provisional speaker cover](assets/iso.png)
 
 *Headless `solidcraft-cli snapshot` of [rpispeaker-v17-cover.sc](rpispeaker-v17-cover.sc):
