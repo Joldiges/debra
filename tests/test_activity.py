@@ -1080,11 +1080,14 @@ class TodosTests(unittest.TestCase):
             self.chain(reason="R01: roadmap prerequisites/state do not permit dispatch"), None)
         self.assertEqual(group, "blocked")
         self.assertIn("prerequisites", why)
-        # An integrated claim is a finished packet, not a prerequisite failure.
+        # An integrated claim is a finished packet, not a prerequisite failure,
+        # and it outranks the roadmap row that still says review.
         group, why = activity._chain_group(
             self.chain(reason="R01: integrated; coordinator must advance the chain"), None)
         self.assertEqual(group, "advance")
         self.assertIn("integrated", why)
+        self.assertEqual(activity._chain_group(self.chain(packet_state="review"),
+                                               self.claim(status="integrated"))[0], "advance")
 
     def test_backlog_offers_only_new_ready_studies_and_skips_duplicates(self):
         path = self.write_backlog(
@@ -1120,6 +1123,20 @@ class TodosTests(unittest.TestCase):
         lines = "\n".join(activity._todos_lines(self.empty_todos(backlog=snapshot)))
         self.assertIn("1 already finished", lines)
         self.assertIn("Nothing ready is waiting to be queued.", lines)
+
+    def test_a_study_whose_run_failed_is_offered_again(self):
+        # The runner writes "failed" too. A failed study is not finished, and
+        # refill would re-add it, so the tab must not hide it.
+        path = self.root / "backlog.md"
+        path.write_text("# Research backlog\n\n```debra-research-backlog\n"
+                        "Z01-TRIED | ready | A failed attempt | A scope long enough for the backlog format.\n"
+                        "```\n")
+        (self.root / "queue.json").write_text(json.dumps({"tasks": []}))
+        (self.root / "state.json").write_text(json.dumps(
+            {"tasks": {"Z01-TRIED": {"status": "failed"}}}))
+        snapshot = self.read_backlog(path)
+        self.assertEqual([entry["id"] for entry in snapshot["unqueued"]], ["Z01-TRIED"])
+        self.assertEqual(snapshot["finished"], 0)
 
     def test_backlog_that_cannot_be_read_is_reported_not_hidden(self):
         path = self.root / "backlog.md"
@@ -1195,6 +1212,34 @@ class TodosTests(unittest.TestCase):
         self.assertIn("prerequisites", row["reason"])
         self.assertEqual(activity._chain_group(row, None)[0], "blocked")
 
+    def test_a_policy_that_is_not_a_mapping_is_treated_as_closed(self):
+        registry = self.root / activity.taskchain.REGISTRY
+        registry.mkdir()
+        (registry / "state.json").write_text(json.dumps(
+            {"version": 1, "policy": "open", "claims": {}}))
+        with mock.patch.object(activity.taskchain, "common_dir", return_value=self.root), \
+             mock.patch.object(activity.taskchain, "catalog",
+                               return_value=([{"id": "zero-w", "packets": ["Z01"],
+                                               "starter": "Z01"}],
+                                             {"Z01": ("ready", [])})):
+            snapshot = activity.chains_snapshot()
+        self.assertIsNone(snapshot["policy"])
+        lines = "\n".join(activity._todos_lines(self.empty_todos(chains=snapshot)))
+        self.assertIn("The claim registry is **closed**", lines)
+
+    def test_a_stale_claim_for_an_unknown_chain_is_not_reported(self):
+        todos = self.empty_todos(chains={
+            "error": None, "policy": None,
+            "claims": [self.claim(chain="retired-chain", status="active")],
+            "chains": [{"id": "zero-w", "packets": ["Z01"], "starter": "Z01",
+                        "output": "docs/research/Z01-armv6.md", "packet_state": "ready",
+                        "reason": "", "waiting_on": []}]})
+        text = "\n".join(activity._todos_lines(todos))
+        self.assertNotIn("retired-chain", text)
+        self.assertIn("none holds a claim", text)
+        self.assertIn("### Spawnable now (1)", text)
+        self.assertIn("1 spawnable now.", text)
+
     def test_an_unreadable_registry_keeps_the_rest_of_the_page(self):
         with mock.patch.object(activity.taskchain, "catalog",
                                side_effect=ValueError("no roadmap packets")):
@@ -1262,6 +1307,8 @@ class TodosTests(unittest.TestCase):
         text = "\n".join(activity._todos_lines(todos))
         self.assertIn("claim registry is open for base `abc1234`", text)
         self.assertNotIn("**closed**", text)
+        self.assertNotIn("the closed", text)
+        self.assertIn("assignment does not use the claim registry either way", text)
 
     def test_the_report_and_the_tab_share_one_todos_section(self):
         meta = {}

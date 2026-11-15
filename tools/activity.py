@@ -414,7 +414,8 @@ def chains_snapshot() -> dict:
             "owner": (claim.get("owner") if isinstance(claim.get("owner"), str) else "unknown"),
         }
         safe[safe_claim["id"]] = safe_claim
-    claims = [claim for claim in safe.values() if claim["status"] in taskchain.LIVE]
+    claims = [claim for claim in safe.values()
+              if claim["status"] in taskchain.LIVE or claim["status"] == "integrated"]
     rows = []
     for chain in catalog:
         starter = chain.get("starter")
@@ -428,7 +429,9 @@ def chains_snapshot() -> dict:
             "waiting_on": [dep for dep in deps if tasks.get(dep, ("",))[0] != "done"],
             "reason": taskchain.reason(chain, tasks, {"claims": safe}),
         })
-    return {"error": None, "policy": state.get("policy"), "claims": claims, "chains": rows}
+    policy = state.get("policy")
+    return {"error": None, "policy": policy if isinstance(policy, dict) else None,
+            "claims": claims, "chains": rows}
 
 
 def backlog_snapshot() -> dict:
@@ -450,7 +453,11 @@ def backlog_snapshot() -> dict:
     try:
         queued = {task.get("id")
                   for task in runner._read_json(runner.QUEUE_PATH, {}).get("tasks", [])}
-        finished = set(runner._read_json(runner.STATE_PATH, {}).get("tasks", {}))
+        history = runner._read_json(runner.STATE_PATH, {}).get("tasks", {})
+        # Only a completed run withholds a study. A failed one is offered again,
+        # exactly as refill would re-add it; calling it finished would hide it.
+        finished = {task_id for task_id, info in history.items()
+                    if isinstance(info, dict) and info.get("status") == "done"}
     except (OSError, ValueError, TypeError, AttributeError) as exc:
         # Without the queue this cannot tell new work from finished work, and
         # offering a study twice is worse than saying it does not know.
@@ -491,6 +498,8 @@ def _chain_group(row: dict, claim: dict | None) -> tuple[str, str]:
     needs the workspace rebuilt. Only ``starting`` and ``active`` are work.
     """
     if claim:
+        if claim["status"] == "integrated":
+            return ("advance", f"{claim['packet']} was integrated: the coordinator must advance the chain")
         if claim["status"] in taskchain.WORKING:
             return ("working", f"packet {claim['packet']} claimed by {claim['owner']}")
         return ("held", f"packet {claim['packet']} is {claim['status']} ({claim['owner']})")
@@ -527,27 +536,32 @@ def _todos_lines(todos: dict) -> list[str]:
     if chains["error"]:
         out.append(f"- Task chains {chains['error']}")
     else:
-        claims = {}
-        for claim in chains["claims"]:
-            claims[claim["chain"]] = claim
-        for row in chains["chains"]:
-            group, detail = _chain_group(row, claims.get(row["id"]))
-            groups[group].append((row, detail))
-        working = [claim for claim in chains["claims"] if claim["status"] in taskchain.WORKING]
         total = len(chains["chains"])
+        known = {row["id"] for row in chains["chains"]}
+        # One claim per chain, the same map the sections use, and only chains
+        # the catalog still knows: a stale claim must not invent a chain.
+        by_chain = {}
+        for claim in chains["claims"]:
+            if claim["chain"] in known:
+                by_chain[claim["chain"]] = claim
+        for row in chains["chains"]:
+            group, detail = _chain_group(row, by_chain.get(row["id"]))
+            groups[group].append((row, detail))
+        live = [claim for claim in by_chain.values() if claim["status"] in taskchain.LIVE]
+        working = [claim for claim in live if claim["status"] in taskchain.WORKING]
         if working:
             out.append(f"- {total} task chains; being worked on: " + ", ".join(
                 f"{claim['chain']} ({claim['status']})" for claim in working))
-        elif chains["claims"]:
+        elif live:
             out.append(f"- {total} task chains; none is making progress, "
-                       f"{len(chains['claims'])} hold a claim")
+                       f"{len(live)} hold a claim")
         else:
             out.append(f"- {total} task chains; **none holds a claim**")
         if chains["policy"]:
             out.append(f"- The claim registry is open for base `{chains['policy'].get('base', 'unknown')}`.")
         else:
-            out.append("- The claim registry is **closed**: another clone cannot claim a card until the")
-            out.append("  coordinator opens it. Coordinator-assigned subagent work does not use it.")
+            out.append("- The claim registry is **closed**: a self-service claim cannot start until")
+            out.append("  the coordinator opens it. Coordinator-assigned subagent work does not use it.")
         counts = ", ".join(f"{len(groups[name])} {short}"
                            for name, _heading, short in TODOS_GROUPS
                            if groups[name] and name not in ("working", "held"))
@@ -562,8 +576,8 @@ def _todos_lines(todos: dict) -> list[str]:
         if name == "review":
             out.append("- Each needs a reviewer who did not write it before it can be integrated.")
         elif name == "eligible":
-            out.append("- The coordinator can assign each card to a subagent now; the closed")
-            out.append("  registry only stops another clone from claiming it.")
+            out.append("- The coordinator can assign each card to a subagent now; a subagent")
+            out.append("  assignment does not use the claim registry either way.")
         elif name == "carded":
             out.append("- " + ", ".join(f"`{row['id']}`" for row, _detail in groups[name]))
             out.append("  These are roadmap directions, not assignments: the coordinator decides")

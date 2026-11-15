@@ -10,9 +10,11 @@ not say which ones are claimed, finished, or stuck. This page does.
 
 Visible: the activity TUI's Todos tab (`python tools/activity.py --todos`)
 answers "what could run next" from what already records it — this page's Queued
-table, the ready entries of the [research backlog](research-backlog.md), and the
+table, the entries of the [research backlog](research-backlog.md), and the
 task-chain catalog with its claim registry in `<git-common-dir>/debra-work/`.
-It reads those files and never keeps a fourth list that could disagree.
+Backlog entries that are not-ready, duplicated or already run are reported
+rather than hidden. It reads those files and never keeps a fourth list that
+could disagree.
 
 ## States
 
