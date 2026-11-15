@@ -14,7 +14,7 @@ patterns in the solid are four M2.5 pilots at 23 × 58 mm (the Pi Zero footprint
 and two M2.5 pilots 36.5 mm apart in the second bay. A remembered square
 four-screw mount is therefore either a separate part that was never exported or
 a different revision; it must not be assumed present in this STEP body. The
-second bay is the only place a speaker could sit, and it is a 31.85 × 66 × 7 mm
+second bay is the only place a speaker could sit, and it is a 31.10 × 66 × 7 mm
 pocket with two screws and one central Ø10 hole.
 
 ## Coordinates and envelope
@@ -39,7 +39,7 @@ Positions below are in the same STEP frame. Hole coordinates are `(X, Z)`.
 | --- | --- |
 | Pi Zero bay | Inner 31.50 × 66.50 mm; X -15.75 to 15.75, Z -32.50 to 34.00 |
 | Pi Zero bay holes | Four Ø2.18 mm holes described as M2.5 pilots at `(±11.5, ±29.0)`, with 23 × 58 mm spacing, on Ø4.76 mm bosses |
-| Second bay | X 17.15 to 48.25, Z -33 to 33; floor at Y 8.50, so the bay is a 31.85 × 66 mm pocket 7 mm deep, open toward +Y |
+| Second bay | X 17.15 to 48.25, Z -33 to 33; floor at Y 8.50, so the bay is a 31.10 × 66 mm pocket 7 mm deep, open toward +Y |
 | Second bay holes | Two Ø2.18 mm holes at `(32.5, ±18.25)`, 36.5 mm apart, on Ø4.50 mm bosses, drilled from the back face to Y 7.29 |
 | Second bay centre | One Ø10 mm through hole with a Ø18 mm counterbore, both opening toward +Y, at `(31.625, 0)` |
 | Rounds, wall and recess | R11 corner rounds; outer wall at X -17.15 is 1.40 mm thick; base recess is 0.60 mm |

@@ -55,8 +55,8 @@ branches are mutable and will drift from them.
 
 | Topic | Canonical note | This note adds |
 | --- | --- | --- |
-| LVA dependencies, audio stack, container traps, ARMv6 packaging gaps | [lva-requirements](2026-11-15-lva-requirements.md) (VOICE01) | Maintenance/activity data, the release-workflow platform matrix, the onboarding/update/recovery gap analysis, and the adoption verdict |
-| ARMv6 wheel/ELF viability for LVA + Sendspin | [armv6-wheels](2026-11-15-armv6-wheels.md) (Z02) | Nothing; ARMv6 conclusions are cited, not repeated |
+| LVA dependencies, audio stack, container traps, ARMv6 packaging gaps | [lva-requirements](../research/2026-11-15-lva-requirements.md) (VOICE01) | Maintenance/activity data, the release-workflow platform matrix, the onboarding/update/recovery gap analysis, and the adoption verdict |
+| ARMv6 wheel/ELF viability for LVA + Sendspin | [armv6-wheels](../research/2026-11-15-armv6-wheels.md) (Z02) | Nothing; ARMv6 conclusions are cited, not repeated |
 | PiCompose licence conflict, pi-gen arm64 pin unresolved, first-pass reuse table | [preliminary-findings](../research/2026-11-14-preliminary-findings.md) and private `REUSE-PREP` | The **arm64 pin is now resolved** (`c0d2c9f2cffc`, 2026-11-06), plus rpi-image-gen, plus per-option verdicts |
 | Commercial/whole-product alternatives (Voice PE, ESPHome voice kits, commercial speakers) | [complete-alternatives-comparison](2026-11-15-complete-alternatives-comparison.md) (R02) | Nothing — that packet is about buying or copying a finished product; this one is about upstream *code* to reuse |
 
@@ -82,7 +82,7 @@ README's own first sentence calls it experimental
 `preferences.json`/env configuration surface, the ESPHome discovery and identity
 behaviour (mDNS `_esphomelib._tcp`, port 6053), wake-word model handling,
 timer/announcement/media-player entities, and a Docker or bare-metal install
-recipe. Details are in [lva-requirements](2026-11-15-lva-requirements.md) and are
+recipe. Details are in [lva-requirements](../research/2026-11-15-lva-requirements.md) and are
 not repeated here.
 
 **What it does not give us:** no onboarding, no Wi-Fi provisioning, no
@@ -164,7 +164,7 @@ a declarative config.
 **What it does not give us:** nothing at runtime — no audio, no voice, no
 onboarding, no update or rollback. It also does not make the ARMv6 problem go
 away: an armhf image boots on a Zero W, but the LVA wake-word wheels are still
-x86-64 inside an armv6l label (see [armv6-wheels](2026-11-15-armv6-wheels.md)).
+x86-64 inside an armv6l label (see [armv6-wheels](../research/2026-11-15-armv6-wheels.md)).
 
 | Option | What it would mean | Evidence | Verdict |
 | --- | --- | --- | --- |
@@ -298,7 +298,7 @@ copying — each needs licence review and a named owner (see Traps).
    `usimd/pi-gen-action@v1` with `pi-gen-version: arm64`; both are mutable. Pinning
    PiCompose's commit does not pin the image it produces. `upstream-documented`.
 2. **`linux/armv6l` and `armhf` are not ARMv6 promises.** Already established in
-   [armv6-wheels](2026-11-15-armv6-wheels.md); the same caution applies to any
+   [armv6-wheels](../research/2026-11-15-armv6-wheels.md); the same caution applies to any
    "32-bit supported" reading of pi-gen or rpi-image-gen. An armhf image boots;
    it does not make the wake-word wheels run.
 3. **LVA's container has no 32-bit variant at all** — `platforms: linux/amd64,linux/aarch64`
@@ -318,7 +318,7 @@ copying — each needs licence review and a named owner (see Traps).
    (`Environment=XDG_RUNTIME_DIR=/run/user/1000`) and in LVA's compose defaults.
    Any Debra user model that is not "first user is 1000" silently breaks audio.
 8. **`script/setup` in LVA deletes `.venv` unconditionally** — already recorded
-   in [lva-requirements](2026-11-15-lva-requirements.md); repeated here because it
+   in [lva-requirements](../research/2026-11-15-lva-requirements.md); repeated here because it
    is the kind of thing a "just reuse the installer" plan walks into.
 9. **rpi-image-gen is not a drop-in pi-gen replacement for 32-bit work**: no
    `zero`/`zerow` device class, arm64-only Debian base layers, and "all features
@@ -344,7 +344,7 @@ copying — each needs licence review and a named owner (see Traps).
   cover every bundled model. Needed before Debra redistributes an image.
 - **Whether a Debra-owned pi-gen stage can produce a working ARMv6 voice stack**
   is `unknown` and depends on the TFLite build question in
-  [armv6-wheels](2026-11-15-armv6-wheels.md), not on the builder.
+  [armv6-wheels](../research/2026-11-15-armv6-wheels.md), not on the builder.
 - **Whether rpi-image-gen's `ab-slots`/`tryboot` mechanism works on a Pi Zero W**
   is `unknown`. The boot documentation cited in the preliminary findings says all
   models support `tryboot`; slot *management* on a single-card ARMv6 device is

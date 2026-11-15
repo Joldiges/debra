@@ -23,12 +23,12 @@ extraction measurements, not measurements repeated for this note. See the
 conflicting 31 mm length. The ~40 x 40 x 5-8 bare driver below is a hypothetical
 envelope, not an identified or measured original speaker.
 
-There is an internal discrepancy in the supplied bay figures: the stated width
-is 31.85, but the stated X limits 17.15 to 48.25 differ by **31.10**. The
-calculations show both where relevant; neither resolves which describes the
-usable width. Rounded corners, tabs, leads, tolerances and local obstructions
-also need checking. In particular, a positive rectangular clearance is not a
-complete fit check.
+The bay width is **31.10 mm**: the measured inner faces are X 17.15 and X 48.25,
+and 48.25 - 17.15 = 31.10. An earlier 31.85 figure came from using the envelope's
+outer X 49.00 instead of the inner face, which counts the 0.75 mm outer wall as
+bay. See the [correction note](../notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md).
+Rounded corners, tabs, leads, tolerances and local obstructions still need
+checking; a positive rectangular clearance is not a complete fit check.
 
 ### A. DWEII 671 in the second bay
 
@@ -170,6 +170,13 @@ This is a proposed way to assemble the parts, not a claim that the original
 worked that way. Do not finalise the layout, fasteners or print from these
 dimensions alone. Check the actual speaker and frame, microphone and connector
 access, acoustic openings, wiring, wall mounting, tolerances and assembly order.
+
+A first concept of D has since been built and measured, and it changed the
+fastening assumption: the two existing M2.5 pilots are drilled from the back and
+stop **1.21 mm** short of the pocket floor, so a lid in the pocket cannot reach
+them with a front screw without drilling that web. The lid study records the
+numbers and calls the part provisional for exactly this reason; see
+[the lid README](../../models/parts/rpispeaker-v17-lid/README.md).
 See the [enclosure requirements](enclosures.md) and
 [arrangement notes](enclosure-arrangements.md).
 

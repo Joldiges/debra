@@ -13,7 +13,7 @@ them. Every folder here holds:
 **Current direction, 2026-11-15:** reconstruct James's `RPiSpeaker_v17` with
 forward speaker/microphones, desktop/wall use and an accessible topper. He asked
 for his square speaker and its four screws to be retained, but **the v17 STEP body
-contains no four-screw square mount**: its second bay is a 31.85 × 66 × 7 mm pocket
+contains no four-screw square mount**: its second bay is a 31.10 × 66 × 7 mm pocket
 with two M2.5 pilots 36.5 mm apart and a central Ø10 hole, so that mount is either
 a separate part that was never exported or a different revision. See
 [the extraction](components/rpispeaker-v17/README.md) and

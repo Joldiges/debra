@@ -429,7 +429,7 @@ no HA entity that speaks Sendspin directly.
   controller-command handling.
 - ARMv6/ARMv7 implications of running the controller role or MPRIS are out of
   scope for this note; MPRIS needs a session D-Bus, which a headless image may not
-  have ([armv6-wheels](2026-11-15-armv6-wheels.md) already flags `mpris-api`
+  have ([armv6-wheels](../research/2026-11-15-armv6-wheels.md) already flags `mpris-api`
   packaging gaps).
 - Nothing here selects a pin or authorises a device change. The next concrete
   step is a named-device probe on the lab Pi: enable MPRIS, confirm

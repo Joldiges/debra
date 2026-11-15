@@ -47,15 +47,16 @@ found claims stronger than their sources; read the review before using it.
 | Note | Packet | Status |
 | --- | --- | --- |
 | [Independent review of four research notes](notes/2026-11-15-research-notes-review.md) | review | 28 findings. Read this before the four rows below it |
-| [Complete alternatives comparison](notes/2026-11-15-complete-alternatives-comparison.md) | R02 | Changes requested: cost and exclusivity claims not established |
-| [Alternative board screen](notes/2026-11-15-alternative-board-screen.md) | R07 | Changes requested: several exclusions stronger than the evidence |
-| [Upstream reuse audit](notes/2026-11-15-upstream-reuse-audit.md) | R04 | Changes requested: boot, feasibility and reproducibility not proved |
-| [Wi-Fi onboarding options](notes/2026-11-15-wifi-onboarding-options.md) | N01 | Changes requested: the single-radio flow is internally impossible |
+| [Complete alternatives comparison](notes/2026-11-15-complete-alternatives-comparison.md) | R02 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-complete-alternatives-comparison-revision.md) corrects them and gives two dated totals |
+| [Alternative board screen](notes/2026-11-15-alternative-board-screen.md) | R07 | Revision 1 had 6 findings; [revision 2](notes/2026-11-15-alternative-board-screen-revision.md) demotes the unsupported exclusions |
+| [Upstream reuse audit](notes/2026-11-15-upstream-reuse-audit.md) | R04 | Revision 1 had 7 findings; [revision 2](notes/2026-11-15-upstream-reuse-audit-revision.md) separates the evidence from the inference |
+| [Wi-Fi onboarding options](notes/2026-11-15-wifi-onboarding-options.md) | N01 | Revision 1 had 8 findings; [revision 2](notes/2026-11-15-wifi-onboarding-options-revision.md) redesigns the flow so one radio can work |
 | [Parts inventory and build cost](notes/2026-11-15-parts-inventory.md) | R01 | $59.90 complete, $16.40 reused-parts; speaker prices are historical |
 | [Music transport and control map](notes/2026-11-15-music-transport-and-control-map.md) | R03 | Sendspin documents a controller role; Snapcast has no pause |
 | [Storage durability](notes/2026-11-15-storage-durability.md) | B01 | A no-intervention rollback means an A/B slot or a verified restore |
 | [License and provenance proposal](notes/2026-11-15-license-and-provenance-proposal.md) | F04 | MIT proposed for Debra's own work; nothing applied |
 | [Agent permission scoping](notes/2026-11-15-agent-permission-scoping.md) | F06 | Proposal only; no configuration changed |
+| [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The bay is 31.10 mm, not 31.85, and the lid pilots stop 1.21 mm short of the floor |
 
 Two design specifications are also new and unreviewed:
 [RPiSpeaker v17 speaker mount options](design/rpispeaker-v17-speaker-mount-options.md)

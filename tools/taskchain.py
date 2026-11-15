@@ -63,7 +63,7 @@ def input_bytes(name, base=None):
 
 def roadmap(base=None):
     rows = re.findall(
-        r"^\| ([A-Z]\d{2}) / (done|ready|blocked) \| ([^|]+)\|",
+        r"^\| ([A-Z]\d{2}) / (done|review|ready|blocked) \| ([^|]+)\|",
         input_bytes("docs/roadmap.md", base).decode(), re.M,
     )
     require(rows, "No roadmap packets found.")
@@ -84,8 +84,11 @@ def roadmap(base=None):
     for key, (status, deps) in tasks.items():
         visit(key, set())
         ready = all(tasks[d][0] == "done" for d in deps)
-        require(ready if status in {"done", "ready"} else not ready,
-                f"Inconsistent roadmap state: {key}")
+        # `review` means a deliverable exists and awaits review; it is not
+        # dispatchable, and it may exist while some dependency is still open,
+        # which is why only `done` and `ready` assert that dependencies are met.
+        if status in {"done", "ready"}:
+            require(ready, f"Inconsistent roadmap state: {key}")
     return tasks
 
 

@@ -69,12 +69,15 @@ class SourceRegisterTests(unittest.TestCase):
 
 class RelativeLinkTests(unittest.TestCase):
     def test_local_markdown_links_resolve(self):
-        for page in sorted(COMPARISONS.glob("*.md")):
+        pages = [page for page in sorted((ROOT / "docs").rglob("*.md"))
+                 if "archive" not in page.parts]
+        pages += sorted(COMPARISONS.glob("*.md"))
+        for page in pages:
             for target in MARKDOWN_LINK.findall(page.read_text()):
                 if target.startswith(("http://", "https://", "mailto:", "#")):
                     continue
                 path = (page.parent / target.split("#", 1)[0]).resolve()
-                self.assertTrue(path.exists(), f"{page.name} links to missing {target}")
+                self.assertTrue(path.exists(), f"{page.relative_to(ROOT)} links to missing {target}")
 
 
 class FrontDoorTests(unittest.TestCase):
