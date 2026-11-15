@@ -31,6 +31,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Unattended runner](guides/scheduled-runner.md) | Queued, budgeted research tasks on a systemd user timer; instructions, not enforcement |
 | [Legacy findings](legacy-findings.md) | Historical leads and hazards, not validated current behavior |
 | [Project learning baseline](notes/2026-11-14-project-learning-baseline.md) | Initial learning/handoff conventions and their current limits |
+| [James's Fusion model](notes/2026-11-15-james-fusion-model-quality-bar.md) | His own RPiSpeaker v17 design as the finish reference: a slim back plate, not a box, and why the form cannot be copied with the chosen speaker module |
 
 ## Where information belongs
 
