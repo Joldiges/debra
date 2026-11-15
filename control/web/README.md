@@ -2,8 +2,10 @@
 
 Reusable Python-standard-library service and local HTML/CSS/JavaScript, not a
 complete appliance or an internet-facing administration server. Current scope:
-native **selected-sink volume and mute**, plus read-only hardware/resources and
-service probes. See the [web requirements](../../docs/design/web-control.md)
+native **selected-sink volume and mute**, plus read-only hardware/resources,
+service probes and a **read-only Setup card** (HAT, tools and settings, updates)
+where every choice is disabled with its reason. See the
+[web requirements](../../docs/design/web-control.md)
 and [roadmap](../../docs/roadmap.md#browser-first-device-control).
 
 ## What it changes

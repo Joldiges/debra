@@ -334,9 +334,11 @@ unknown information, or present unavailable driver/apply controls as usable.
 Hardware writes remain gated by A01/A02 evidence and an authorized operation.
 
 **Roadmap/code gap:** WEB03 calls for structured selection and actionable
-driver/compatibility/reboot state. The prototype only reads device-tree model
-and HAT product plus optional HAT/speaker labels; it does not select hardware,
-inspect drivers or establish compatibility.
+driver/compatibility/reboot state. The prototype now reports device-tree model,
+HAT product, optional HAT/speaker labels and the ALSA card list in a read-only
+Setup card, with every choice disabled and each reason stated; it still does not
+select hardware, inspect drivers or establish compatibility. "Applied" means
+only that a sound card with the expected name is listed.
 
 ### WEB04: component state and prerequisites
 

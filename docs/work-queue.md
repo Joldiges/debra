@@ -25,18 +25,19 @@ not commit, push, or approve their own work.
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Dashboard Setup card | WEB03 | `control/web/assets/**`, `server.py`, `tests/test_web_setup.py` | HAT picker, tools, updates; planned items visible and disabled |
-| First-boot design page | N02 | `docs/design/first-boot.md`, `docs/README.md` | **landed** `b136db2`; kept in step with the code by `40ef8dc` |
-| Installed-artifact tests | B13 | `tests/test_install.py`, `tests/test_web.py` | installed bytes, modes, a tampered release, an interrupted rollback |
-| Browser proof of the setup page | N02 | `tests/test_setup_browser.py` | drives the portal through devserver in Chromium |
+| Setup installer and unit | N02 | `control/setup/install.py`, `debra-setup.service`, `README.md`, `tests/test_setup_install.py` | makes `resume()` run at boot; system vs user unit decision |
 | Acceptance review `setup-r1` | — | `.local/reviews/setup-r1-20261115/` | independent, `gpt-6.1-sol`; reviews `cd4790f` |
-| Speaker cover | — | `models/parts/rpispeaker-v17-cover/` | **landed** `4b62ff6`; carries the four-screw pattern |
 
 ## Done this round
 
 | Packet | Item ids | Proof |
 |---|---|---|
 | Wi-Fi onboarding, identity and first baseline | N02 | `cd4790f`, fixed by `40ef8dc` — 47 tests; **not run on a device** |
+| Browser proof of the setup page | N02 | `508a7f9` — 7 Chromium scenarios; the page was unreachable and the tests caught it |
+| Installed-artifact tests and atomic rollback | B13 | `508a7f9`, `9d11d08` — 16 tests; two real gaps recorded rather than asserted away |
+| Dashboard Setup card | WEB03 | `8b05215` — 21 tests, read-only, every choice disabled with its reason |
+| First-boot design page | N02 | `b136db2`, kept in step with the code by `40ef8dc` |
+| Speaker cover carrying the four-screw pattern | — | `4b62ff6`; `SQ_PITCH` still an assumption |
 | Notices checklist in the activity TUI | — | `3f7236a` — 22 tests, driven in a real pty |
 | The v17 body as an editable source | A2 | `f7b2163` — reconstruction, honest about what it cannot reproduce |
 | Web pages matched to the server | A8, A9, B5–B11, C3 | `f35d47f` |
@@ -59,6 +60,9 @@ not commit, push, or approve their own work.
 | Acceptance review `code-r7` | — | must follow B14/C1–C4, from a model that did not write it |
 | Device run of the onboarding flow | N02 | needs a spare card and one of the next Pis; nothing in `control/setup/` has touched a radio |
 | Browser verification of the device list | — | the discovered badge and the discovery status line have no browser proof yet |
+| Retained releases are never re-verified | B13 | an upgraded-away release is never re-checked, so a corrupted old release is restored by rollback without complaint. Either verify every retained release at install, or record that rollback may restore bad content |
+| Staging files can be `0644` | B13 | an interrupted copy is retained with files created before `chmod`; the containing directory is `0700`, so the README's "private staging files" is true only at directory level |
+| `install()` does not validate the device list | B13 | only `main()` does, so a programmatic caller can install a list the server then refuses at startup |
 
 ## In review
 
