@@ -34,6 +34,11 @@ PHASES = ("unconfigured", "hotspot", "connecting", "online", "failed")
 # Schema 2 added `attempt_claimed`, `hotspot_password` and `revision`. Schema 1
 # records are migrated on read rather than refused: a device that already ran the
 # earlier prototype must not be left with a state file that stops the service.
+# The migration fills every field that record never wrote, because the prototype
+# revisions did not all carry the same keys: filling only the three added at
+# schema 2 left three of the five records this repository wrote missing
+# `attempt_token`, `baseline_error` or `last_attempt`, and the validator refused
+# them before the service could even report why.
 SCHEMA = 2
 
 
@@ -161,6 +166,12 @@ def validate(data):
 def _migrate_1(data):
     """Bring a schema-1 record forward without guessing at a credential.
 
+    Every field that record did not write is filled from `blank()`. A missing
+    field has no value to lose: the prototype revisions added and removed keys
+    between themselves, so a record can lack `attempt_token`, `baseline_error`
+    or `last_attempt` and still be a record this repository wrote. Refusing it
+    on a missing key stopped the service on a device that had merely upgraded.
+
     Schema 1 stored no setup-network password. It may still describe a hotspot,
     because the old code raised one and then wrote the note; after an upgrade
     the access point is not running. Keeping that description would leave a
@@ -169,10 +180,9 @@ def _migrate_1(data):
     next boot raises the access point again with a fresh password.
     """
     migrated = dict(data)
+    for key, value in blank().items():
+        migrated.setdefault(key, value)
     migrated["schema"] = SCHEMA
-    migrated.setdefault("attempt_claimed", False)
-    migrated.setdefault("hotspot_password", None)
-    migrated.setdefault("revision", 0)
     if migrated.get("hotspot") is not None and migrated.get("hotspot_password") is None:
         migrated["hotspot"] = None
         if migrated.get("phase") in ("hotspot", "connecting"):

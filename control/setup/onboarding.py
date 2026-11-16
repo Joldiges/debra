@@ -280,13 +280,15 @@ class Onboarder:
                 # person's phone off it.
                 self.refresh_networks(interface)
             name = hotspot_name(hostname)
-            # The password is generated once and reused for the life of the
-            # device. Rotating it on every raise broke both promised bootstrap
-            # routes: reading the note off the card needs a reboot, which raised
-            # the access point again and invalidated the password just read; and
-            # one wrong household password invalidated the credential the phone
-            # had saved for the setup network. It is stored, not derived, so the
-            # note and the page always agree.
+            # The password is generated once and reused for as long as this
+            # state record exists. Rotating it on every raise broke both promised
+            # bootstrap routes: reading the note off the card needs a reboot,
+            # which raised the access point again and invalidated the password
+            # just read; and one wrong household password invalidated the
+            # credential the phone had saved for the setup network. It is stored,
+            # not derived, so the note and the page always agree. Deleting or
+            # resetting `setup.json` is a new device identity: the next raise
+            # generates a new password.
             password = data.get("hotspot_password") or new_hotspot_password()
             # Record the network and its credential *before* raising it. The
             # old order raised first, so a state write that failed left a live
@@ -863,6 +865,28 @@ class PortalHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        """Answer one read, with a boundary around the whole handler.
+
+        The page polls `/api/status` every fifteen seconds. A state read that
+        failed - a dying card, a corrupt file - escaped `BaseHTTPRequestHandler`,
+        which printed a traceback containing the state path to the journal and
+        closed the connection with no reply. That is the same failure the POST
+        boundary was written for, on the request that happens most often.
+        """
+        self._replied = False
+        try:
+            self._get()
+        except Exception as exc:
+            # The class and a fixed sentence only: an OSError carries a path.
+            LOGGER.warning("A setup request could not be handled (%s)",
+                           type(exc).__name__)
+            if not self._replied:
+                try:
+                    self._reply(500, {"error": "The device could not handle the request"})
+                except OSError:
+                    LOGGER.warning("The failure reply could not be delivered")
+
+    def _get(self):
         if self.path.split("?")[0] in CAPTIVE_PROBES:
             # Deliberately before the same-origin check: the operating system
             # asks for these paths with its own host name, not ours.
@@ -905,13 +929,27 @@ class PortalHandler(BaseHTTPRequestHandler):
         `BaseHTTPRequestHandler`: `socketserver` printed the traceback - with the
         state path in it - to the journal, and the phone got no reply at all. The
         join worker has its own boundary; this is the other half.
+
+        The journal gets the exception's class, which carries no path and is
+        what tells an operator a full disk from a bug. A reservation that was
+        made but never handed to a worker is released here: the reply and the
+        worker are the two ways it can be taken over.
         """
         self._replied = False
+        # Set once a submission is reserved and cleared when the reply or the
+        # worker takes ownership. A failure in between must give the
+        # reservation back, or the device refuses every later submission as
+        # busy until it restarts.
+        self._reserved = None
         try:
             self._post_join()
-        except Exception:
+        except Exception as exc:
             # The class and a fixed sentence only: an OSError carries a path.
-            LOGGER.warning("A join request could not be handled")
+            LOGGER.warning("A join request could not be handled (%s)",
+                           type(exc).__name__)
+            if self._reserved is not None:
+                self.server.onboarder.release(self._reserved)
+                self._reserved = None
             if not self._replied:
                 try:
                     self._reply(500, {"error": "The device could not handle the request"})
@@ -968,6 +1006,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             else:
                 self._reply(409, {"error": "The device is not waiting for setup right now"})
             return
+        self._reserved = token
         status = self.server.onboarder.status()
         # Answer before the network goes away: this reply is the last thing the
         # browser can receive over the setup access point.
@@ -980,6 +1019,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             # submission is refused as busy until the process restarts.
             LOGGER.warning("Join reply could not be delivered; the reservation is released")
             self.server.onboarder.release(token)
+            self._reserved = None
             return
         # Not a daemon: the process must not exit while the baseline is being
         # captured, because that is the only copy of the device's first state.
@@ -987,6 +1027,9 @@ class PortalHandler(BaseHTTPRequestHandler):
                                   args=(ssid, psk or None, country, token),
                                   daemon=False, name="debra-onboarding")
         worker.start()
+        # The worker owns the reservation now. Releasing it after this point
+        # would cancel an attempt that has already claimed the radio.
+        self._reserved = None
 
 
 def serve(onboarder, page=None, address=("10.42.0.1", PORTAL_PORT)):

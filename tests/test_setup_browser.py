@@ -430,6 +430,49 @@ window.addEventListener("load", async () => {
       assert(lastRevision === shownRevision,
              "the page's revision went backwards: " + JSON.stringify(lastRevision));
       result.textContent = "PASS: an older status answer cannot replace a newer one";
+    } else if (mode === "reconcile-older") {
+      // "Ask the device again" deliberately accepts the device's current answer
+      // even when it is not newer; that is the proof the device never received
+      // the request. Accepting it must not move the page's high-water revision
+      // backwards, or the next genuine answer is treated as news and can redraw
+      // a screen the person has already moved past.
+      assert(await until(() => shown("form-card")), "the Wi-Fi form never appeared");
+      const before = window.fetch;
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/join"
+            && (options.method || "GET").toUpperCase() === "POST") {
+          throw new TypeError("Failed to fetch");
+        }
+        return before(path, options);
+      };
+      fill("HomeWiFi", "correct horse battery");
+      byId("join").click();
+      assert(await until(() => shown("uncertain")), "the uncertain card never appeared");
+      const high = lastRevision;
+      assert(typeof high === "number" && high > 0,
+             "the page has no revision to compare against: " + JSON.stringify(high));
+      const base = await (await realFetch("/api/status", {cache: "no-store"})).json();
+      const older = Object.assign({}, base, {revision: high - 1});
+      let served = false;
+      const queued = [older];
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/status" && queued.length
+            && (options.method || "GET").toUpperCase() === "GET") {
+          served = true;
+          const next = queued.shift();
+          return new Response(JSON.stringify(next),
+                              {status: 200, headers: {"Content-Type": "application/json"}});
+        }
+        return before(path, options);
+      };
+      byId("check-again").click();
+      assert(await until(() => served), "the reconcile request never reached the page");
+      assert(await until(() => !byId("check-again").disabled),
+             "asking the device again never finished");
+      assert(lastRevision === high,
+             "asking the device again moved the revision backwards: "
+             + JSON.stringify(lastRevision) + " from " + JSON.stringify(high));
+      result.textContent = "PASS: asking the device again cannot move the revision backwards";
     } else if (mode === "validation") {
       assert(await formReady(), "the Wi-Fi form never appeared");
       fill("HomeWiFi", "short");
@@ -933,6 +976,9 @@ class SetupBrowserTests(unittest.TestCase):
 
     def test_an_older_status_answer_cannot_replace_a_newer_one(self):
         self.assert_driven("older-answer")
+
+    def test_asking_the_device_again_cannot_move_the_revision_backwards(self):
+        self.assert_driven("reconcile-older")
 
     def test_bad_input_is_refused_in_the_page_without_a_request(self):
         self.assert_driven("validation")

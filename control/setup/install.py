@@ -3,8 +3,10 @@
 Prepares files only: a content-addressed release under
 `/usr/local/lib/debra/setup`, private state paths under `/var/lib/debra/setup`,
 and one systemd **system** unit at `/etc/systemd/system/debra-setup.service`.
-It never starts, stops or restarts a service, never calls sudo, installs no
-packages and changes no network setting. Run it on the device, as root.
+With `--enable` it also writes the `multi-user.target.wants` link, which decides
+that the unit starts at the tree's next boot. It never starts, stops or restarts
+a service, never calls sudo, installs no packages and changes no network
+setting. Run it on the device, as root.
 
 The same file is the service entry point, because the unit runs
 `releases/<id>/install.py --serve`. That keeps the runner on the device
@@ -298,7 +300,16 @@ def enable(root, *, unit=UNIT, wants=WANTS):
     refuse_symlinks(root, wants_dir)
     link = wants_dir / UNIT_NAME
     if link.is_symlink():
-        if os.readlink(link) == os.path.join("..", UNIT_NAME):
+        target = os.readlink(link)
+        # `systemctl enable` writes an absolute target for a unit under
+        # /etc/systemd/system; the installer writes the relative one. Both name
+        # the same file in a prepared tree, so the destination is compared, not
+        # the text. An absolute target is read as a path on the device, which
+        # this tree is rooted at.
+        candidates = {os.path.normpath(os.path.join(str(wants_dir), target))}
+        if os.path.isabs(target):
+            candidates.add(os.path.normpath(str(root / target.lstrip("/"))))
+        if str(unit_path) in candidates:
             return str(link)
         raise ValueError(f"{link} is a different link; left unchanged")
     if link.exists():
