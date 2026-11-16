@@ -30,8 +30,10 @@ The unit runs on every boot and asks `Onboarder.resume()`
    through `hostnamectl`, verifies the recorded baseline and adopts or captures
    one if it is missing or damaged, and then exits 0. Because the name is
    applied unconditionally, a name changed outside Debra is changed back on the
-   next boot; that is a deliberate choice, and no device test has measured what
-   an actual rename does to an online connection.
+   next boot; that is a deliberate choice. A rename on a live connection has been
+   measured once: the Zero 2 W kept its `home` profile, its address and an open
+   SSH session through it. A rename during a *first* boot, or one while a join is
+   in flight, is still unmeasured.
 3. No usable uplink: it sets the device name, looks for nearby networks while
    the radio is still free, raises the setup access point, writes the
    setup-network password to the boot partition, and serves the page on the
@@ -316,8 +318,9 @@ Ordered by how likely it is to bite on a real first boot.
    point lands on a different subnet.
 3. **The 30-second uplink wait is a guess.** If NetworkManager takes longer than
    that to autoconnect on a slow card, a configured device raises a setup access
-   point, and the household connection may not come up until the next boot. No
-   boot has been timed.
+   point, and the household connection may not come up until the next boot. Two
+   boots have been timed and both joined well inside the window; a boot with a
+   slow autoconnect has not been observed.
 4. **Only Wi-Fi uplinks count.** `nmcli`-based `active()` looks at Wi-Fi devices,
    so a device with working Ethernet and no Wi-Fi still raises the setup access
    point.
@@ -349,11 +352,11 @@ Ordered by how likely it is to bite on a real first boot.
    cannot see it. The service warns (`The setup note is not on a mounted boot
    partition`) and the access point still starts. Nothing refuses to run without
    that partition, and no boot has been tried with it absent.
-10. **The unit has run, but never through systemd's own checker.** One Zero 2 W
-    has loaded it at boot and the run is recorded
-    ([result](../../docs/testing/results/2026-11-15-zero2w-setup-service-first-run.md)).
-    `systemd-analyze verify` has not been run against the rendered unit, and the
-    tests prove nothing about polkit, D-Bus or a radio.
+10. **The unit has run, and `systemd-analyze verify` passes on it — once.** One
+    Zero 2 W has loaded it at boot, and verify accepted the installed unit for
+    release `b72a508c…` ([result](../../docs/testing/results/2026-11-15-zero2w-setup-service-first-run.md)).
+    That is one rendering on one image: nothing here proves polkit, D-Bus, a radio,
+    or the same line on an image whose cloud-init units are named differently.
 11. **The cooldown is words, not a countdown.** The page says to wait ten
     minutes because the attempt counter lives in the state file and a power
     cycle does not clear it. There is no retry-after the page can count down.
