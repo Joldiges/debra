@@ -805,6 +805,12 @@ class Onboarder:
     def _safe_status(self):
         """Status for a worker thread: a verdict if the real one cannot be read.
 
+        The dict here is deliberately partial - phase, mode and a reason - so a
+        caller must not index a key it did not ask for. It is also the value
+        `start_hotspot` returns when only the answer's status read failed, and
+        `resume` hands that to the service, so the boot path reads it with
+        `.get`.
+
         `Exception`, not the two classes a state file is expected to raise: this
         is the last statement of a worker whose whole job is not to traceback,
         and a status read that fails in a way nobody predicted still must not

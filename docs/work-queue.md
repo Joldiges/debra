@@ -107,7 +107,7 @@ and are waiting for the review rows below.
 | First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
 | Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
-| Setup-network secret behind a page toggle (branch `setup-ap-secret`) | `debra-review`, independent | **approved with fixes** on the eighth round (`1893829`): the security path needed no behaviour change, but the README still said the flag and the page were the only two deciders (an upgrade also sets `wpa`, silently), and counts were stale in `current-status.md`, `roadmap.md` and the queue's own paragraph. Both repaired with tests — the boot now logs when the device's mode rather than the flag decided, and the adoption path reads the stored mode instead of calling `exists()` on it. A ninth review reads the repair. Verdicts, in order: `.local/reviews/setup-ap-20261115/verdict-and-followups.md`, `verdict-sixth.md`, `verdict-seventh.md`, `verdict-eighth.md` |
+| Setup-network secret behind a page toggle (branch `setup-ap-secret`) | `debra-review`, independent | **approved with fixes** on the ninth round (`1fe59a2`): one should-fix, a partial status from `resume()` reaching `install.serve`'s direct indexing and raising `KeyError` out of the boot path after the access point was up. The boot now reads it with `.get` and reports; the repair also covers the journal's negative direction and the adoption exception arms, each with a mutation that fails. The security path itself has needed no behaviour change since the eighth round. A tenth review reads the repair. Verdicts, in order: `.local/reviews/setup-ap-20261115/verdict-and-followups.md`, `verdict-sixth.md`, `verdict-seventh.md`, `verdict-eighth.md`, `verdict-ninth.md` |
 
 ## Accepted
 
@@ -128,10 +128,10 @@ and are waiting for the review rows below.
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 259 onboarding tests
-and 42 installer tests) that has
+first baseline now have an implementation (`control/setup/`, 261 onboarding tests
+and 44 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 732 tests, 49 of which are the opt-in browser cases that
+whole offline suite is 736 tests, 49 of which are the opt-in browser cases that
 skip in an ordinary run (`-p 'test_*browser.py'` with `DEBRA_BROWSER_TEST=1`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,

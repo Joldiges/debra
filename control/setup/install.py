@@ -452,12 +452,19 @@ def serve(state_dir, card_note=None, network=None, address=None,
     # The phase and the device name are the only status fields logged. The
     # setup-network password is not a status field at all, so it cannot reach
     # the journal from here.
-    LOGGER.info("setup phase %s, device name %s", status["phase"], status["hostname"])
-    if status["phase"] == "online":
+    #
+    # Read with `.get`: `resume` returns the worker-shaped fallback when the
+    # access point is up but the state cannot be read, and that dict has no
+    # hostname or hotspot. Indexing it turned a missing key into a traceback
+    # from the boot path - the one failure the handlers and workers exist to
+    # avoid - instead of a sentence and exit code 1.
+    phase = status.get("phase")
+    LOGGER.info("setup phase %s, device name %s", phase, status.get("hostname"))
+    if phase == "online":
         return 0
-    if not status["hotspot"]:
+    if not status.get("hotspot"):
         LOGGER.error("The setup access point is not up: %s",
-                     status["last_error"] or "no reason was given")
+                     status.get("last_error") or "no reason was given")
         return 1
 
     if address is None:

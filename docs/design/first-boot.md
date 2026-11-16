@@ -279,7 +279,7 @@ python3 -B -m unittest tests.test_onboarding -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-259 onboarding tests, 42 installer tests and 27 browser scenarios, all passing
+261 onboarding tests, 44 installer tests and 27 browser scenarios, all passing
 on 2026-11-15 against the then-current tree. They check the decisions and the
 HTTP contract against the fake NetworkManager, with the page driven in a real
 Chromium. They prove nothing about a radio, a real keyfile read, or systemd.

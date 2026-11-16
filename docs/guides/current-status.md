@@ -46,8 +46,8 @@ These run on a Fedora development computer, not on the Pi.
   notices checklist 24; the task helper and research runner 15 and 9
   ([unattended runner](scheduled-runner.md)).
 - The first-boot setup service in `control/setup/` is offline-tested only
-  ([README](../../control/setup/README.md)): 259 tests for naming, onboarding and
-  the baseline, and 42 for its installer. This code has never run on a device: it
+  ([README](../../control/setup/README.md)): 261 tests for naming, onboarding and
+  the baseline, and 44 for its installer. This code has never run on a device: it
   has raised no radio, joined no network, applied no name or captured a baseline.
 - The activity TUI has a **Notices** tab: one checklist of everything worth not
   missing (blockers, confirmations, failed research tasks, a turn running too

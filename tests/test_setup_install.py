@@ -469,6 +469,34 @@ class ServiceTests(Fixture):
         self.assertIsNone(seen.get("keyfile_dir"),
                           "the service is staging profiles outside NetworkManager's store")
 
+    def test_a_partial_status_reports_instead_of_raising_a_key_error(self):
+        # The access point is up, and the status read for the answer fails. The
+        # fallback status is partial; indexing it turned that into `KeyError`
+        # out of the boot path instead of a sentence and exit code 1.
+        network = FakeNetwork()
+        with patch.object(onboarding.Onboarder, "status",
+                          side_effect=RuntimeError("synthetic")):
+            with self.assertLogs(installer.LOGGER, level="WARNING") as logs:
+                self.assertEqual(self.boot(network), 1)
+        text = "\n".join(logs.output)
+        self.assertIn("The setup access point is not up", text)
+        self.assertIn("could not be read", text)
+
+    def test_an_ordinary_boot_names_the_flag_rather_than_the_device(self):
+        # A development boot has no stored mode, so the flag decided and the
+        # override line must stay out of the journal. Without this, an
+        # `if True:` on that line prints a false claim on every boot.
+        network = FakeNetwork()
+        with patch.object(onboarding, "serve",
+                          side_effect=OSError(98, "Address already in use")):
+            with self.assertLogs(installer.LOGGER, level="WARNING") as logs:
+                self.assertEqual(self.boot(network), 1)
+        text = "\n".join(logs.output)
+        self.assertNotIn("was set on the device", text,
+                         "an ordinary boot claimed the device decided the mode")
+        self.assertIn("setup network is OPEN: mode none, from --setup-security", text,
+                      "the open network was not attributed to the flag that set it")
+
     def test_an_upgraded_record_is_named_as_why_the_mode_is_not_the_flag(self):
         # A schema-2 record carries a password, so the boot protects the network
         # even though the unit says `none`. The installer's warning is about the

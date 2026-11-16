@@ -1606,6 +1606,27 @@ class LegacySecretAdoptionTests(Temp):
         self.assertEqual((self.dir / "setup-security").read_text(encoding="utf-8").strip(),
                          "wpa", "the unusable mode file was left in place")
 
+    def test_an_unreadable_mode_file_is_not_a_choice(self):
+        # `exists()` used to stand adoption down here. A directory where the
+        # mode belongs is not a choice; the record's password still has to win,
+        # or the device falls back to the installed `none` and opens.
+        self.legacy()
+        (self.dir / "setup-security").mkdir()
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(FakeNetwork(), security="none")
+        self.assertEqual(onboarder.adopted_security, "wpa")
+        self.assertEqual(onboarder.security, "wpa")
+
+    def test_a_mode_file_that_is_not_utf8_is_not_a_choice(self):
+        self.legacy()
+        (self.dir / "setup-security").write_bytes(b"\xff\xfe\x00")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(FakeNetwork(), security="none")
+        self.assertEqual(onboarder.adopted_security, "wpa")
+        self.assertEqual(onboarder.security, "wpa")
+        self.assertEqual((self.dir / "setup-security").read_text(encoding="utf-8").strip(),
+                         "wpa")
+
     def test_a_password_that_cannot_be_moved_still_keeps_the_boot_protected(self):
         # Writing the mode is what makes the network protected. The password
         # file failing is the narrower failure, and it must not open the
@@ -2088,7 +2109,7 @@ class WorkerBoundaryTests(Temp):
 
 
 class ModeSourceTests(Temp):
-    """The journal has to say which of the three sources set the mode."""
+    """The journal has to say whether the page or the flag decided the mode."""
 
     def test_a_stored_mode_is_attributed_to_the_page(self):
         (self.dir / "setup-security").write_text("none\n", encoding="utf-8")
@@ -2110,8 +2131,8 @@ class ModeSourceTests(Temp):
         with self.assertLogs(onboarding.LOGGER, level="WARNING"):
             onboarder = self.onboarder(FakeNetwork(), security="none")
         self.assertEqual(onboarder.security, "wpa")
-        self.assertNotEqual(onboarder.security_source, "install",
-                            "a carried-over mode was attributed to the unit's flag")
+        self.assertEqual(onboarder.security_source, "page",
+                         "a carried-over mode was attributed to the unit's flag")
 
 
 class AccessPointCheckTests(Temp):

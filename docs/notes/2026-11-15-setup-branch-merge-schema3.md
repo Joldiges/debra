@@ -47,7 +47,7 @@ moved.
 ## Verification
 
 - Working directory: the branch worktree; `python3 -B -m unittest discover -s tests`
-  — 732 tests, 49 skipped, OK (259 onboarding, 42 setup-installer cases in the files).
+  — 736 tests, 49 skipped, OK (261 onboarding, 44 setup-installer cases in the files).
 - `DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'`
   — 49 tests, OK, against an installed Chromium (27 setup, 22 web).
 - Devserver smoke, 2026-11-15: `GET /api/status` reports `security: none` and no
