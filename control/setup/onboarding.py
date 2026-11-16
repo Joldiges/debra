@@ -947,14 +947,29 @@ class PortalHandler(BaseHTTPRequestHandler):
             # The class and a fixed sentence only: an OSError carries a path.
             LOGGER.warning("A join request could not be handled (%s)",
                            type(exc).__name__)
-            if self._reserved is not None:
-                self.server.onboarder.release(self._reserved)
-                self._reserved = None
+            self._give_back_reservation()
             if not self._replied:
                 try:
                     self._reply(500, {"error": "The device could not handle the request"})
                 except OSError:
                     LOGGER.warning("The failure reply could not be delivered")
+
+    def _give_back_reservation(self):
+        """Release the attempt this handler reserved, without raising.
+
+        The boundary exists so a handler failure cannot escape to socketserver.
+        Releasing is itself a state write, and the state store is one of the
+        things that can be failing, so its failure is logged by class and
+        swallowed rather than becoming the traceback this all exists to stop.
+        """
+        token, self._reserved = self._reserved, None
+        if token is None:
+            return
+        try:
+            self.server.onboarder.release(token)
+        except Exception as exc:
+            LOGGER.warning("The reservation could not be released (%s)",
+                           type(exc).__name__)
 
     def _post_join(self):
         if self.path != "/api/join":
@@ -1017,9 +1032,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             # The phone dropped between the reservation and the reply. Nothing
             # was started, so the reservation must be released or every later
             # submission is refused as busy until the process restarts.
-            LOGGER.warning("Join reply could not be delivered; the reservation is released")
-            self.server.onboarder.release(token)
-            self._reserved = None
+            LOGGER.warning("Join reply could not be delivered; releasing the reservation")
+            self._give_back_reservation()
             return
         # Not a daemon: the process must not exit while the baseline is being
         # captured, because that is the only copy of the device's first state.

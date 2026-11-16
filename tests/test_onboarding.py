@@ -2832,6 +2832,35 @@ class HandlerBoundaryTests(Temp):
                          "a failed handler left the device connecting")
         self.assertIsNone(stored["attempt_token"])
 
+    def test_a_release_that_also_fails_still_answers_the_phone(self):
+        # Releasing is a state write, and the state store is one of the things
+        # that can be failing. A boundary that raises from inside its own
+        # except block is the traceback it exists to prevent.
+        server, onboarder, host = self.portal()
+        stderr = io.StringIO()
+        request = urllib.request.Request(
+            "http://" + host + "/api/join",
+            data=json.dumps({"ssid": "HomeWiFi", "psk": "correct horse"}).encode(),
+            method="POST")
+        request.add_header("Host", host)
+        request.add_header("Content-Type", "application/json")
+        with patch.object(onboarder, "status",
+                          side_effect=OSError(5, "Input/output error")), \
+                patch.object(onboarder, "release",
+                             side_effect=OSError(28, "No space: " + str(self.state_path))), \
+                redirect_stderr(stderr):
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    code, body = response.status, response.read()
+            except urllib.error.HTTPError as exc:
+                code, body = exc.code, exc.read()
+        self.assertEqual(code, 500)
+        self.assertIn(b"could not handle the request", body)
+        self.assertNotIn(str(self.state_path), stderr.getvalue(),
+                         "the journal received the state path")
+        self.assertNotIn("Traceback", stderr.getvalue(),
+                         "socketserver printed a traceback for a handled failure")
+
     def test_a_worker_that_cannot_start_answers_once_and_gives_the_reservation_back(self):
         # The 202 is already on the wire when the thread starts. If starting it
         # raises, the boundary must not put a second response on the same

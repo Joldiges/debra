@@ -118,10 +118,10 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 172 onboarding tests
+first baseline now have an implementation (`control/setup/`, 173 onboarding tests
 and 37 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 619 tests (41 skipped) plus 41 browser tests
+whole offline suite is 620 tests (41 skipped) plus 41 browser tests
 (`-p 'test_*browser.py'`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,
