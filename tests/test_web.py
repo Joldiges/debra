@@ -54,6 +54,7 @@ class FakeCommands:
         self.calls = []
         self.percent, self.muted, self.present = 36, False, True
         self.default_source = "alsa_input.platform-soc_sound.stereo-fallback"
+        self.input_muted = False
         self.failed = None
 
     def __call__(self, argv, *, timeout=web.COMMAND_TIMEOUT):
@@ -64,6 +65,8 @@ class FakeCommands:
         self.calls.append(argv)
         if self.failed and self.failed in argv:
             raise web.Unavailable("private raw command output")
+        if argv[:2] == ["pactl", "get-source-mute"]:
+            return "Mute: " + ("yes" if self.input_muted else "no") + "\n"
         if argv[:2] == ["pactl", "get-default-source"]:
             return self.default_source + "\n" if self.default_source else "\n"
         if argv[0] == "paplay":
@@ -105,11 +108,12 @@ class AudioTestTests(unittest.TestCase):
         self.commands = FakeCommands()
         self.captured = []
 
-        def capture(argv, *, timeout):
+        def capture(argv, *, timeout, limit):
             if not 0 < timeout <= web.REQUEST_TIMEOUT:
                 raise AssertionError("Capture must fit the request budget")
             self.captured.append(argv)
-            return self.samples
+            self.limit = limit
+            return self.samples[:limit]
 
         # A tone lasting a second of speaking, at about a quarter of full scale.
         self.samples = b"".join(int(8000).to_bytes(2, "little", signed=True)
@@ -155,6 +159,35 @@ class AudioTestTests(unittest.TestCase):
         # It fades in and out rather than starting with a click.
         self.assertEqual(web.peak_percent(data[44:46]), 0.0)
         self.assertEqual(web.peak_percent(data[44 + 799 * 2:44 + 800 * 2]), 0.0)
+
+    def test_a_muted_input_is_named_rather_than_reported_as_silence(self):
+        # A capture source muted in the mixer returns silence that is not the
+        # microphone's fault, and "Silence input" would send a person looking
+        # for a disconnected microphone that is connected.
+        self.commands.input_muted = True
+        result = self.backend.test_input()
+        self.assertFalse(result["available"])
+        self.assertTrue(result["muted"])
+        self.assertIn("muted", result["reason"])
+        self.assertEqual(self.captured, [], "a capture ran into a muted input")
+
+    def test_the_capture_is_no_longer_than_the_page_promises(self):
+        # `parec` runs until it is stopped, so the timeout is the recording
+        # length. A 1.5 s margin made the device listen for 2.7 seconds while the
+        # page said "about a second": more of the room than was agreed to.
+        lengths = []
+
+        asked = []
+
+        def timed(argv, *, timeout, limit):
+            asked.append(limit)
+            return self.samples[:limit]
+
+        self.backend.capture = timed
+        self.backend.test_input()
+        # Exactly the samples the page promises, not a wall-clock guess: a slow
+        # recorder must not shorten the recording.
+        self.assertEqual(asked[0], int(web.CAPTURE_SECONDS * web.CAPTURE_RATE) * 2)
 
     def test_the_peak_is_a_share_of_full_scale(self):
         self.assertEqual(web.peak_percent(b"\x00\x00\x00\x00"), 0.0)
@@ -207,10 +240,10 @@ class AudioTestTests(unittest.TestCase):
         entered = threading.Event()
         release = threading.Event()
 
-        def slow_capture(argv, *, timeout):
+        def slow_capture(argv, *, timeout, limit):
             entered.set()
             release.wait(5)
-            return self.samples
+            return self.samples[:limit]
 
         self.backend.capture = slow_capture
         first = threading.Thread(target=self.backend.test_input, daemon=True)

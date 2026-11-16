@@ -211,7 +211,7 @@ window.fetch = async (path, options) => {
       return {ok: true, status: 200, json: async () => state.muted
         ? {played: false, muted: true,
            reason: "The output is muted, so a tone would be silent. Unmute it and try again."}
-        : {played: true, hertz: 660, seconds: 0.5, muted: false}};
+        : {played: true, hertz: 440, seconds: 0.5, muted: false}};
     }
     if (path === "/api/setup/hat") {
       if (!["", "respeaker-2mic-hat-v2", "respeaker-2mic-hat-v1", "none"]
@@ -1818,7 +1818,7 @@ window.addEventListener("load", async () => {
            "the tone request is wrong: " + JSON.stringify(testState.posts));
     assert(JSON.stringify(testState.posts[0].body) === "{}",
            "a test sent more than an empty request: " + JSON.stringify(testState.posts[0].body));
-    assert(/660 Hz tone for 0.5 seconds/.test(say()), "the tone result is not reported: " + say());
+    assert(/440 Hz tone for 0.5 seconds/.test(say()), "the tone result is not reported: " + say());
     assert(!/\bup\b|volume changed|now at/.test(say()), "a test claimed to change the volume");
 
     // A muted output is refused by the device, and the page repeats its reason

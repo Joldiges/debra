@@ -60,14 +60,17 @@ an observation time.
   usable output, a device that is not answering, a disconnected tab) is labelled
   as not applied rather than left looking as if it were sent.
 - **Two deliberate checks, and no reading can replace them.** *Test speaker*
-  plays half a second of 660 Hz tone at about −18 dBFS through the selected
+  plays half a second of 440 Hz tone at about −18 dBFS through the selected
   sink, built in memory as a WAV, written to a private temporary file for the
   length of the command and removed with it. It never changes volume, mute or
   device, never falls back, and is refused with a reason when the output is
   muted rather than played into silence. *Test microphone* records about a
   second from the device's own default input with `parec`, reduces it to one
   peak figure and drops the samples: nothing is written to the state directory,
-  logged or sent anywhere but back to the browser that asked. Silence is
+  logged or sent anywhere but back to the browser that asked. The recording is
+  a number of samples rather than a wall-clock budget, so a slow `parec` start
+  on a Zero cannot shorten it to a fraction of a second, and a muted input is
+  refused with its reason instead of being reported as silence. Silence is
   reported as silence; the page never turns a level into "the microphone
   works". One of each runs at a time. `POST /api/audio/test-output` and
   `POST /api/audio/test-input` take an empty JSON object (`{}`).

@@ -16,6 +16,7 @@ from pathlib import Path
 import platform
 import re
 import secrets
+import select
 import shutil
 import socket
 import stat
@@ -124,7 +125,10 @@ DISCOVERY_INTERVAL = 30
 # speaker but not long enough to be a nuisance, and a capture long enough to say
 # whether anything arrived. Neither is stored anywhere after the answer.
 TONE_SECONDS = 0.5
-TONE_HERTZ = 660
+# 440 Hz rather than 660: a low tone locates a small speaker just as well and
+# is far less piercing in a room, which matters because the person running
+# the test is usually sitting next to it.
+TONE_HERTZ = 440
 TONE_AMPLITUDE = 0.12        # ~ -18 dBFS: audible, quiet, never startling
 CAPTURE_SECONDS = 1.2
 CAPTURE_RATE = 48000
@@ -337,22 +341,49 @@ def run_command(argv, *, timeout=COMMAND_TIMEOUT):
     return result.stdout
 
 
-def run_capture(argv, *, timeout):
-    """Run a command and keep its raw bytes, for a capture that ends by timeout.
+def run_capture(argv, *, timeout, limit):
+    """Run a command that streams raw audio, and keep at most `limit` bytes.
 
-    `parec` records until it is stopped, so reaching the timeout is the expected
-    end of the capture rather than a failure: the samples gathered before it are
-    the answer, and `subprocess` hands them over on the exception.
+    `parec` records until it is stopped, so the length of the recording is
+    decided here. Measuring by wall clock measured the wrong thing: on a Zero
+    W `parec` took a second to start, so a 1.5-second budget produced a quarter
+    of a second of audio and the page reported a capture that had barely begun.
+    Reading until the samples are in, then stopping, makes the recording exactly
+    as long as the page promises no matter how slow the device is.
+
+    The overall `timeout` still bounds the whole thing, so a command that never
+    produces audio cannot hold a request open.
     """
     try:
-        result = subprocess.run(argv, capture_output=True, timeout=timeout, check=False)
-    except subprocess.TimeoutExpired as expired:
-        return expired.stdout or b""
+        process = subprocess.Popen(argv, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL)
     except OSError as exc:
         raise Unavailable("Command unavailable") from exc
-    if result.returncode:
-        raise Unavailable("Capture command did not succeed")
-    return result.stdout
+    deadline = time.monotonic() + timeout
+    chunks, total = [], 0
+    try:
+        while total < limit:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                break
+            ready, _, _ = select.select([process.stdout], [], [], budget)
+            if not ready:
+                break
+            chunk = os.read(process.stdout.fileno(), min(65536, limit - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+    finally:
+        # The samples are already read; stopping the recorder is the end of the
+        # capture, not a failure.
+        process.kill()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        process.stdout.close()
+    return b"".join(chunks)
 
 
 def tone_wav(seconds=TONE_SECONDS, hertz=TONE_HERTZ, amplitude=TONE_AMPLITUDE,
@@ -780,10 +811,27 @@ class Backend:
             if not source or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.:-]*", source):
                 return {"available": False,
                         "reason": "This device has no usable default input."}
+            # The same lesson as the muted speaker: a test that cannot work
+            # must say why rather than report silence as a result. A capture
+            # source muted in the mixer is the commonest way to get silence
+            # that is not the microphone's fault.
+            try:
+                muted = "yes" in self.command(
+                    ["pactl", "get-source-mute", source]).strip().lower()
+            except Unavailable:
+                muted = False   # Unknown is not evidence of a mute.
+            if muted:
+                return {"available": False, "source": source, "muted": True,
+                        "reason": "This input is muted, so a test would hear nothing. "
+                                  "Unmute it and try again."}
             argv = ["parec", "--raw", "--format=s16le", f"--rate={CAPTURE_RATE}",
                     "--channels=1", "--latency-msec=20", "--device=" + source]
-            data = self.capture(argv, timeout=min(CAPTURE_SECONDS + 1.5,
-                                                  remaining(deadline)))
+            # The recording is a number of samples, not a wall-clock budget:
+            # the page promises about a second of listening, so exactly that
+            # much is kept and the recorder is stopped.
+            limit = int(CAPTURE_SECONDS * CAPTURE_RATE) * 2
+            data = self.capture(argv, timeout=min(CAPTURE_SECONDS + 3,
+                                                  remaining(deadline)), limit=limit)
             peak = peak_percent(data or b"")
             if peak is None:
                 return {"available": False, "source": source,
