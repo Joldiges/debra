@@ -383,6 +383,85 @@ def finite_number(text, divisor=1):
         return None
 
 
+def clock_ticks():
+    """User HZ, which is what /proc/<pid>/stat counts CPU time in."""
+    try:
+        return int(os.sysconf("SC_CLK_TCK"))
+    except (AttributeError, ValueError, OSError):
+        return 100
+
+
+PROCESS_LIMIT = 6
+
+
+def process_sample(root, elapsed, previous=None, ticks_per_second=None, limit=PROCESS_LIMIT):
+    """Per-process CPU and resident memory, read from /proc alone.
+
+    Aggregated by process name, because one program is several processes: the
+    browser service, a music player and a voice assistant each have a process
+    and often children, and "python3: 9%" answers the question a person asks
+    ("what is busy?") better than three pids of the same program.
+
+    CPU is a share of **one core**, so a program using several cores reports
+    more than 100%. That is stated in the page rather than capped here: capping
+    it would invent a number the counters do not contain. The first sample has no
+    earlier counters to subtract, so it reports memory only and says nothing
+    about CPU rather than reporting zero.
+
+    Returns (top rows, per-pid figures, the counters for the next sample).
+    """
+    previous = previous or {}
+    ticks_per_second = ticks_per_second or clock_ticks()
+    by_pid, counters, totals = {}, {}, {}
+    try:
+        entries = sorted((root / "proc").iterdir())
+    except OSError:
+        return [], {}, {}
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        stat_line = read_optional(root, f"/proc/{entry.name}/stat")
+        if not stat_line:
+            # It exited between listing /proc and reading it, which is ordinary.
+            continue
+        # `comm` may contain spaces, parentheses or anything else the program
+        # felt like, so the fields that follow are found from the LAST ")".
+        head, _, tail = stat_line.rpartition(")")
+        name = head.partition("(")[2]
+        fields = tail.split()
+        try:
+            ticks = int(fields[11]) + int(fields[12])     # utime + stime
+        except (IndexError, ValueError):
+            continue
+        if not name:
+            continue
+        rss = 0
+        for line in (read_optional(root, f"/proc/{entry.name}/status") or "").splitlines():
+            if line.startswith("VmRSS:"):
+                parts = line.split()
+                try:
+                    rss = int(parts[1]) * 1024
+                except (IndexError, ValueError):
+                    rss = 0
+                break
+        pid = int(entry.name)
+        old = previous.get(pid)
+        percent = (round(100 * max(0, ticks - old) / ticks_per_second / elapsed, 1)
+                   if old is not None and elapsed and ticks >= old and elapsed > 0 else None)
+        by_pid[pid] = {"cpu_percent": percent, "memory_bytes": rss}
+        counters[pid] = ticks
+        row = totals.setdefault(name, {"name": name, "pids": 0, "cpu_percent": None,
+                                       "memory_bytes": 0})
+        row["pids"] += 1
+        row["memory_bytes"] += rss
+        if percent is not None:
+            row["cpu_percent"] = round((row["cpu_percent"] or 0.0) + percent, 1)
+    rows = sorted(totals.values(),
+                  key=lambda row: (-(row["cpu_percent"] or 0.0), -row["memory_bytes"],
+                                   row["name"]))
+    return rows[:limit], by_pid, counters
+
+
 def metrics(root, previous=None, elapsed=None):
     """Read unprivileged kernel counters. Missing data is null, never zero."""
     memory = {}
@@ -534,7 +613,7 @@ class Backend:
         for user in (True, False):
             units = [unit for _, unit, is_user in SERVICES if is_user == user]
             argv = ["systemctl"] + (["--user"] if user else []) + [
-                "show", *units, "--property=Id,LoadState,ActiveState,UnitFileState"]
+                "show", *units, "--property=Id,LoadState,ActiveState,UnitFileState,MainPID"]
             try:
                 for block in self.command(argv, deadline).strip().split("\n\n"):
                     properties = dict(line.split("=", 1) for line in block.splitlines()
@@ -547,18 +626,26 @@ class Backend:
         for name, unit, user in SERVICES:
             properties = probes.get((user, unit))
             if properties:
+                try:
+                    pid = int(properties.get("MainPID") or 0) or None
+                except ValueError:
+                    pid = None
                 result.append({"name": name, "unit": unit,
                                "unit_found": properties.get("LoadState") == "loaded",
                                "active": properties.get("ActiveState"),
                                "enabled": properties.get("UnitFileState"),
+                               # The unit's own main process, so the page can show
+                               # what this utility is using. None means no pid was
+                               # reported, not a process using nothing.
+                               "pid": pid,
                                "configuration": "Not yet inspected"})
             else:
-                result.append({"name": name, "active": "unknown",
+                result.append({"name": name, "active": "unknown", "pid": None,
                                "configuration": "Probe unavailable"})
         result.extend([
-            {"name": "Bluetooth proxy", "active": "unknown",
+            {"name": "Bluetooth proxy", "active": "unknown", "pid": None,
              "configuration": "No detector yet; Bluetooth hardware is not proof of a proxy"},
-            {"name": "Music Assistant server", "active": "unknown",
+            {"name": "Music Assistant server", "active": "unknown", "pid": None,
              "configuration": "Server location/containers not inspected"},
         ])
         return result
@@ -693,12 +780,24 @@ class Backend:
             if self.cached and now - self.cache_time < 2:
                 # Audio is not cached: another controller may have changed it.
                 return dict(self.cached, audio=self.audio(deadline))
-            data, previous = metrics(self.root, self.previous,
-                                     now - self.sample_time if self.sample_time else None)
+            elapsed = now - self.sample_time if self.sample_time else None
+            data, previous = metrics(self.root, self.previous, elapsed)
+            processes, by_pid, counters = process_sample(self.root, elapsed,
+                                                        (self.previous or {}).get("proc"))
+            previous["proc"] = counters
+            components = self.components(deadline)
+            for component in components:
+                # A utility's own main process, if systemd named one and it is in
+                # this sample. Missing figures stay None: a utility whose unit is
+                # stopped uses nothing, which is not the same as not being told.
+                figures = by_pid.get(component.get("pid"))
+                component["cpu_percent"] = figures["cpu_percent"] if figures else None
+                component["memory_bytes"] = figures["memory_bytes"] if figures else None
             data.update(hostname=socket.gethostname(), architecture=platform.machine(),
                         os=platform.system() + " " + platform.release(),
                         selected_hardware=self.metadata, power=self.power(deadline),
-                        components=self.components(deadline), audio=self.audio(deadline))
+                        components=components, processes=processes,
+                        audio=self.audio(deadline))
             self.previous, self.sample_time, self.cached = previous, now, data
             self.cache_time = time.monotonic()
             return data
@@ -709,7 +808,8 @@ class Server(ThreadingHTTPServer):
     request_queue_size = 8
     request_timeout = REQUEST_TIMEOUT
 
-    def __init__(self, address, backend, token, hosts, devices=None, discovery=None):
+    def __init__(self, address, backend, token, hosts, devices=None, discovery=None,
+                 announcer=None):
         # token None is the explicit development bypass (`--auth none`). It is a
         # mode, not a missing key: every request then carries no authentication.
         if token is not None and not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token):
@@ -718,6 +818,7 @@ class Server(ThreadingHTTPServer):
         self.auth_mode = "none" if token is None else "key"
         self.devices = tuple(devices or ())
         self.discovery = discovery
+        self.announcer = announcer
         self.hosts = frozenset(hosts)
         # Read once, at start: this is the build the running code came from.
         # What is on disk now is asked for separately, because an editor can
@@ -727,9 +828,30 @@ class Server(ThreadingHTTPServer):
         self.slots = threading.BoundedSemaphore(8)
         super().__init__(address, Handler)
 
+    def announcement(self):
+        """Whether this device is announcing itself, in the same shape always.
+
+        A server started without an announcer (a test, or a page bound to
+        loopback that no other device could reach) says so with a reason rather
+        than leaving the page to guess from silence.
+        """
+        if self.announcer is None:
+            return {"enabled": False, "running": False, "instance": None, "port": None,
+                    "label": None, "spawns": 0, "seconds_running": None, "error": None,
+                    "reason": "This server was not started with an advertisement."}
+        try:
+            return self.announcer.status()
+        except Exception as exc:
+            return {"enabled": False, "running": False, "instance": None, "port": None,
+                    "label": None, "spawns": 0, "seconds_running": None,
+                    "error": f"advertisement state unreadable ({type(exc).__name__})",
+                    "reason": None}
+
     def server_close(self):
         if self.discovery is not None:
             self.discovery.stop.set()
+        if self.announcer is not None:
+            self.announcer.stop()
         super().server_close()
 
     def verify_request(self, request, client_address):
@@ -868,10 +990,13 @@ class Handler(BaseHTTPRequestHandler):
                                           "seconds_since_scan": None, "error": "discovery unavailable"}
             # `self` lets the page mark its own row instead of offering to switch
             # to itself. It is the serving host's name and port, nothing else.
+            # `announcement` answers the question the device list cannot: is this
+            # device advertising itself, so that another Debra can find it?
             self.reply(200, {"devices": merge_devices(self.server.devices, discovered),
                              "self": {"hostname": socket.gethostname(),
                                       "port": self.server.server_address[1]},
-                             "discovery": status})
+                             "discovery": status,
+                             "announcement": self.server.announcement()})
         elif self.path == "/api/status":
             try:
                 data = self.server.backend.status(deadline=self.deadline)
@@ -1032,6 +1157,12 @@ def main():
                              "none: development bypass, no authentication at all")
     parser.add_argument("--devices", type=Path,
                         help="JSON list of known devices for the one-stop card")
+    parser.add_argument("--label", default="",
+                        help="Friendly name published with this device's mDNS "
+                             "advertisement; defaults to the hostname alone")
+    parser.add_argument("--no-announce", action="store_true",
+                        help="Do not publish this device's _debra._tcp "
+                             "advertisement, so other Debras cannot find it")
     args = parser.parse_args()
     state = args.state_dir
     if args.action == "init":
@@ -1077,9 +1208,22 @@ def main():
                 any(not isinstance(v, str) or len(v) > 160 for v in metadata.values())):
             parser.error("hardware.json allows only hat/speaker labels up to 160 characters")
     backend = Backend(args.sink, metadata)
-    discovery = DiscoveryCache()
-    with Server((args.bind, args.port), backend, token, hosts, devices, discovery) as server:
-        discovery.start()
+    scanner = DiscoveryCache()
+    # A page nobody else can reach must not be advertised. This is the honest
+    # reason rather than a silence, and it is why the development host on
+    # 127.0.0.1 does not appear to the other Debras.
+    loopback = args.bind in ("127.0.0.1", "::1", "localhost")
+    announcer = discovery.Announcer(
+        socket.gethostname(), args.port, args.label,
+        enabled=not args.no_announce and not loopback,
+        disabled_reason=("Announcement was switched off for this server (--no-announce)."
+                         if args.no_announce else
+                         "This server is bound to loopback only, so no other device "
+                         "can reach it and it is not advertised." if loopback else None))
+    with Server((args.bind, args.port), backend, token, hosts, devices, scanner,
+                announcer) as server:
+        scanner.start()
+        announcer.start()
         print("Debra web prototype listening; no audio settings changed", flush=True)
         server.serve_forever()
 

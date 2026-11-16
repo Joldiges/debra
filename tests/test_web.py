@@ -290,6 +290,110 @@ class BackendTests(unittest.TestCase):
         self.assertLessEqual(run.call_args.kwargs["timeout"], 0.1)
 
 
+class ProcessSampleTests(unittest.TestCase):
+    """Per-process CPU and memory from a fake /proc, with no real processes."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="web-proc-", dir="/tmp/opencode")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def put(self, path, text):
+        target = self.root / path.lstrip("/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+
+    def process(self, pid, name, utime, stime, rss_kb):
+        # /proc/<pid>/stat carries `comm` in parentheses, then state and ten more
+        # fields, and only then utime and stime.
+        filler = ["S", "1", "1", "1", "0", "-1", "4194560", "100", "0", "0", "0"]
+        self.put(f"/proc/{pid}/stat",
+                 f"{pid} ({name}) " + " ".join(filler + [str(utime), str(stime)]) + " 0 0 20 0 1 0 0\n")
+        self.put(f"/proc/{pid}/status", f"Name:\t{name}\nVmRSS:\t  {rss_kb} kB\n")
+
+    def test_no_proc_at_all_is_empty_not_an_error(self):
+        self.assertEqual(web.process_sample(self.root, 2), ([], {}, {}))
+
+    def test_the_first_sample_reports_memory_and_no_cpu(self):
+        self.process(12, "python3", 30, 10, 2048)
+        self.process(13, "pipewire", 5, 5, 8192)
+        rows, by_pid, counters = web.process_sample(self.root, 2, ticks_per_second=100)
+        self.assertEqual([row["name"] for row in rows], ["pipewire", "python3"])
+        self.assertIsNone(rows[0]["cpu_percent"])
+        self.assertEqual(rows[0]["memory_bytes"], 8192 * 1024)
+        # Counters are kept for the next sample, which is what makes CPU a delta.
+        self.assertEqual(counters, {12: 40, 13: 10})
+        self.assertEqual(by_pid[12], {"cpu_percent": None, "memory_bytes": 2048 * 1024})
+
+    def test_cpu_is_the_delta_over_the_sample_window(self):
+        self.process(12, "python3", 30, 10, 100)
+        _, _, counters = web.process_sample(self.root, 2, ticks_per_second=100)
+        # One more second of CPU time over a two-second window at 100 Hz.
+        self.process(12, "python3", 80, 60, 100)
+        rows, _, _ = web.process_sample(self.root, 2, previous=counters, ticks_per_second=100)
+        self.assertEqual(rows[0]["cpu_percent"], 50.0)
+
+    def test_a_program_using_several_cores_reports_more_than_100(self):
+        self.process(12, "python3", 0, 0, 100)
+        self.process(14, "python3", 0, 0, 100)
+        _, _, counters = web.process_sample(self.root, 1, ticks_per_second=100)
+        self.process(12, "python3", 100, 0, 100)
+        self.process(14, "python3", 100, 0, 100)
+        rows, _, _ = web.process_sample(self.root, 1, previous=counters, ticks_per_second=100)
+        # Two cores at full tilt is 200% of one core. Capping it would invent a
+        # number the counters do not contain, so the page states the unit instead.
+        self.assertEqual(rows[0]["name"], "python3")
+        self.assertEqual(rows[0]["pids"], 2)
+        self.assertEqual(rows[0]["cpu_percent"], 200.0)
+
+    def test_a_process_name_with_spaces_and_brackets_parses(self):
+        self.process(12, "my (odd) proc", 10, 10, 256)
+        rows, _, _ = web.process_sample(self.root, 1)
+        self.assertEqual(rows[0]["name"], "my (odd) proc")
+
+    def test_a_process_that_exits_mid_read_is_skipped(self):
+        self.process(12, "python3", 10, 10, 256)
+        (self.root / "proc/13").mkdir()
+        # pid 13 exists as a directory but has no readable stat: it exited.
+        rows, _, _ = web.process_sample(self.root, 1)
+        self.assertEqual([row["name"] for row in rows], ["python3"])
+
+    def test_a_restarted_pid_is_not_mistaken_for_cpu_time(self):
+        self.process(12, "python3", 900, 900, 256)
+        _, _, counters = web.process_sample(self.root, 1)
+        # The pid was reused by something that has only just started, so the
+        # counters went backwards. Subtracting anyway would report a negative
+        # share or a fabricated one; "unknown" is the only honest answer.
+        self.process(12, "python3", 1, 1, 256)
+        rows, _, _ = web.process_sample(self.root, 1, previous=counters)
+        self.assertIsNone(rows[0]["cpu_percent"])
+
+    def test_status_names_each_utility_process_and_what_it_uses(self):
+        self.process(4242, "python3", 0, 0, 4096)
+        commands = FakeCommands()
+
+        def runner(argv, *, timeout=web.COMMAND_TIMEOUT):
+            if argv[0] == "systemctl":
+                return "\n\n".join(
+                    f"Id={unit}\nLoadState=loaded\nActiveState=active\n"
+                    f"UnitFileState=enabled\nMainPID={4242 if unit == 'sendspin.service' else 0}"
+                    for unit in argv if unit.endswith(".service"))
+            return commands(argv, timeout=timeout)
+
+        backend = web.Backend(SINK, {}, runner, self.root)
+        status = backend.status()
+        sendspin = next(row for row in status["components"] if row["name"] == "Sendspin")
+        self.assertEqual(sendspin["pid"], 4242)
+        self.assertEqual(sendspin["memory_bytes"], 4096 * 1024)
+        self.assertIn("processes", status)
+        json.dumps(status, allow_nan=False)
+        # A utility with no main process says so rather than claiming zero.
+        stopped = next(row for row in status["components"] if row["name"] == "PipeWire")
+        self.assertIsNone(stopped["pid"])
+        self.assertIsNone(stopped["cpu_percent"])
+        self.assertIsNone(stopped["memory_bytes"])
+
+
 class VersionTests(unittest.TestCase):
     """The page must be able to name the build it is running.
 
@@ -519,9 +623,9 @@ class HTTPTests(unittest.TestCase):
         user_units = [unit for _, unit, user in web.SERVICES if user]
         system_units = [unit for _, unit, user in web.SERVICES if not user]
         user_show = ["systemctl", "--user", "show", *user_units,
-                     "--property=Id,LoadState,ActiveState,UnitFileState"]
+                     "--property=Id,LoadState,ActiveState,UnitFileState,MainPID"]
         system_show = ["systemctl", "show", *system_units,
-                       "--property=Id,LoadState,ActiveState,UnitFileState"]
+                       "--property=Id,LoadState,ActiveState,UnitFileState,MainPID"]
         allowed = [["pactl", "--format=json", "list", "sinks"], user_show, system_show,
                    ["vcgencmd", "get_throttled"], ["vcgencmd", "pmic_read_adc"]]
 
@@ -1320,6 +1424,182 @@ class DiscoveryTests(unittest.TestCase):
                         "enabled": False, "found": 0, "seconds_since_scan": None,
                         "error": f"Discovery thread could not start ({type(error).__name__}: {error})",
                         "refused": []})
+
+    def test_the_device_list_says_whether_this_device_announces_itself(self):
+        # A server built without an announcer must not imply it is discoverable.
+        code, body = self.request("/api/devices")
+        self.assertEqual(code, 200)
+        self.assertEqual(body["announcement"]["enabled"], False)
+        self.assertEqual(body["announcement"]["running"], False)
+        self.assertIn("not started with an advertisement", body["announcement"]["reason"])
+
+    def test_a_device_that_announces_says_so_with_its_instance_and_port(self):
+        class Process:
+            def poll(self):
+                return None
+
+        announcer = discovery.Announcer("debra-test", 8787, "Kitchen", spawn=lambda argv: Process())
+        self.server.announcer = announcer
+        announcer.start()
+        self.addCleanup(announcer.stop)
+        self.assertTrue(wait_until(announcer.running))
+        code, body = self.request("/api/devices")
+        self.assertEqual(code, 200)
+        announcement = dict(body["announcement"])
+        # How long it has been running is a clock reading, not a contract.
+        self.assertIsInstance(announcement.pop("seconds_running"), int)
+        self.assertEqual(announcement, {
+            "enabled": True, "running": True, "instance": "Debra debra-test", "port": 8787,
+            "label": "Kitchen", "spawns": 1, "error": None, "reason": None})
+
+
+class AnnouncementTests(unittest.TestCase):
+    """This device publishes its own record, and never pretends that it did.
+
+    The bug this covers was not in the browser: every device browsed correctly
+    and found the one advertisement that existed, because only one device had an
+    advertisement to publish. It lived in a hand-written unit on the lab Pi 5.
+    """
+
+    def test_the_advertisement_names_this_host_and_the_real_port(self):
+        announcer = discovery.Announcer("debra-abc123", 8787, "Lab Pi 5")
+        self.assertEqual(announcer.argv(), [
+            "avahi-publish-service", "--no-fail", "Debra debra-abc123", "_debra._tcp",
+            "8787", "name=debra-abc123", "label=Lab Pi 5"])
+        # No label means no empty TXT pair claiming one.
+        self.assertEqual(discovery.Announcer("debra-abc123", 8787).argv()[-1],
+                         "name=debra-abc123")
+
+    def test_the_publisher_is_a_child_that_stops_with_the_server(self):
+        processes = []
+
+        def spawn(argv):
+            process = FakeProcess()
+            processes.append(process)
+            return process
+
+        announcer = discovery.Announcer("debra-abc123", 8787, spawn=spawn)
+        announcer.start()
+        self.assertTrue(wait_until(announcer.running))
+        self.assertEqual(announcer.status()["spawns"], 1)
+        announcer.stop()
+        announcer.thread.join(timeout=5)
+        self.assertTrue(processes[0].terminated)
+        # A record pointing at a port nothing answers is worse than no record.
+        self.assertEqual(announcer.status()["running"], False)
+
+    def test_a_missing_publisher_is_reported_and_not_retried_forever(self):
+        calls = []
+
+        def spawn(argv):
+            calls.append(argv)
+            raise FileNotFoundError("avahi-publish-service")
+
+        announcer = discovery.Announcer("debra-abc123", 8787, spawn=spawn, restart_delay=0.01)
+        announcer.start()
+        announcer.thread.join(timeout=5)
+        self.assertEqual(len(calls), 1)
+        status = announcer.status()
+        self.assertEqual((status["enabled"], status["running"]), (False, False))
+        self.assertIn("not installed", status["error"])
+
+    def test_an_advertisement_that_dies_is_restarted_and_explains_itself(self):
+        def spawn(argv):
+            if len(spawned) < 3:
+                spawned.append(FakeProcess(alive=False, code=1))
+                return spawned[-1]
+            spawned.append(FakeProcess())
+            return spawned[-1]
+
+        spawned = []
+        announcer = discovery.Announcer("debra-abc123", 8787, spawn=spawn, restart_delay=0.01)
+        announcer.start()
+        self.addCleanup(announcer.stop)
+        self.assertTrue(wait_until(announcer.running))
+        status = announcer.status()
+        # Recovered: the current state is "announcing", not a stale complaint.
+        self.assertTrue(status["running"])
+        self.assertIsNone(status["error"])
+        self.assertGreaterEqual(status["spawns"], 2)
+
+    def test_a_publisher_that_keeps_dying_is_reported_as_not_announcing(self):
+        def spawn(argv):
+            dead.append(FakeProcess(alive=False, code=2))
+            return dead[-1]
+
+        dead = []
+        # A long restart delay keeps the failure visible between attempts, which
+        # is how a person watching the page would see it.
+        announcer = discovery.Announcer("debra-abc123", 8787, spawn=spawn, restart_delay=0.5)
+        announcer.start()
+        self.addCleanup(announcer.stop)
+        self.assertTrue(wait_until(lambda: announcer.status()["error"] is not None))
+        status = announcer.status()
+        self.assertEqual(status["running"], False)
+        self.assertIn("exit code 2", status["error"])
+        # It kept trying rather than giving up after one exit.
+        self.assertTrue(wait_until(lambda: announcer.status()["spawns"] >= 2, timeout=3))
+
+    def test_switched_off_announcement_says_why_instead_of_going_quiet(self):
+        for reason in ("switched off for this server", "bound to loopback only"):
+            with self.subTest(reason=reason):
+                announcer = discovery.Announcer("debra-abc123", 8787, enabled=False,
+                                                disabled_reason=reason)
+                self.assertFalse(announcer.start())
+                status = announcer.status()
+                self.assertEqual((status["enabled"], status["running"]), (False, False))
+                self.assertEqual(status["reason"], reason)
+
+    def test_serve_advertises_a_reachable_page_and_not_a_loopback_one(self):
+        cases = [(["--bind", "127.0.0.1"], False, "loopback"),
+                 ([], False, "loopback"),
+                 (["--bind", "0.0.0.0", "--host", "debra.local:8787"], True, None),
+                 (["--bind", "0.0.0.0", "--host", "debra.local:8787", "--no-announce"],
+                  False, "--no-announce")]
+        for extra, enabled, reason in cases:
+            with self.subTest(flags=extra):
+                with tempfile.TemporaryDirectory(prefix="web-ann-", dir="/tmp/opencode") as temp:
+                    argv = ["server.py", "serve", "--state-dir", temp, "--sink", SINK,
+                            "--auth", "none", *extra]
+                    with patch.object(sys, "argv", argv), \
+                            patch.object(web, "DiscoveryCache"), patch.object(web, "Server"), \
+                            patch.object(web.discovery, "Announcer") as announcer, \
+                            patch("builtins.print"):
+                        web.main()
+                kwargs = announcer.call_args.kwargs
+                self.assertEqual(kwargs["enabled"], enabled)
+                if reason:
+                    self.assertIn(reason, kwargs["disabled_reason"] or "")
+                self.assertEqual(announcer.call_args.args[1], 8787)
+
+
+class FakeProcess:
+    """A publisher process that is alive, or has already exited."""
+
+    def __init__(self, alive=True, code=None):
+        self.alive, self.returncode, self.stdout = alive, code, None
+        self.terminated = False
+
+    def poll(self):
+        return None if self.alive else self.returncode
+
+    def terminate(self):
+        self.terminated, self.alive, self.returncode = True, False, -15
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        self.terminate()
+
+
+def wait_until(predicate, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
 
 
 class InstallerTests(unittest.TestCase):

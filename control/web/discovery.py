@@ -1,4 +1,4 @@
-"""Browse and parse Debra mDNS announcements using avahi-browse."""
+"""Publish, browse and parse Debra mDNS announcements."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import ipaddress
 import logging
 import re
 import subprocess
+import threading
+import time
 
 SERVICE = "_debra._tcp"
 BROWSE_TIMEOUT_S = 8
@@ -186,3 +188,162 @@ def browse(timeout: float = BROWSE_TIMEOUT_S) -> dict:
     refused: list[dict] = []
     devices = parse(proc.stdout, refused)
     return {"devices": devices, "refused": refused, "error": None}
+
+
+ANNOUNCE_RESTART_S = 5
+
+
+def service_name(hostname: str) -> str:
+    """The mDNS instance name this project publishes under."""
+    return f"Debra {hostname}"
+
+
+def _read_last_line(stream, tail: list) -> None:
+    """Keep the last thing the publisher said, without ever blocking a caller."""
+    try:
+        for line in stream:
+            text = (line.decode("utf-8", "replace") if isinstance(line, bytes)
+                    else str(line)).strip()
+            if text:
+                tail[:] = [text[:200]]
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
+
+
+def _terminate(process) -> None:
+    for method in ("terminate", "kill"):
+        try:
+            getattr(process, method)()
+            process.wait(timeout=2)
+            return
+        except (OSError, AttributeError, TypeError):
+            continue
+        except subprocess.TimeoutExpired:
+            continue
+
+
+class Announcer:
+    """This device's own ``_debra._tcp`` advertisement, published by the server.
+
+    **Why the server publishes it and not a unit of its own.** A hand-written
+    ``debra-advertise`` user unit was how this started, on the lab Pi 5 only, and
+    that is exactly why discovery looked broken: every other device browsed this
+    network, found one advertisement, and truthfully reported one device. The
+    service that owns the port is the only thing that knows the port, so it
+    publishes the record itself and the record cannot disagree with reality.
+
+    Nothing here needs root: ``avahi-publish-service`` is an ordinary user
+    program. It is spawned as a child of this process and dies with it, so a
+    stopped server stops being advertised instead of leaving a record pointing at
+    a port nothing answers.
+
+    Failure is reported, never hidden. A missing publisher, or a publisher that
+    exits, becomes a reason the page shows; it does not become a device that
+    quietly stops being discoverable.
+    """
+
+    def __init__(self, hostname, port, label="", *, spawn=None, enabled=True,
+                 disabled_reason=None, restart_delay=ANNOUNCE_RESTART_S):
+        self.hostname, self.port, self.label = hostname, port, label or ""
+        self.enabled = bool(enabled)
+        self.disabled_reason = disabled_reason
+        self.restart_delay = restart_delay
+        self.spawn = spawn or self._spawn
+        self.lock = threading.Lock()
+        self.stop_event = threading.Event()
+        self.process = None
+        self.started_at = None
+        self.spawns = 0
+        self.last_error = None
+        self.thread = None
+
+    def argv(self):
+        argv = ["avahi-publish-service", "--no-fail", service_name(self.hostname),
+                SERVICE, str(self.port), f"name={self.hostname}"]
+        if self.label:
+            argv.append(f"label={self.label}")
+        return argv
+
+    @staticmethod
+    def _spawn(argv):
+        return subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    def _fail(self, message, disable):
+        with self.lock:
+            self.last_error = message
+            if disable:
+                self.enabled = False
+
+    def _supervise(self):
+        while not self.stop_event.is_set():
+            try:
+                process = self.spawn(self.argv())
+            except FileNotFoundError:
+                self._fail("avahi-publish-service is not installed", disable=True)
+                return
+            except OSError as exc:
+                self._fail(f"avahi-publish-service could not start ({type(exc).__name__})",
+                           disable=True)
+                return
+            tail = []
+            reader = None
+            stream = getattr(process, "stdout", None)
+            if stream is not None:
+                reader = threading.Thread(target=_read_last_line, args=(stream, tail),
+                                          daemon=True, name="debra-announce-log")
+                reader.start()
+            with self.lock:
+                self.process, self.spawns = process, self.spawns + 1
+                self.started_at = time.monotonic()
+                self.last_error = None
+            while not self.stop_event.is_set() and process.poll() is None:
+                self.stop_event.wait(0.5)
+            stopping = self.stop_event.is_set()
+            if stopping:
+                _terminate(process)
+            if reader is not None:
+                reader.join(timeout=1)
+            with self.lock:
+                self.process = None
+            if stopping:
+                return
+            # It exited by itself. Say so, keep trying, and let the page show the
+            # reason rather than leaving this device invisible with no clue.
+            code = getattr(process, "returncode", None)
+            self._fail("the advertisement stopped"
+                       + ("" if code is None else f" (exit code {code})")
+                       + (f": {tail[0]}" if tail else ""), disable=False)
+            self.stop_event.wait(self.restart_delay)
+
+    def start(self):
+        if not self.enabled:
+            return False
+        self.thread = threading.Thread(target=self._supervise, daemon=True,
+                                       name="debra-announce")
+        self.thread.start()
+        return True
+
+    def stop(self):
+        self.stop_event.set()
+
+    def running(self):
+        with self.lock:
+            return self.enabled and self.process is not None and self.process.poll() is None
+
+    def status(self):
+        """Whether this device is announcing itself, and what went wrong if not."""
+        with self.lock:
+            process = self.process
+            alive = (self.enabled and process is not None and process.poll() is None)
+            age = (round(max(0.0, time.monotonic() - self.started_at))
+                   if alive and self.started_at is not None else None)
+            return {"enabled": self.enabled, "running": alive,
+                    "instance": service_name(self.hostname), "port": self.port,
+                    "label": self.label or None, "spawns": self.spawns,
+                    "seconds_running": age, "error": self.last_error,
+                    "reason": self.disabled_reason}
