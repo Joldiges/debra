@@ -6,6 +6,7 @@ session user, never uses sudo, and exposes only volume/mute writes.
 
 import argparse
 from contextlib import contextmanager
+import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -33,6 +34,11 @@ else:
 ASSETS = Path(__file__).with_name("assets")
 STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
           "/style.css": ("style.css", "text/css")}
+# The files that make up one release. The installer names a release directory by
+# the digest of exactly these files, so hashing the same list here lets a device
+# say which build it is running without being told at install time, and two
+# devices on the same build report the same string.
+PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css", "assets/app.js")
 SERVICES = (
     ("Linux Voice Assistant", "linux-voice-assistant.service", True),
     ("Sendspin", "sendspin.service", True),
@@ -80,6 +86,35 @@ HAT_OPTIONS = (
 REQUEST_TIMEOUT = 15
 COMMAND_TIMEOUT = 2
 DISCOVERY_INTERVAL = 30
+
+
+def payload_digest(payload):
+    """The content address a release is named by.
+
+    The installer names a release directory with this, and `release_version()`
+    reproduces it from the files a process was started from, so the two agree
+    without the installer having to tell the server anything.
+    """
+    digest = hashlib.sha256()
+    for name, data in sorted(payload.items()):
+        digest.update(name.encode() + b"\0" + data + b"\0")
+    return digest.hexdigest()
+
+
+def release_version(root=None):
+    """Which release the files under `root` are, or None and a reason.
+
+    Never raises: a page that cannot name its build must still serve status. An
+    unreadable payload is reported, not turned into a plausible-looking digest.
+    """
+    root = Path(__file__).parent if root is None else Path(root)
+    try:
+        payload = {name: (root / name).read_bytes() for name in PAYLOAD}
+    except OSError as exc:
+        return {"release": None, "short": None,
+                "error": "A release file is unreadable (%s)" % type(exc).__name__}
+    release = payload_digest(payload)
+    return {"release": release, "short": release[:12], "error": None}
 
 
 class DiscoveryCache:
@@ -683,6 +718,11 @@ class Server(ThreadingHTTPServer):
         self.devices = tuple(devices or ())
         self.discovery = discovery
         self.hosts = frozenset(hosts)
+        # Read once, at start: this is the build the running code came from.
+        # What is on disk now is asked for separately, because an editor can
+        # change an asset under a running process and the page must not claim
+        # the change is live.
+        self.version = release_version()
         self.slots = threading.BoundedSemaphore(8)
         super().__init__(address, Handler)
 
@@ -809,6 +849,19 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 data = self.server.backend.status(deadline=self.deadline)
                 data["auth"] = self.server.auth_mode
+                # Two different questions, both worth answering: which build is
+                # running, and whether the files changed since it started. On an
+                # installed device they are equal, because a release directory
+                # is immutable. On the development host they diverge the moment
+                # someone edits an asset, which is exactly when a stale process
+                # looks healthy.
+                version = dict(self.server.version)
+                on_disk = release_version()
+                version["on_disk"] = on_disk["release"]
+                version["restart_required"] = (
+                    version["release"] is not None and on_disk["release"] is not None
+                    and version["release"] != on_disk["release"])
+                data["version"] = version
                 self.reply(200, data)
             except (Unavailable, RequestExpired):
                 self.reply(503, {"error": "Status unavailable; request timed out"})

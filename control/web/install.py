@@ -16,11 +16,10 @@ import stat
 import sys
 import tempfile
 
-from server import (Backend, init_state, load_devices, valid_hosts, validate_device,
-                    validate_listening_port)
+from server import (Backend, PAYLOAD, init_state, load_devices, payload_digest,
+                    valid_hosts, validate_device, validate_listening_port)
 
 
-PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css", "assets/app.js")
 MARKER = "# Managed by Debra web prototype\n"
 HEADING = re.compile(r"\[([^]]+)\]")
 EXEC_START = re.compile(r"ExecStart\s*=\s*(.*)")
@@ -51,14 +50,6 @@ def create_private(path, data):
         stream.write(data)
         stream.flush()
         os.fsync(stream.fileno())
-
-
-def payload_digest(payload):
-    """The content address a release is named by."""
-    digest = hashlib.sha256()
-    for name, data in sorted(payload.items()):
-        digest.update(name.encode() + b"\0" + data + b"\0")
-    return digest.hexdigest()
 
 
 def release_digest(release):

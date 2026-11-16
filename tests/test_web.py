@@ -290,6 +290,65 @@ class BackendTests(unittest.TestCase):
         self.assertLessEqual(run.call_args.kwargs["timeout"], 0.1)
 
 
+class VersionTests(unittest.TestCase):
+    """The page must be able to name the build it is running.
+
+    A release directory is named by the digest of its payload, so that digest is
+    the only version identifier that cannot drift: it is derived from the bytes,
+    not assigned by hand. These tests keep the server's copy of the rule equal to
+    the installer's, which is what makes a device page and an install report
+    comparable.
+    """
+
+    def test_the_server_names_a_release_the_way_the_installer_does(self):
+        with tempfile.TemporaryDirectory() as home:
+            payload = payload_copy(home)
+            expected = installer.payload_digest(
+                {name: (payload / name).read_bytes() for name in installer.PAYLOAD})
+            self.assertEqual(web.release_version(payload)["release"], expected)
+
+    def test_the_installer_has_no_second_copy_of_the_rule(self):
+        # One definition, imported. A private copy would keep working while the
+        # two silently disagreed about what a release is.
+        self.assertEqual(installer.PAYLOAD, web.PAYLOAD)
+        self.assertIs(installer.payload_digest, web.payload_digest)
+
+    def test_a_changed_payload_is_a_different_release(self):
+        with tempfile.TemporaryDirectory() as home:
+            before = web.release_version(payload_copy(home))
+            after = web.release_version(payload_copy(home, changed=True))
+        self.assertEqual(len(before["release"]), 64)
+        self.assertEqual(before["short"], before["release"][:12])
+        self.assertNotEqual(before["release"], after["release"])
+
+    def test_an_unreadable_payload_is_reported_not_guessed(self):
+        # A missing file must not yield a digest of the files that remain: that
+        # would be a plausible-looking version for a broken install.
+        with tempfile.TemporaryDirectory() as home:
+            payload = payload_copy(home)
+            (payload / "assets/app.js").unlink()
+            version = web.release_version(payload)
+        self.assertIsNone(version["release"])
+        self.assertIsNone(version["short"])
+        self.assertIn("unreadable", version["error"])
+
+    def test_a_payload_file_is_part_of_the_identity(self):
+        # Every file in the payload moves the digest; a file left out of the
+        # list would let a real change keep the old version.
+        with tempfile.TemporaryDirectory() as home:
+            baseline = web.release_version(payload_copy(home))["release"]
+            payload = payload_copy(home)
+            for name in installer.PAYLOAD:
+                with self.subTest(name):
+                    target = payload / name
+                    original = target.read_bytes()
+                    target.write_bytes(original + b" ")
+                    try:
+                        self.assertNotEqual(web.release_version(payload)["release"], baseline)
+                    finally:
+                        target.write_bytes(original)
+
+
 class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -334,6 +393,28 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(json.loads(raw)["audio"]["percent"], 36)
         self.assertFalse(any("set-sink" in " ".join(call) for call in self.commands.calls))
+
+    def test_status_names_the_build_that_is_running(self):
+        code, _, raw = self.request()
+        self.assertEqual(code, 200)
+        version = json.loads(raw)["version"]
+        self.assertEqual(version["release"], web.release_version()["release"])
+        self.assertEqual(version["short"], version["release"][:12])
+        self.assertFalse(version["restart_required"])
+
+    def test_a_file_changed_under_a_running_process_asks_for_a_restart(self):
+        # The development host reads assets from disk on every request, so an
+        # edit is served while the code that loaded it is old. Reporting only one
+        # digest would present a half-updated build as a single version.
+        running = self.server.version["release"]
+        other = {"release": "0" * 64, "short": "0" * 12, "error": None}
+        with patch.object(web, "release_version", return_value=other):
+            code, _, raw = self.request()
+        self.assertEqual(code, 200)
+        version = json.loads(raw)["version"]
+        self.assertEqual(version["release"], running)
+        self.assertEqual(version["on_disk"], "0" * 64)
+        self.assertTrue(version["restart_required"])
 
     def test_static_page_requires_no_key_and_has_security_headers(self):
         for path in ("/", "/app.js", "/style.css"):
