@@ -16,12 +16,13 @@ page asks for — and the only current path to it is a terminal.
 
 These are facts about the current tree, not proposals.
 
-- The device access key is created on the service's **first start**, by
-  `init_state()` in `control/web/server.py`: `secrets.token_urlsafe(32)` written
-  to `~/.config/debra/web/access.key`, owner-only, published by hard link so an
-  existing key is never replaced. Neither the installer nor the page prints it,
-  and `/api/status` reports only that the mode is `key` or `none` — never the
-  value (`auth_mode`).
+- The device access key is created by `init_state()` in
+  `control/web/server.py`: `secrets.token_urlsafe(32)` written to
+  `~/.config/debra/web/access.key`, owner-only, published by hard link so an
+  existing key is never replaced. `control/web/install.py` calls it while
+  preparing the service, and the server calls it again idempotently at start.
+  Neither route prints the key, and `/api/status` reports only that the mode is
+  `key` or `none` — never the value (`auth_mode`).
 - The page asks for it once per browser tab and keeps it in that tab; the server
   compares an `Authorization: Bearer …` header with `hmac.compare_digest`.
 - The [quickstart](../../control/web/README.md) retrieves the key by reading that
