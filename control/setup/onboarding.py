@@ -1438,6 +1438,12 @@ class PortalHandler(BaseHTTPRequestHandler):
         return f"http://{self.server.host}/"
 
     def _redirect_to_page(self, body=True):
+        # A redirect is a reply, so it marks one. `_reply()` does that itself;
+        # this method writes its own headers, and without the mark the GET
+        # boundary below believed the request was unanswered: a body write that
+        # failed part way appended a 500 to a partially sent 302, which is two
+        # status lines on one connection.
+        self._replied = True
         payload = (f'<!doctype html><meta http-equiv="refresh" '
                    f'content="0;url={self._portal_url()}">'
                    f'<a href="{self._portal_url()}">Set up this device</a>\n').encode()

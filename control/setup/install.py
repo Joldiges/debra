@@ -309,12 +309,24 @@ def enable(root, *, unit=UNIT, wants=WANTS):
         # `systemctl enable` writes an absolute target for a unit under
         # /etc/systemd/system; the installer writes the relative one. Both name
         # the same file in a prepared tree, so the destination is compared, not
-        # the text. An absolute target is read as a path on the device, which
-        # this tree is rooted at.
-        candidates = {os.path.normpath(os.path.join(str(wants_dir), target))}
+        # the text.
+        #
+        # The comparison follows symlinks, because the kernel does. `normpath`
+        # alone removes `jump/..` without looking at `jump`, so a link spelled
+        # `../jump/../debra-setup.service` was accepted while `jump` pointed at
+        # another directory and the link actually resolved to a foreign unit.
         if os.path.isabs(target):
-            candidates.add(os.path.normpath(str(root / target.lstrip("/"))))
-        if str(unit_path) in candidates:
+            # An absolute target names a path on the device, which this tree is
+            # rooted at. A path that already carries the preparing host's mount
+            # point is refused: it names this unit only on the host, and nothing
+            # at all after boot.
+            if os.path.normpath(target) != "/" + os.path.normpath(unit):
+                raise ValueError(f"{link} names {target}, which is not this unit on the "
+                                 "device; left unchanged")
+            destination = os.path.realpath(str(root / target.lstrip("/")))
+        else:
+            destination = os.path.realpath(os.path.join(str(wants_dir), target))
+        if destination == os.path.realpath(str(unit_path)):
             return str(link)
         raise ValueError(f"{link} is a different link; left unchanged")
     if link.exists():

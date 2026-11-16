@@ -71,6 +71,15 @@ FILLED = ("last_attempt", "attempt_token", "attempt_claimed", "baseline_error",
 # every poll; one line is enough for anyone to notice the filesystem.
 _WRITE_BACK_FAILED = set()
 
+# The fields every schema-1 revision wrote, and therefore the floor below which a
+# record is not a record this software wrote. The keys the revisions added later
+# are deliberately not here: their absence is an ordinary upgrade and is filled.
+# `phase` matters most: every revision required it, and filling it produced an
+# `unconfigured` device from a file that described nothing, which then raised a
+# new access point as though the device had never been set up.
+MANDATORY_1 = ("phase", "hostname", "country", "ssid", "address", "last_error",
+               "attempts", "hotspot", "baseline", "updated")
+
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -214,6 +223,12 @@ def migrate(data):
     record's shape, and a file without one is refused rather than filled: a
     record with no `phase` is a corrupt file, not a fresh device.
 
+    That floor has a name for schema 1. `MANDATORY_1` is the set every prototype
+    revision wrote, so a record missing any of it was never a record this
+    software wrote: an object as small as `{"schema": 1}` is damage, and filling
+    it would raise a fresh setup access point on a device that had already been
+    set up. Damage is an error with its own message, not a factory reset.
+
     A record can also carry a combination the current rules refuse even after
     the missing keys are filled: `connecting` with no attempt token, `hotspot`
     with no access point described, or `online` with one. Those are resolved the
@@ -236,6 +251,15 @@ def migrate(data):
     if not 1 <= schema < SCHEMA:
         return data
     migrated = {key: value for key, value in data.items() if key not in DROPPED}
+    if schema == 1:
+        # The floor main's review asked for, in this migration's own terms: the
+        # keys an older record may lack are `FILLED`, and every other key is the
+        # record's shape. Naming the schema-1 subset gives the damage its own
+        # message instead of reaching `validate`'s key list.
+        missing = [key for key in MANDATORY_1 if key not in migrated]
+        if missing:
+            raise ValueError("That state file is not a setup record this software "
+                             "wrote: " + ", ".join(missing) + " missing")
     defaults = blank()
     for key in FILLED:
         migrated.setdefault(key, defaults[key])
