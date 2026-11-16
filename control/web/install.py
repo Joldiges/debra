@@ -53,8 +53,21 @@ def create_private(path, data):
 
 
 def release_digest(release):
-    """The digest of a release directory as it is on disk."""
-    return payload_digest({name: (release / name).read_bytes() for name in PAYLOAD})
+    """The digest of a release directory as it is on disk.
+
+    Hashed over the files that are actually in the directory, not over the
+    current `PAYLOAD`. A release installed by an older installer legitimately
+    holds fewer files - `discovery.py` joined the payload later - and its
+    directory name was computed from what that installer wrote. Hashing today's
+    list instead raised `OSError` for every such release, which reported an
+    intact release as damaged and made `--restore` refuse to roll back to it.
+    A file that was modified or removed still changes the digest, because the
+    name being checked was computed over the files that were there.
+    """
+    files = [path for path in sorted(release.rglob("*"))
+             if path.is_file() and not path.is_symlink()]
+    return payload_digest({str(path.relative_to(release)): path.read_bytes()
+                           for path in files})
 
 
 def damaged_releases(releases):
@@ -477,21 +490,17 @@ def release_problem(home, commands):
         script = release / "server.py"
         if release.is_symlink() or not release.is_dir():
             return f"That unit runs {script}, which is not installed"
-        missing = []
-        for name in PAYLOAD:
-            target = release / name
-            for part in (target, *target.parents):
-                if part == release:
-                    break
-                if part.is_symlink():
-                    return (f"That unit runs the release in {release}, where {part.name} "
-                            "is a link; the content it is named by no longer describes "
-                            "what starts")
-            if not target.is_file():
-                missing.append(name)
-        if missing:
-            return (f"That unit runs the release in {release}, which is incomplete: "
-                    f"{', '.join(missing)} missing, so the service would fail to import")
+        for path in release.rglob("*"):
+            if path.is_symlink():
+                return (f"That unit runs the release in {release}, where {path.name} "
+                        "is a link; the content it is named by no longer describes "
+                        "what starts")
+        # No per-file checklist against today's PAYLOAD. The digest below is the
+        # completeness proof: a release is named by what its installer wrote, so
+        # matching the name means nothing is missing. Demanding today's five
+        # files refused every release installed before `discovery.py` joined the
+        # payload - releases that are intact and that their own `server.py` never
+        # imported the missing module for.
         try:
             if release_digest(release) == release_id:
                 continue

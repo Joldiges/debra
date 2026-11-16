@@ -302,6 +302,56 @@ class InstalledArtifactTests(unittest.TestCase):
         self.assertIn(str(new_release / "server.py"), self.unit.read_text())
         self.assert_releases_are_addressable_and_complete()
 
+    def test_a_release_from_an_older_payload_verifies_against_its_own_name(self):
+        # The lab Pi 5 held two releases installed before `discovery.py` joined
+        # PAYLOAD: four files, and a `server.py` that never imported it. Hashing
+        # today's five-file list raised OSError, so both were reported as
+        # damaged and `restore_unit` refused the rollback that keeping them is
+        # for. A release's name was computed over what that installer wrote, so
+        # it is checked against what is actually in the directory.
+        self.install()
+        older = {name: (SOURCE / name).read_bytes()
+                 for name in installer.PAYLOAD if name != "discovery.py"}
+        self.assertNotIn("discovery.py", older)
+        release = self.releases / installer.payload_digest(older)
+        for name, data in older.items():
+            target = release / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+
+        self.assertEqual(installer.release_digest(release), release.name)
+        self.assertEqual(installer.damaged_releases(self.releases), [])
+
+    def test_an_older_release_can_still_be_restored_to(self):
+        # The same shape, through the path an operator actually takes.
+        self.install()
+        second = self.install(hosts=["second.local:8787"])
+        self.assertIsNotNone(second["previous_unit"])
+        older = self.releases / installer.payload_digest(
+            {name: (SOURCE / name).read_bytes()
+             for name in installer.PAYLOAD if name != "discovery.py"})
+        for name in installer.PAYLOAD:
+            if name == "discovery.py":
+                continue
+            target = older / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((SOURCE / name).read_bytes())
+
+        # A unit naming the older release, written the way this installer writes
+        # one, must be restorable rather than refused as unreadable.
+        previous = Path(second["previous_unit"])
+        previous.write_text(previous.read_text().replace(second["release"], older.name))
+        installer.restore_unit(self.home, previous)
+        self.assertIn(older.name, self.unit.read_text())
+
+    def test_a_release_with_a_missing_file_is_still_damaged(self):
+        # Hashing what is present must not stop detecting a removal: the name
+        # was computed over a file that is now gone.
+        first = self.install()
+        release = self.releases / first["release"]
+        (release / "discovery.py").unlink()
+        self.assertEqual(installer.damaged_releases(self.releases), [first["release"]])
+
     def test_a_damaged_retained_release_is_reported_and_never_restored(self):
         # A release is named by the digest of its payload, and rollback runs a
         # retained release. A corrupted one still exists, so the old check passed

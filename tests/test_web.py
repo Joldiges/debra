@@ -1752,9 +1752,11 @@ class RestoreCommandTests(unittest.TestCase):
         self.assertEqual(self.unit.read_bytes(), previous.read_bytes())
 
     def test_a_restore_refuses_an_incomplete_release(self):
-        # `server.py` existing is not proof the service imports: an interrupted
-        # copy leaves a release without `discovery.py`, and the restored unit
-        # fails before it listens.
+        # A release is named by what its installer wrote, so a file removed
+        # afterwards changes the digest and the rollback is refused. This used
+        # to be caught by a checklist against today's PAYLOAD, which also
+        # refused intact older releases that never contained the file - the lab
+        # Pi 5 held two of those, and neither `server.py` imported it.
         first = self.install()
         second = self.install(["other.local:8787"])
         release = self.home / ".local/share/debra/web/releases" / first["release"]
@@ -1762,8 +1764,7 @@ class RestoreCommandTests(unittest.TestCase):
         before = self.unit.read_bytes()
         result = self.run_cli("--restore", second["previous_unit"])
         self.assertEqual(result.returncode, 2)
-        self.assertIn("incomplete", result.stderr)
-        self.assertIn("discovery.py", result.stderr)
+        self.assertIn("no longer match", result.stderr)
         self.assertEqual(self.unit.read_bytes(), before, "a refusal still changed the unit")
         self.assertTrue((release / "preserved-discovery.py").exists())
 
