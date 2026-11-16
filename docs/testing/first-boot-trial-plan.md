@@ -48,12 +48,15 @@ boot:
    Useful only as a smoke test of the page and the installer.
 2. Install into a mounted card from a host with
    `python3 -B control/setup/install.py --root /path/to/card --python <card-python> --enable`,
-   which installs the files and links the unit into
-   `multi-user.target.wants` the way `systemctl enable` would. The rendered unit
+   which installs the files and links the unit into `multi-user.target.wants`.
+   The link points at the installed unit; it may be relative (what the installer
+   writes) or absolute (what `systemctl enable` is documented to write, and
+   `--enable` now accepts). The rendered unit
    names `/usr/local/lib/debra/setup/releases/<id>/install.py`, which is where
    the `--root` install puts it on the card, so the paths agree once booted.
    **Neither the enable nor the boot has been tried**: the installer's tests
-   check the link on disk, and no card has been prepared this way.
+   check the link on disk, and no card has been prepared this way, and no real
+   `systemctl enable` was run to confirm which link form it writes.
    This is the only route that reaches the real first boot, and it is itself part
    of what the trial would test.
 3. Build a distributable image. Does not exist. No Debra image has been built,
