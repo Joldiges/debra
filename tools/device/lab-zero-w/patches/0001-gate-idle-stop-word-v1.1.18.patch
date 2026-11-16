@@ -1,8 +1,16 @@
 diff --git a/linux_voice_assistant/__main__.py b/linux_voice_assistant/__main__.py
-index bb86eb3..2b38af4 100644
+index bb86eb3..a4be84a 100644
 --- a/linux_voice_assistant/__main__.py
 +++ b/linux_voice_assistant/__main__.py
-@@ -705,6 +705,7 @@ def process_audio(state: ServerState, mic, block_size: int):
+@@ -21,6 +21,7 @@ from .models import Preferences, ServerState, WakeWordType, initial_stop_word_th
+ from .mpv_player import MpvMediaPlayer
+ from .peripheral_api import LVAEvent, PeripheralAPIServer
+ from .satellite import VoiceSatelliteProtocol
++from .stop_word import process_stop_word
+ from .util import (
+     get_default_interface,
+     get_default_ipv4,
+@@ -705,6 +706,7 @@ def process_audio(state: ServerState, mic, block_size: int):
  
      last_active: Optional[float] = None
      webrtc: Optional[WebRTCProcessor] = None
@@ -10,22 +18,18 @@ index bb86eb3..2b38af4 100644
  
      try:
          _LOGGER.debug("Opening audio input device: %s", mic.name)
-@@ -875,19 +876,32 @@ def process_audio(state: ServerState, mic, block_size: int):
+@@ -875,19 +877,15 @@ def process_audio(state: ServerState, mic, block_size: int):
                                  state.satellite.wakeup(wake_word)
                                  last_active = now
  
 -                    # Always process to keep state correct
-+                    # The stop word can only act while a reply, announcement or
-+                    # timer is playing, which is exactly when its id is in
-+                    # active_wake_words. Inferring it at other times costs a
-+                    # model pass on every frame for a result that is discarded.
-+                    # The model carries state between windows, so reset it when
-+                    # it becomes reachable again instead of scoring a stale
-+                    # window as if it were current.
-                     stopped = False
+-                    stopped = False
 -
 -                    # No debugging when no detection
--                    state.stop_word.debug_probabilities = False
++                    # The stop word can only act while a reply, announcement or
++                    # timer is playing, which is exactly when its id is in
++                    # active_wake_words; see stop_word.py.
+                     state.stop_word.debug_probabilities = False
 -
 -                    # Apply stop word sensitivity threshold
 -                    state.stop_word.probability_cutoff = state.stop_word_threshold
@@ -34,24 +38,59 @@ index bb86eb3..2b38af4 100644
 -                        if state.stop_word.process_streaming(micro_input):
 -                            state.stop_word.debug_probabilities = True
 -                            stopped = True
-+                    stop_active = state.stop_word.id in state.active_wake_words
-+                    if stop_active and not stop_word_running:
-+                        state.stop_word.reset()
-+                        stop_word_running = True
-+                    elif not stop_active:
-+                        stop_word_running = False
-+
-+                    if stop_active:
-+                        # No debugging when no detection
-+                        state.stop_word.debug_probabilities = False
-+
-+                        # Apply stop word sensitivity threshold
-+                        state.stop_word.probability_cutoff = state.stop_word_threshold
-+                        # _LOGGER.debug("Set stop word probability cutoff to %.3f", state.stop_word_threshold)
-+                        for micro_input in micro_inputs:
-+                            if state.stop_word.process_streaming(micro_input):
-+                                state.stop_word.debug_probabilities = True
-+                                stopped = True
++                    stopped, stop_word_running = process_stop_word(
++                        state, micro_inputs, stop_word_running
++                    )
++                    if stopped:
++                        state.stop_word.debug_probabilities = True
  
                      if stopped and (state.stop_word.id in state.active_wake_words) and not state.muted:
                          _LOGGER.debug("Stop word detected")
+diff --git a/linux_voice_assistant/stop_word.py b/linux_voice_assistant/stop_word.py
+new file mode 100644
+index 0000000..b1cfdef
+--- /dev/null
++++ b/linux_voice_assistant/stop_word.py
+@@ -0,0 +1,42 @@
++"""Stop-word gating for the audio loop.
++
++The stop word is only acted on while a reply, announcement or timer is playing,
++which is exactly when its id is in ``ServerState.active_wake_words``. Running the
++model at other times costs a full inference per audio frame for a result that is
++discarded, which matters on a single-core board.
++"""
++
++from typing import TYPE_CHECKING, List, Tuple
++
++import numpy as np
++
++if TYPE_CHECKING:
++    from .models import ServerState
++
++
++def process_stop_word(state: "ServerState", micro_inputs: List[np.ndarray], running: bool) -> Tuple[bool, bool]:
++    """Run the stop word for one audio chunk and return ``(stopped, running)``.
++
++    ``running`` is the caller's record of whether the model has been reset and is
++    being fed since it became reachable, and the returned value replaces it.
++
++    The model keeps its feature and probability windows between invokes, so it is
++    reset when it becomes reachable again rather than scoring a stale window as
++    if it were current. That is the only user-visible cost: a word said in the
++    first fraction of a second of a reply can be missed.
++    """
++    stop_active = state.stop_word.id in state.active_wake_words
++    if stop_active and not running:
++        state.stop_word.reset()
++    elif not stop_active:
++        running = False
++
++    stopped = False
++    if stop_active:
++        # Apply the configured stop word sensitivity threshold
++        state.stop_word.probability_cutoff = state.stop_word_threshold
++        for micro_input in micro_inputs:
++            if state.stop_word.process_streaming(micro_input):
++                stopped = True
++
++    return stopped, stop_active

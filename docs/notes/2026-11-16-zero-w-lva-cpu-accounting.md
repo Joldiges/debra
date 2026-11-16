@@ -53,6 +53,8 @@ the V05 card with the roadmap/chain/progress wiring it needs.
 | observed | PyPy has no armv6/armhf build, and python-build-standalone publishes `armv7`, not `armv6` | PyPI/build listings inspected 2026-11-16 | A Python replacement is not available for this target |
 | hypothesis → observed | Gating the stop model on `active_wake_words` cuts idle LVA CPU by about a quarter, relatively | `/tmp/measure_lva.sh` on the device, 480 s each side, 2026-11-16 | Confirmed relatively (−26%); the absolute expectation was wrong, see the next row |
 | observed | LVA mean CPU fell from **41.9% to 30.9% of one core** (480 s idle each side), with a second 300 s sample at 32.8%: a 9–11 point saving, −26% relative | `BASELINE 480` at 11:24, `AFTER-PATCH 480` at 11:35, `AFTER-CONFIRM 300` at 11:50, device time | Same device and services, own `/proc/<pid>/stat`. The earlier "~26 points" estimate came from the 26%-of-realtime bench, which was contended and over-reads its shares |
+| observed | After moving the gate into the PR's `stop_word.py` module, the board still measures **31.1% of one core** over 480 s idle | `AFTER-HELPER 480` at 13:10, device time, `/tmp/measure_lva.sh` | Same method and services as the row above; the refactor did not change the saving |
+| observed | The shipped `stop_word.py` never invokes the model while the stop word is inactive, and detects the clip when active: 0 inferences / not stopped while inactive, 46 inferences / stopped at frame 46 of 78 while active | `/tmp/check_stop_word.py` in the device venv, real `stop` model and feature frontend, 2026-11-16 | Silent check, no speaker; it exercises the module, not the audio loop wiring |
 | observed | `MicroWakeWord.reset()` costs 17–25 ms: it clears the feature and probability windows and reloads the TFLite model | Timed three times in the device venv | Small next to the sliding-window warm-up, so re-enabling the gate is cheap |
 | observed | Reset then feed the "stop" clip: detected at feature frame 44 of 78, 113–132 ms wall | Harness in the device venv, 2026-11-16 | The re-enable path detects; the added audio delay is the ~150 ms window fill plus ~20 ms reload |
 | observed | With the patch the wake word still detects and completes a cycle: probability 0.913, Home Assistant returned a TTS reply | `~/lab/lva.log`, 2026-11-16 11:46:16 | `~/sweep/s4_en-us+m3_180.wav` played through the HAT speaker into the real microphone path |
@@ -95,65 +97,39 @@ Not tested: a human voice, a second board, or the patched service under sustaine
 music playback. The `stop` percentages in the original accounting come from a
 contended run; the 41.9→30.9 figure is a clean idle sample.
 
-## Applied patch (one file)
+## Applied patch
 
-`linux_voice_assistant/__main__.py` against v1.1.18. Two changes: a loop-local
-flag, and the stop block guarded by it. `reset()` on re-enable is required because
-the model keeps state.
+The patch now adds `linux_voice_assistant/stop_word.py` **byte-identical to the one
+in the pull request** (`sha256 8a587d8f…`) and rewires only the v1.1.18 call site,
+so the board runs the same gating logic that is under review. The full diff, with
+hash-verified pinning, is
+[`tools/device/lab-zero-w/patches/0001-gate-idle-stop-word-v1.1.18.patch`](../../tools/device/lab-zero-w/patches/0001-gate-idle-stop-word-v1.1.18.patch).
 
-```diff
-@@
-     last_active: Optional[float] = None
-     webrtc: Optional[WebRTCProcessor] = None
-+    stop_word_running = False
-@@
--                    # Always process to keep state correct
--                    stopped = False
--
--                    # No debugging when no detection
--                    state.stop_word.debug_probabilities = False
--
--                    # Apply stop word sensitivity threshold
--                    state.stop_word.probability_cutoff = state.stop_word_threshold
--                    # _LOGGER.debug("Set stop word probability cutoff to %.3f", state.stop_word_threshold)
--                    for micro_input in micro_inputs:
--                        if state.stop_word.process_streaming(micro_input):
--                            state.stop_word.debug_probabilities = True
--                            stopped = True
--
--                    if stopped and (state.stop_word.id in state.active_wake_words) and not state.muted:
-+                    # The stop word is added to active_wake_words only while a
-+                    # reply, announcement or timer is playing. Inferring it the
-+                    # rest of the time costs a whole model and can never be acted
-+                    # on. The model keeps state between windows, so it is reset
-+                    # when it becomes reachable again rather than scoring a stale
-+                    # window as if it were current.
-+                    stopped = False
-+                    stop_active = state.stop_word.id in state.active_wake_words
-+                    if stop_active and not stop_word_running:
-+                        state.stop_word.reset()
-+                        stop_word_running = True
-+                    elif not stop_active:
-+                        stop_word_running = False
-+
-+                    if stop_active:
-+                        state.stop_word.debug_probabilities = False
-+                        state.stop_word.probability_cutoff = state.stop_word_threshold
-+                        for micro_input in micro_inputs:
-+                            if state.stop_word.process_streaming(micro_input):
-+                                state.stop_word.debug_probabilities = True
-+                                stopped = True
-+
-+                    if stopped and (state.stop_word.id in state.active_wake_words) and not state.muted:
-                         _LOGGER.debug("Stop word detected")
-                         state.satellite.stop()
-```
+The first form of the patch had the gate inline in `__main__.py` (26 insertions,
+12 deletions) and is what produced the original measurement. It was replaced
+because an inline version cannot be unit-tested: `process_audio()` is an
+untested `while True` loop over a microphone, and `__main__` cannot even be
+imported in a test without opening a PulseAudio context. The extracted helper
+carries nine unit tests in the fork.
 
-Measured effect: **41.9% → 30.9%** of one core (−11.0 points, −26% relative), with a
-300 s confirmation sample at 32.8%. Measured cost: the model reload is 17–25 ms and
-the sliding window needs about 150 ms of audio, so a stop word spoken in the first
-~170 ms of a reply can be missed. Detection then works normally: the stop clip scored
-0.697 and halted a TTS reply on the device.
+On the board, re-measured after the change with the same method
+(`/tmp/measure_lva.sh`, 480 s idle): **31.1% of one core**, consistent with the
+30.9% and 32.8% samples for the inline form. So the refactor kept the saving.
+
+A silent check drove the shipped module with the real `stop` model and the
+feature frontend, no speaker involved (`/tmp/check_stop_word.py`, 78 frames of a
+synthetic "stop" clip):
+
+| Case | Inferences | Result |
+| --- | --- | --- |
+| stop word inactive | 0 | not stopped, model never invoked |
+| stop word active | 46 | stopped at frame 46 of 78 |
+
+Measured cost: the model reload is 17–25 ms and the sliding window needs about
+150 ms of audio, so a stop word spoken in the first ~170 ms of a reply can be
+missed. Detection then works normally: the stop clip scored 0.697 and halted a
+TTS reply on the device, and the wake word still completed a Home Assistant
+round trip.
 
 A Debra-side **setting** ("stop word: off / on", default off on Pi Zero W v1/v1.1)
 is a separate change. It is not a one-liner: the web server has exactly two write

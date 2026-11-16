@@ -10,6 +10,10 @@
 # alone, and a checkout that is neither clean nor patched is refused so a
 # half-applied state cannot be mistaken for success.
 #
+# It adds linux_voice_assistant/stop_word.py byte-identical to the one in the
+# upstream pull request and only rewires the v1.1.18 call site to it, so running
+# on this board exercises the same gating logic under review.
+#
 # TODO(migrate): delete this script and the patch when a linux-voice-assistant
 #   release contains the gate (OHF-Voice/linux-voice-assistant#526). Then the
 #   only Zero W workarounds left are the ARMv6 library and the dependency pins.
@@ -30,10 +34,11 @@ elif git apply --check "$PATCH" 2>/dev/null; then
   echo "stop-word gate: applied"
 else
   echo "stop-word gate: the checkout is neither clean nor patched. Refusing." >&2
-  echo "Reset with: git -C $DIR checkout -- linux_voice_assistant/__main__.py" >&2
+  echo "Revert with: git -C $DIR apply -R $PATCH" >&2
   exit 1
 fi
 
 if [ -x .venv/bin/python ]; then PYTHON=.venv/bin/python; else PYTHON=python3; fi
-"$PYTHON" -m py_compile linux_voice_assistant/__main__.py
+"$PYTHON" -m py_compile linux_voice_assistant/__main__.py \
+  linux_voice_assistant/stop_word.py
 echo "stop-word gate: compiles cleanly"

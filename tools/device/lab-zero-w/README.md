@@ -16,7 +16,7 @@ run on the board.
 | Workaround | Why it exists | Upstream | Retire when |
 | --- | --- | --- | --- |
 | ARMv6 `libtensorflowlite_c.so` (`21-armv6-tflite.sh`) | Every piwheels ARM wheel of `pymicro-wakeword` and `pyopen-wakeword` contains an **x86-64** library, so the engines import and then fail to load a model. The script copies a pinned ARMv6 build over both | [pymicro-wakeword#22](https://github.com/OHF-Voice/pymicro-wakeword/pull/22) | A `pymicro-wakeword` release ships `lib/linux_armv6l`. **`pyopen-wakeword` has no equivalent fix**, so that half needs its own upstream change or stays local |
-| Stop-word gating (`22-stop-word-gate.sh`) | The stop model was inferred on every audio frame although it can only act while a reply, announcement or timer plays. Gating it took idle LVA from 41.9% to 30.9% of the single core | [linux-voice-assistant#526](https://github.com/OHF-Voice/linux-voice-assistant/pull/526) | A `linux-voice-assistant` release contains the gate. Then delete this script and its patch |
+| Stop-word gating (`22-stop-word-gate.sh`) | The stop model was inferred on every audio frame although it can only act while a reply, announcement or timer plays. Gating it took idle LVA from 41.9% to 30.9% of the single core. The patch adds `linux_voice_assistant/stop_word.py` **byte-identical to the one in the pull request** and only rewires the v1.1.18 call site, so the board runs the same logic under review | [linux-voice-assistant#526](https://github.com/OHF-Voice/linux-voice-assistant/pull/526) | A `linux-voice-assistant` release contains the gate. Then delete this script and its patch |
 
 Dependency pins in [`constraints-armv6.txt`](constraints-armv6.txt) are a third,
 smaller workaround: the newest releases of `numpy`, `av` and `zeroconf` have no
@@ -42,7 +42,9 @@ steps are re-run and are idempotent.
 systemctl --user is-active linux-voice-assistant
 readelf -h ~/linux-voice-assistant/.venv/lib/python3*/site-packages/pymicro_wakeword/lib/libtensorflowlite_c.so \
   | grep Machine                     # expect: ARM
-git -C ~/linux-voice-assistant diff --stat   # expect: one file, from the patch only
+git -C ~/linux-voice-assistant status --short
+  # expect: M linux_voice_assistant/__main__.py
+  #         ?? linux_voice_assistant/stop_word.py
 ```
 
 A functional check needs the speaker and microphone: play a positive wake-word
@@ -51,11 +53,27 @@ play a "stop" clip during the reply and look for `Stop word detected`.
 
 ## Revert
 
-The patch is one file:
+The patch touches two files, one of them new, so reverse it rather than editing
+by hand:
+
+```sh
+git -C ~/linux-voice-assistant apply -R \
+  ~/zero-w-workarounds/patches/0001-gate-idle-stop-word-v1.1.18.patch
+systemctl --user restart linux-voice-assistant
+```
+
+That also deletes `linux_voice_assistant/stop_word.py`, so the checkout returns
+to the released tag exactly.
+
+## Upgrading a board that has the earlier patch
+
+The first version of this patch put the gate inline in `__main__.py`. A checkout
+carrying it is neither clean nor acceptably patched, so `22-stop-word-gate.sh`
+refuses rather than stacking changes. Revert the old shape first:
 
 ```sh
 git -C ~/linux-voice-assistant checkout -- linux_voice_assistant/__main__.py
-systemctl --user restart linux-voice-assistant
+./22-stop-word-gate.sh
 ```
 
 The library replacement is overwritten by `script/setup` the next time the
