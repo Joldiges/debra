@@ -100,6 +100,7 @@ sources; read the review before using it.
 | [ReSpeaker Trixie driver](notes/2026-11-15-respeaker-trixie-driver.md) | ARMv6 | Kernel-symbol evidence for the overlay on the 6.12/Trixie combination |
 | [armv6 has no ReSpeaker v2 codec driver](notes/2026-11-16-armv6-tlv320aic3x-absent.md) | ARMv6 | Device-confirmed: the armv6 kernel omits `TLV320AIC3X_I2C` while arm64 has it `=m`; the shipped overlay is the v1 board's. Two out-of-tree modules and Seeed's DT-only overlay fix it |
 | [ARMv6 dependency findings](notes/2026-11-16-armv6-dependency-findings.md) | ARMv6 | Device-tested: the suspicious wheels (numpy v8 objects, webrtc VFPv3) run fine; the real failure is unpinned resolution picking a version with no armv6l wheel. The retained historical TFLite binary works |
+| [Pi Zero W CPU accounting](notes/2026-11-16-zero-w-lva-cpu-accounting.md) | ARMv6 | Device-measured: wake inference dominates; ~38% of the pipeline was a stop-word model that ran every frame but could only act during playback. Gating it took idle LVA from 41.9% to 30.9% of the core (wake and stop still verified). Subsampling features does not lower the rate (the model is stateful). Patch applied and raised on James's fork, not upstream |
 | [Device health to Home Assistant](notes/2026-11-15-device-health-to-home-assistant.md) | optional extras | Desk study on publishing health without inventing a new backend |
 
 Three design specifications are also new and unreviewed:

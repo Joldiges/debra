@@ -12,7 +12,7 @@ validated**, see the [evidence summary](guides/current-status.md).
 
 This is a **tracked planning snapshot, not a live device/worker monitor**.
 Status comes from the [roadmap](roadmap.md) and [work queue](work-queue.md).
-Source fingerprint: `90fb088036c5`. Regenerate after changing either source.
+Source fingerprint: `e9c4c677571d`. Regenerate after changing either source.
 
 ## Colour key
 
@@ -30,7 +30,7 @@ a partial/in-review packet can still have unmet prerequisites. The packet
 tables below retain both. Grey means no *recorded* progress, not proof no
 one has ever investigated it. Neither colour nor readiness grants device permission.
 
-**75 roadmap packets:** 4 finished · 1 in progress · 10 in review · 14 partial · 46 blocked · 0 untouched.
+**76 roadmap packets:** 4 finished · 1 in progress · 10 in review · 14 partial · 47 blocked · 0 untouched.
 Counts are packets, **not a percentage complete**; packet sizes differ.
 
 ## Product overview
@@ -503,7 +503,7 @@ flowchart TD
 </details>
 
 <details>
-<summary>Voice integration (4 packets)</summary>
+<summary>Voice integration (5 packets)</summary>
 
 [Acceptance and evidence](roadmap.md#voice-integration)
 
@@ -518,6 +518,7 @@ flowchart TD
     V02["V02 · Pinned voice adapter<br/>PARTIAL"]:::partial
     V03["V03 · Wake and satellite options<br/>BLOCKED"]:::blocked
     V04["V04 · Timers, alarms and announcements<br/>BLOCKED"]:::blocked
+    V05["V05 · Stop-word setting and default<br/>BLOCKED"]:::blocked
     Z01["Z01 · ARMv6 dependency reconnaissance<br/>FINISHED"]:::finished
     B03["B03 · Demonstrate on-target file restore<br/>PARTIAL"]:::partial
     R04 --> V01
@@ -530,6 +531,8 @@ flowchart TD
     C01 --> V03
     V02 --> V04
     A03 --> V04
+    V02 --> V05
+    C01 --> V05
     classDef finished fill:#dcfce7,stroke:#166534,color:#111827,stroke-width:2px;
     classDef running fill:#dbeafe,stroke:#1e40af,color:#111827,stroke-width:2px;
     classDef review fill:#f3e8ff,stroke:#7e22ce,color:#111827,stroke-width:2px;
@@ -544,6 +547,7 @@ flowchart TD
 | V02 · Pinned voice adapter | PARTIAL | blocked | V01, A02, C02, B03 | V01, A02, C02, B03 |
 | V03 · Wake and satellite options | BLOCKED | blocked | V02, C01 | V02, C01 |
 | V04 · Timers, alarms and announcements | BLOCKED | blocked | V02, A03 | V02, A03 |
+| V05 · Stop-word setting and default | BLOCKED | blocked | V02, C01 | V02, C01 |
 
 </details>
 

@@ -2,7 +2,7 @@
 
 **Worker entrypoint for “work on any task chain” or “work on this taskchain.”**
 The [roadmap](roadmap.md) remains the canonical backlog and acceptance criteria.
-This dashboard groups **65** of its packets into **19 streams**, not 19 competing
+This dashboard groups **66** of its packets into **19 streams**, not 19 competing
 TODOs; the ten browser packets (`WEB01`–`WEB10`) are not in the registry yet.
 The [machine-readable catalog](work/chains.json) assigns every registered packet
 once.
@@ -37,7 +37,7 @@ Workers never mark their own packet done or choose new architecture.
   not an approved production lower-cost editing role.
 - Future implementation, physical tests, architecture, and curated shared
   conclusions require new coordinator cards and the roadmap prerequisites.
-  All 65 registered packets are mapped below; the ten browser packets are not in
+  All 66 registered packets are mapped below; the ten browser packets are not in
   the registry, and only the nine starters are self-selectable.
 - A worker without permission to run the dispatcher asks its trusted
   coordinator to execute the exact startup/status/submission operations.
@@ -64,7 +64,7 @@ direction, not a replacement dependency graph.
 | `lab-fleet` | L01 → L02 → L03: inventory/scope, target binding, clean reset | Requires named hardware, authorized operations, recovery; no automatic device leasing here |
 | `control-ui` | C01 → C02 → C03 → C04/C05: config, operations, CLI, SSH TUI, diagnostics | Requires F03 and reviewed contracts; don't invent a plugin framework |
 | `audio` | A01 → A02 → A03/A04: baseline, HAT profiles, interruption, controls | Requires exact revisions, R01/R04/T01/L01; hardware permission separate |
-| `voice` | V01 → V02 → V03/V04: LVA audit, adapter, options, timer/alarm gaps | Requires R04/Z01; later adapter uses tested audio/recovery/core |
+| `voice` | V01 → V02 → V03/V04/V05: LVA audit, adapter, options, timer/alarm gaps, stop-word setting | Requires R04/Z01; later adapter uses tested audio/recovery/core |
 | `music-adapters` | M01 → M02 plus M03 → M04: SendSpin, multi-device test, Snapcast, coexistence | Requires R03/A02/C02/B03; no implied cross-protocol sync |
 | `updates` | U01 → U02 → U03: pins/planner, rollback transaction, opt-in automation | Requires F03/R03/V01; manual defaults and proven recovery |
 | `images` | I01 → I02 → I03 → I04: reuse/design, pinned recipe, multi-board boot, packaging | Requires research/architecture and authorized build host; publication still separate |

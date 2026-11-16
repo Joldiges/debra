@@ -14,7 +14,7 @@
     {"id": "lab-fleet", "packets": ["L01", "L02", "L03"]},
     {"id": "control-ui", "packets": ["C01", "C02", "C03", "C04", "C05"]},
     {"id": "audio", "packets": ["A01", "A02", "A03", "A04"]},
-    {"id": "voice", "packets": ["V01", "V02", "V03", "V04"]},
+    {"id": "voice", "packets": ["V01", "V02", "V03", "V04", "V05"]},
     {"id": "music-adapters", "packets": ["M01", "M02", "M03", "M04"]},
     {"id": "updates", "packets": ["U01", "U02", "U03"]},
     {"id": "images", "packets": ["I01", "I02", "I03", "I04"]},
