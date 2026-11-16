@@ -136,7 +136,7 @@ features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
 first baseline now have an implementation (`control/setup/`, 177 onboarding tests
 and 39 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 653 tests, 43 of which are the opt-in browser cases that
+whole offline suite is 654 tests, 43 of which are the opt-in browser cases that
 skip in an ordinary run (`-p 'test_*browser.py'` with `DEBRA_BROWSER_TEST=1`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,
