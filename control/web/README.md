@@ -3,8 +3,9 @@
 Reusable Python-standard-library service and local HTML/CSS/JavaScript, not a
 complete appliance or an internet-facing administration server. Current scope:
 native **selected-sink volume and mute**, plus read-only hardware/resources,
-service probes and a **read-only Setup card** (HAT, tools and settings, updates)
-where every choice is disabled with its reason. See the
+service probes, a **read-only Setup card** (HAT, tools and settings, updates)
+where every choice is disabled with its reason, and a **Planned task list** of
+the jobs the appliance will do later. See the
 [web requirements](../../docs/design/web-control.md)
 and [roadmap](../../docs/roadmap.md#browser-first-device-control).
 
@@ -36,6 +37,13 @@ and [roadmap](../../docs/roadmap.md#browser-first-device-control).
   3.5 mm jack or USB audio" row is an alternative rather than a board, so it is
   not asked of the EEPROM at all and does not claim the EEPROM fails to name a
   ReSpeaker.
+- A **Device tasks** card lists the jobs a person will come to the page for —
+  changing Wi-Fi, restarting speech or music, keeping a known-good copy,
+  maintenance over SSH, speaking through the device — and marks every one
+  **Planned** with the roadmap id it waits on. The rows are static markup with
+  no control of any kind, because there is no device state to report about work
+  that has not been built. They are there so the intended shape is visible and
+  testable, not to suggest the tasks are close.
 
 ## Security boundary
 

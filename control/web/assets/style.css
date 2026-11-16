@@ -79,6 +79,9 @@ h3 { color: #d5e4e0; font-size: 15px; font-weight: 650; letter-spacing: .01em; m
 .choice { display: flex; flex-direction: column; gap: 8px; border: 1px solid #3b514c; border-radius: 11px; padding: 14px 16px; }
 .choice-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .choice-head label { margin: 0; font-weight: 600; }
+/* A planned task has no control to point at, so its title is a span rather
+   than a label: a label with no field is a promise the row cannot keep. */
+.choice-title { color: #e6eeed; font-size: 15px; font-weight: 600; }
 .choice-detail, .choice-caveat, .choice-status { margin: 0; font-size: 13px; line-height: 1.6; }
 .choice-caveat { color: var(--muted); font-size: 12px; }
 .choice-status { color: var(--accent); }
