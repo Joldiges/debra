@@ -750,6 +750,11 @@ window.addEventListener("load", async () => {
              id + " is below the first screen (bottom " + Math.round(box.bottom)
              + " of " + height + ")");
     }
+    // The button just pressed is gone, so focus must not fall back to the top of
+    // the document: it moves to the device name, which is what a keyboard or
+    // screen-reader user needs next.
+    assert(document.activeElement === document.getElementById("hostname"),
+           "focus did not move to the device name: " + (document.activeElement.id || document.activeElement.tagName));
     // The heading is what tells a person which device they are looking at.
     const host = document.getElementById("hostname").getBoundingClientRect();
     assert(host.bottom <= height + 0.5, "the device name is below the first screen");
@@ -1699,7 +1704,13 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("pair").hidden === false, "the pairing card did not return");
     assert(document.getElementById("volume").disabled,
            "the volume control is still live after disconnect");
-    result.textContent = "PASS: an audio write settling after Disconnect raises nothing and stays disconnected";
+    // Disconnecting leaves the person on a page that wants a key, so that is
+    // where focus belongs rather than nowhere.
+    assert(document.activeElement === document.getElementById("key"),
+           "focus did not move to the key field after disconnect: "
+           + (document.activeElement.id || document.activeElement.tagName));
+    result.textContent = "PASS: an audio write settling after Disconnect raises nothing, "
+      + "stays disconnected, and puts focus on the key field";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }

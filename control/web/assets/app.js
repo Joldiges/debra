@@ -294,8 +294,16 @@ function buildLabel(version) {
 function render(data) {
   el("pair").hidden = true;
   showPairStatus("");
+  const firstPaint = el("dashboard").hidden;
   el("dashboard").hidden = false;
   updateCurrentSection();
+  if (firstPaint) {
+    // The button a person just pressed is gone. Left alone, focus falls back to
+    // the top of the document and a keyboard or screen-reader user has to find
+    // the page again. Focus goes to the device's name instead, which is also the
+    // first thing they need to hear.
+    el("hostname").focus({preventScroll: true});
+  }
   el("build").textContent = buildLabel(data.version);
   // The full digest is what a person compares between devices; the short form
   // is what fits. Hovering gives the whole thing without widening the footer.
@@ -717,6 +725,8 @@ el("disconnect").addEventListener("click", () => {
   el("dashboard").hidden = true;
   el("pair").hidden = false;
   el("connection").textContent = "Disconnected";
+  // The key field is what they need next.
+  el("key").focus({preventScroll: true});
 });
 el("retry").addEventListener("click", async () => {
   // A read, and only a read: a write whose outcome was uncertain is never

@@ -10,7 +10,7 @@
 <body>
   <a class="skip" href="#main-content">Skip to device controls</a>
   <header><a class="brand" href="/">debra<span>DEVICE CONTROL</span></a><span id="connection" role="status">Connect to your device</span></header>
-  <main id="main-content">
+  <main id="main-content" tabindex="-1">
     <!-- A read failure is named near the top of the page, not several screens
          below the readings it concerns. It sits outside the dashboard so a
          refusal on the welcome card has somewhere to appear too. -->
@@ -45,7 +45,7 @@
            person reading "36%" further down needs the warning next to it. Empty
            is the normal state; `:empty` removes the box. -->
       <p id="stale-notice" class="action-notice" role="status"></p>
-      <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div></div>
+      <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname" tabindex="-1">Debra</h1><p id="model"></p></div></div>
       <!-- The order here is the order down the page. It used to put Setup
            before Device and Health, so the navigation disagreed with the
            document it navigates. The first entry carries aria-current until the
