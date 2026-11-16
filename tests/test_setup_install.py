@@ -492,6 +492,14 @@ class ServiceTests(Fixture):
                 time.sleep(0.02)
             else:
                 self.fail("the setup page never reached the hotspot phase")
+            # The state write and the note are separate steps, so a fast poll
+            # can observe `hotspot` in the window before the note exists. Read
+            # only once it is there; otherwise this test is a load-dependent
+            # FileNotFoundError rather than a measurement.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not note.exists():
+                time.sleep(0.02)
+            self.assertTrue(note.exists(), "the setup note was never written")
             # The service writes the note a person needs before any page loads.
             self.assertIn("Debra-Setup-", note.read_text())
             self.assertEqual(file_mode(state_path), 0o600)
