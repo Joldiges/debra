@@ -11,6 +11,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Getting started](guides/getting-started.md) | Current progress, how the pieces fit, and separate newcomer/existing-device/builder paths |
 | [Project brief](project-brief.md) | What James wants; requirements are not proof of implementation |
 | [Roadmap](roadmap.md) | Current packets, prerequisites, and acceptance; not permission to operate devices |
+| [Visual progress map](progress.md) | Colour-coded product overview and every roadmap dependency; generated from the roadmap and work queue |
 | [Work queue](work-queue.md) | Execution state: what is running, queued, in review, done or blocked, and what blocks it |
 | [Parts in hand](design/parts-manifest.md) | The parts James reports owning, separated from assumptions, as the input to enclosure design |
 | [Task chains](task-chains.md) | “Any chain” / named-chain worker entrypoint, atomic claims, workspaces, and handoffs |
@@ -140,6 +141,15 @@ Start each report with a short result, evidence status, limitations, and next
 action; put detailed sources and reproduction underneath. A beginner should
 not have to read task logs to follow a guide, and an AI should not have to
 infer current instructions from an old chat.
+
+### Maintain the progress map
+
+When packet status, partial evidence, dependencies or execution/review state
+change, the coordinator updates [roadmap](roadmap.md) and [work queue](work-queue.md),
+then runs `python3 tools/progress.py`. Do not edit generated `docs/progress.md`.
+`python3 tools/progress.py --check` and the ordinary offline suite detect drift.
+Short titles/overview layout live in the generator; no duplicate task status or
+ownership registry does. See the map's [maintenance instructions](progress.md#keeping-this-maintained).
 
 ## Images and renders
 
