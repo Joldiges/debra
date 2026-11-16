@@ -51,9 +51,15 @@ class DispatcherTests(unittest.TestCase):
         (self.repo / ".gitignore").write_text("/.local/\n")
         # The dispatcher tests need one eligible starter, and packet states move
         # as work lands. Pin R01 to `ready` in the fixture so these tests check
-        # the mechanism rather than the project's live review state.
+        # the mechanism rather than the project's live review state. A second
+        # packet is pinned for the `--chain any` case: it must have something
+        # other than the already-claimed chain to choose, and relying on whatever
+        # else happened to be `ready` broke as soon as T01 and Z01 were accepted.
         roadmap = self.repo / "docs/roadmap.md"
-        roadmap.write_text(roadmap.read_text().replace("| R01 / review |", "| R01 / ready |", 1))
+        pinned = roadmap.read_text()
+        for packet in ("R01", "R02"):
+            pinned = pinned.replace(f"| {packet} / review |", f"| {packet} / ready |", 1)
+        roadmap.write_text(pinned)
         pilot = self.repo / "docs/testing/pilot-fixture.md"
         pilot.parent.mkdir(parents=True)
         pilot.write_text("SYNTHETIC TEST ONLY: not real role/permission verification.\n")
