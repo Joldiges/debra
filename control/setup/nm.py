@@ -23,6 +23,18 @@ LOGGER = logging.getLogger("debra.setup.nm")
 # A profile anywhere else is not persistent, however successfully it loads.
 PROFILES_DIR = "/etc/NetworkManager/system-connections"
 
+# The loopback alias a Debian install gives the machine's own name. `hostnamectl`
+# does not touch it, and nothing rewrites it until the next boot, so a device
+# renamed while it is running kept answering `sudo` with "unable to resolve
+# host" and `hostname -f` with an error, for the rest of that boot.
+HOSTS_PATH = Path("/etc/hosts")
+HOSTS_ALIAS = "127.0.1.1"
+
+# The responder that publishes `<name>.local`. It does not follow a live
+# hostname change on Raspberry Pi OS: a device renamed this way kept answering
+# its previous name until this was restarted.
+MDNS_UNIT = "avahi-daemon.service"
+
 
 class NmError(Exception):
     """A NetworkManager operation failed. The message is safe to show a user."""
@@ -133,6 +145,90 @@ def valid_hostname(name):
     `hostnamectl` accepts one that avahi will not announce as `<name>.local`.
     """
     return isinstance(name, str) and bool(re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?", name))
+
+
+def hosts_naming(text, hostname):
+    """Return `/etc/hosts` text that names this device on its loopback alias.
+
+    The alias is the device's own name, and there is one such line. Its content
+    is rewritten; every other line keeps its text, including the comment header
+    cloud-init writes and the IPv6 block. Line endings are normalised to LF and a
+    trailing newline is added, because the file is written back whole.
+
+    The alias carries the name twice, which is the shape Raspberry Pi OS writes
+    (`127.0.1.1 debra-lab debra-lab`). The line is rewritten whole, so **every
+    other name on it is deleted**, including one a person added: any name there is
+    a name this device answers to, and a leftover from a previous device name made
+    `sudo` resolve the wrong one. For the same reason a second `127.0.1.1` line is
+    removed rather than left behind.
+
+    If the text has no `localhost` entry the result gains one, so a file that was
+    truncated or left empty cannot come back without a resolvable localhost.
+    """
+    alias = f"{HOSTS_ALIAS} {hostname} {hostname}"
+    lines = []
+    placed = False
+    has_localhost = False
+    for existing in text.splitlines():
+        fields = existing.split()
+        if fields[:1] == [HOSTS_ALIAS]:
+            if not placed:
+                lines.append(alias)
+                placed = True
+            continue
+        if fields[:1] == ["127.0.0.1"]:
+            has_localhost = True
+        lines.append(existing)
+    if not has_localhost:
+        lines.append("127.0.0.1 localhost")
+    if not placed:
+        # Beside the localhost entry, where a person reading the file expects it.
+        for index, existing in enumerate(lines):
+            if existing.split()[:1] == ["127.0.0.1"]:
+                lines.insert(index + 1, alias)
+                break
+        else:
+            lines.append(alias)
+    return "\n".join(lines) + "\n"
+
+
+def _replace_text(path, text):
+    """Replace a file's contents atomically, keeping its mode and owner.
+
+    The same shape as the keyfile writer below, for the same reason: an
+    interrupted in-place write of `/etc/hosts` leaves a device that cannot
+    resolve `localhost`, and `O_TRUNC` has exactly that window. `path` is already
+    resolved by the caller, so replacing it keeps a symlinked `/etc/hosts`
+    working.
+
+    Owner and mode are copied. ACLs, extended attributes and a security label are
+    not, and a `/etc/hosts` that is a bind mount cannot be replaced this way at
+    all (`os.replace` fails with `EBUSY`). Neither applies to a stock Raspberry Pi
+    OS image; both would matter on a container or an image that mounts the file.
+    """
+    original = path.stat()
+    fd, staged = tempfile.mkstemp(prefix=f".{path.name}-", suffix=".part",
+                                  dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.chown(staged, original.st_uid, original.st_gid)
+        except (OSError, AttributeError):
+            pass
+        # Mode after owner: a chown can clear the set-user-ID and set-group-ID
+        # bits, and chmod is what puts the original mode back exactly.
+        os.chmod(staged, original.st_mode & 0o7777)
+        os.replace(staged, path)
+        _fsync_directory(path.parent)
+    except BaseException:
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        raise
 
 
 def _keyfile_value(text):
@@ -263,8 +359,9 @@ def write_keyfile(directory, ssid, psk, connection_id, autoconnect=False,
 class Nmcli:
     """The real adapter. `runner` is injectable so tests never touch a network."""
 
-    def __init__(self, runner=_run):
+    def __init__(self, runner=_run, hosts_path=HOSTS_PATH):
         self._run = runner
+        self._hosts_path = Path(hosts_path)
 
     def wifi_interface(self):
         out = self._run(["nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status"])
@@ -294,10 +391,79 @@ class Nmcli:
         Recording a name is not applying it. Without this the page shows a name
         the device does not answer to, so `<name>.local` never resolves and the
         person has no way to reach it after the setup network is gone.
+
+        Applying it is more than `hostnamectl`. The loopback alias in
+        `/etc/hosts` and the running mDNS responder both keep the previous name
+        until something tells them, and neither follows a live rename on
+        Raspberry Pi OS. A device renamed by an earlier version of this method
+        answered `hostname -f` with "Name or service not known", printed
+        `sudo: unable to resolve host <new name>` on every privileged command,
+        and still advertised `<old name>.local`, all until it was rebooted.
         """
         if not valid_hostname(hostname):
             raise NmError("Device name must be letters, digits and dashes, 1-63 characters")
         self._run(["hostnamectl", "set-hostname", hostname], timeout=30)
+        # After the rename, never before: an alias written first would name a
+        # hostname the machine does not have if `hostnamectl` then failed.
+        self._alias_hosts(hostname)
+        self._restart_mdns()
+
+    def _alias_hosts(self, hostname):
+        """Point the loopback alias at `hostname`, keeping the rest of the file.
+
+        A failure here is not fatal. The name itself is applied and the device
+        works, and the caller already treats a `set_hostname` failure as "recorded
+        but not applied", which would be a false statement here: it was applied,
+        only incompletely.
+        """
+        try:
+            # Resolved, so a symlinked /etc/hosts keeps working when the target
+            # is replaced rather than rewritten in place.
+            target = self._hosts_path.resolve()
+            text = target.read_text(encoding="utf-8", errors="surrogateescape")
+        except OSError:
+            LOGGER.warning("Device name applied but %s could not be read", self._hosts_path)
+            return
+        updated = hosts_naming(text, hostname)
+        if updated == text:
+            return
+        try:
+            _replace_text(target, updated)
+        except OSError:
+            LOGGER.warning("Device name applied but %s could not be updated",
+                           self._hosts_path)
+
+    def _restart_mdns(self):
+        """Make `<name>.local` follow the name the device now has.
+
+        `restart` would also *start* a responder somebody deliberately stopped,
+        and this service does not own mDNS, so it is only restarted when it is
+        already running. A device with no avahi at all publishes no `.local`
+        name, so there is nothing to correct and nothing to report.
+
+        This is not conditional on the name having changed. Asking the responder
+        what it is advertising is the honest test and there is no cheap way to do
+        it: `hostnamectl --static` only reports what `/etc/hostname` holds, which
+        is already correct when another tool did the rename, and restarting only
+        on a change would leave exactly that device stale. An explicit
+        `host-name=` in `avahi-daemon.conf` also survives this restart, which is
+        why the setup page still offers the address as well as the name.
+
+        A failed query is treated as "nothing to restart". "Not running" and "no
+        such unit" cannot be told apart without parsing systemctl's text, which
+        this module never does, and a warning on every rename of a device without
+        avahi would read as a fault.
+        """
+        try:
+            state = self._run(["systemctl", "is-active", MDNS_UNIT], timeout=15).strip()
+        except (NmError, AttributeError):
+            return
+        if state != "active":
+            return
+        try:
+            self._run(["systemctl", "try-restart", MDNS_UNIT], timeout=30)
+        except (NmError, AttributeError):
+            LOGGER.warning("Device name applied but %s was not restarted", MDNS_UNIT)
 
     def set_country(self, code):
         if not valid_country(code):

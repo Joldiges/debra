@@ -186,10 +186,127 @@ restart only on change, invalid names writing nothing, and both failures staying
 non-fatal). Full suite: 675 tests, the only two errors are in `control/web/`,
 which this change does not touch.
 
+## The fix, verified on the board
+
+The fixed release
+(`599cb2b09c91a002a6501622661952416a476373e2e4ab14b8a7de56dcd37fde`) was
+installed over the first one; the previous unit was retained at
+`/usr/local/lib/debra/setup/previous-units/20261116T045957998733Z.service`, so the
+rollback path the installer promises exists on a real device now.
+
+Installing it repaired the file the first release left behind:
+
+```
+127.0.1.1 debra-8518d6 debra-8518d6      # was: debra-8518d6 debra-lab
+127.0.0.1 localhost
+```
+
+Then a **live rename** was forced by writing `debra-renametest` into
+`setup.json` and restarting the unit — the same path a first boot would take,
+without waiting for a boot:
+
+| After the rename | Result |
+| --- | --- |
+| `hostnamectl --static` | `debra-renametest` |
+| `/etc/hosts` | `127.0.1.1 debra-renametest debra-renametest`, rewritten in the same second |
+| `hostname -f` | `debra-renametest` |
+| `sudo` | silent, no "unable to resolve host" |
+| `debra-renametest.local` from the host | `192.168.0.99`, immediately |
+| `debra-8518d6.local` | timed out |
+| Wi-Fi | `home` still activated, same address, SSH session survived |
+
+Reverting to `debra-8518d6` reproduced the same result in reverse: alias, `-f`,
+`sudo` and mDNS all followed within a second, with no reboot. **Both defects are
+now fixed at the moment of the rename rather than at the next boot**, which is
+the window a person installing this on a running device actually sits in.
+
+## What tripped during that test: the start limit
+
+The third restart inside five minutes was refused:
+
+```
+Job for debra-setup.service failed because start of the service was attempted too often.
+```
+
+`StartLimitBurst=3` / `StartLimitIntervalSec=300` is deliberate — a failing portal
+must not loop on port 80 — but it applies to maintenance as well as to faults, so
+`systemctl reset-failed debra-setup.service` is required before starting the unit
+again. That was added to the install section of the
+[setup README](../../../control/setup/README.md), because a person iterating on a
+device will meet it.
+
+The state file and the device disagreed for those few minutes: `setup.json` said
+`debra-8518d6` while the device was still `debra-renametest`, because the service
+never ran. Nothing reconciled them automatically — the next start did.
+
+## Addendum after review: the shipped code is not the code this page describes
+
+Added 2026-11-16. The two sections above were written in the same session that
+found the defects, and they describe the **first draft** of the fix: a
+`hostnamectl --static` change check, an in-place `/etc/hosts` write, and a
+responder restart only when the name changed. An independent review rejected that
+draft, and the shipped code is different in ways that matter:
+
+| This page says | The code now does |
+| --- | --- |
+| alias written in place with `open(..., "w")` | staged temp file, fsync, `os.replace` on the resolved path, directory fsync — an interrupted write cannot leave a truncated `/etc/hosts` |
+| `127.0.1.1` line rewritten, other names dropped | unchanged in intent, and `127.0.0.1 localhost` is now synthesised when absent, so a truncated file cannot come back unresolvable |
+| responder restarted only when the name changed | reconciled on every run, gated on `systemctl is-active` and issued as `try-restart`, so a deliberately stopped responder is not started |
+| 14 tests | 25 |
+| unit ordered after `cloud-config.service`/`cloud-final.service` | ordered after `cloud-init.service` and `cloud-init-network.service`; the other two are after `network-online.target` and, for `cloud-final`, after `multi-user.target`, which this unit is wanted by — naming them would cycle or delay |
+
+The device evidence above is real, and it verified the **behaviour**: a live
+rename repaired the alias, `hostname -f` and `sudo` in the same second, mDNS
+followed without a reboot, and the Wi-Fi connection survived. The *mechanism*
+verified on the board was the first draft's. The atomic replace and the
+unconditional reconcile have run only in tests.
+
+Read [the setup README](../../../control/setup/README.md) for what the shipped
+code does. This page is the record of how it was found and what was measured.
+
+## The shipped ordering, verified on the board
+
+The review rejected the first ordering line for a real reason: `cloud-final.service`
+is itself `After=multi-user.target`, and this unit is `WantedBy=multi-user.target`,
+so naming it is an ordering cycle. The shipped line orders after
+`cloud-init.service` and `cloud-init-network.service` instead — the stage that
+actually writes `/etc/hosts`, in both cloud-init eras.
+
+Release `b72a508c4eb98be4c713213761fe3a70047017d42bb9c55c8646638f2117279d`
+was installed and checked before any boot:
+
+```
+$ sudo systemd-analyze verify /etc/systemd/system/debra-setup.service
+(no output, exit 0)
+$ systemctl list-unit-files 'cloud-init*'
+cloud-init-network.service   enabled
+cloud-init-main.service      enabled
+cloud-init-local.service     enabled
+```
+
+Then the board was rebooted and the boot journal read:
+
+| Check | Result |
+| --- | --- |
+| `Found ordering cycle` | **0** occurrences |
+| `cloud-init-network.service` | finished at 18.17 s |
+| `debra-setup.service` | started at 24.31 s, `Result=success`, `NRestarts=0` |
+| `setup phase online` | 27.88 s |
+| Hostname / alias / `hostname -f` | `debra-8518d6` / `127.0.1.1 debra-8518d6 debra-8518d6` / `debra-8518d6` |
+| Network | `home` activated, `192.168.0.99` |
+| `debra-8518d6.local` | resolves to `192.168.0.99` |
+
+So the shipped ordering is not a cycle on this image, and the unit runs after the
+process that owns the file it edits. What this still does not prove is an image
+whose cloud-init metadata pins a hostname: cloud-init would then rewrite the alias
+to that name *before* Debra runs, and Debra would rewrite it back, which is the
+right order but has not been seen.
+
 ## Not done
 
 - The onboarding page, the access point, a join performed by Debra, the rename
   by a *first* boot, and a restore from the baseline are all still unexercised.
-- The fix above is reviewed but not yet reinstalled on the board, so the device
-  is still running the release that leaves `/etc/hosts` and mDNS behind until
-  the next boot.
+- The atomic write and the unconditional responder reconcile have not been on a
+  board; the rename verification above used the first draft.
+- The page's own latency is unmeasured, including the 30-second autoconnect wait
+  plus cloud-init's network stage.

@@ -1,9 +1,12 @@
 # First-boot setup service
 
 Runs `control/setup/` at boot: the device name, the Wi-Fi onboarding page and
-the first baseline. The installer prepares files only; **nothing here has been
-run on a device.** No unit has been enabled, no radio has been raised by it, and
-no `nmcli`, `hostnamectl` or `raspi-config` call has been made by Debra. Read
+the first baseline. **The online path has run on a device; the rest has not.**
+One Zero 2 W has installed it, renamed itself from its serial, captured a
+baseline, and run the unit as part of a boot
+([result](../../docs/testing/results/2026-11-15-zero2w-setup-service-first-run.md)).
+No radio has been raised by it, no page has been served, no join has been
+performed by it, and no baseline has been restored. Read
 [what is still unproven](#what-is-still-unproven) before trusting a step.
 
 The journey itself is described in [first boot](../../docs/design/first-boot.md);
@@ -15,7 +18,13 @@ The unit runs on every boot and asks `Onboarder.resume()`
 ([`onboarding.py`](onboarding.py)) what that boot is:
 
 1. It gives NetworkManager up to 30 seconds to autoconnect. A configured device
-   usually joins its own network in that window, and the boot is then quiet.
+   usually joins its own network in that window, and the boot is then quiet. The
+   unit is ordered after cloud-init's network stage, because cloud-init owns
+   `/etc/hosts` and would otherwise rewrite the alias Debra sets. That stage
+   completes before `network-online.target`, so waiting for it does not wait for
+   the network: naming `cloud-config.service` or `cloud-final.service` instead
+   would, and `cloud-final.service` is ordered after `multi-user.target`, which
+   this unit is itself wanted by.
 2. `resume()` decides from the recorded state. Online means no page and no
    access point, but not a no-op boot: it re-applies the remembered device name
    through `hostnamectl`, verifies the recorded baseline and adopts or captures
@@ -56,6 +65,9 @@ The unit runs on every boot and asks `Onboarder.resume()`
    secrets.
 
 Nothing reboots the device to apply Wi-Fi, and nothing restarts NetworkManager.
+Applying the device name does restart `avahi-daemon` when it is running, because
+that responder keeps the previous name otherwise; a responder somebody stopped is
+left stopped, and a device without one publishes no `.local` name to correct.
 No household passphrase is put in the setup state, passed on a command line or
 kept in a log: NetworkManager's keyfile is where Debra writes it. That keyfile is
 not the only copy of the secret on the device — the first baseline archives it
@@ -167,6 +179,16 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now debra-setup.service
 ```
 
+Every start counts against the unit's `StartLimitBurst`: three starts inside five
+minutes and systemd refuses the next one with "start of the service was attempted
+too often". The limit exists so a failing portal cannot loop on port 80, and
+maintenance trips it as readily as a fault. While working on a device:
+
+```sh
+sudo systemctl reset-failed debra-setup.service
+sudo systemctl start debra-setup.service
+```
+
 `--root <directory>` prepares another tree instead of `/`; the unit it writes
 still names the device paths (`/usr/local/lib/debra/setup/...`), so it is only
 useful for inspection or imaging. `--restore <unit>` is the rollback below.
@@ -208,6 +230,7 @@ untouched, so the evidence survives.
 | `/var/lib/debra/setup/setup.json` | `0600` | The setup state. No household passphrase; it does hold the generated setup-network password, so this file is a credential |
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; this is where the passphrase is written (the baseline below archives a copy) |
+| `/etc/hosts` | (kept) | The loopback alias line, rewritten to the device's name so `hostname -f` and `sudo` resolve it. Replaced atomically, keeping the file's owner and mode; every other line keeps its text. cloud-init rewrites this file too, which is why the unit is ordered after it |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
 | `/etc/systemd/system/multi-user.target.wants/debra-setup.service` | (link) | Only with `--enable`: a link to the unit (relative, or the absolute one systemd writes), which starts it at the next boot |
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |
@@ -300,10 +323,18 @@ Ordered by how likely it is to bite on a real first boot.
    point.
 5. **Nothing has read a real root-only keyfile set.** The baseline has only ever
    run against a temporary root.
-6. **The device name is applied with `hostnamectl`, which has never run.** The
-   adapter refuses a name that would not resolve as `<name>.local`, and the name
-   is applied again on every boot, so a failure is retried rather than
-   remembered as done. No boot has applied one.
+6. **The device name has been applied once, but not by a first boot.** One Zero
+   2 W was renamed `debra-lab` → `debra-8518d6` on a live connection without
+   losing it, and a later boot re-applied the same name. The adapter refuses a
+   name that would not resolve as `<name>.local`, rewrites the `/etc/hosts` alias
+   and restarts the mDNS responder. Unproven: a rename performed by a *first*
+   boot, where the name changes at the moment the device is deciding its own
+   identity, and whether ordering after cloud-init is enough on an image whose
+   metadata pins a hostname. The board verified the *behaviour* — alias repaired,
+   `hostname -f` and `sudo` correct, `<name>.local` answering — with an earlier
+   draft that wrote the file in place and restarted the responder only on a
+   change; the atomic replace and the unconditional reconcile were added after
+   review and are covered offline only.
 7. **The captive-portal redirect may never be asked for.** The probe paths are
    answered, but the setup network's DNS decides whether a phone reaches them;
    see [above](#the-phone-should-offer-to-open-the-page). Until that is measured
@@ -318,9 +349,11 @@ Ordered by how likely it is to bite on a real first boot.
    cannot see it. The service warns (`The setup note is not on a mounted boot
    partition`) and the access point still starts. Nothing refuses to run without
    that partition, and no boot has been tried with it absent.
-10. **The unit has never been loaded by systemd.** The tests read the rendered
-    unit as text; they do not run `systemd-analyze verify`, and they prove
-    nothing about polkit, D-Bus or a radio.
+10. **The unit has run, but never through systemd's own checker.** One Zero 2 W
+    has loaded it at boot and the run is recorded
+    ([result](../../docs/testing/results/2026-11-15-zero2w-setup-service-first-run.md)).
+    `systemd-analyze verify` has not been run against the rendered unit, and the
+    tests prove nothing about polkit, D-Bus or a radio.
 11. **The cooldown is words, not a countdown.** The page says to wait ten
     minutes because the attempt counter lives in the state file and a power
     cycle does not clear it. There is no retry-after the page can count down.
@@ -364,6 +397,7 @@ The offline checks behind this page:
 ```sh
 python3 -B -m unittest tests.test_setup_install -v
 python3 -B -m unittest tests.test_onboarding -v
+python3 -B -m unittest tests.test_setup_identity -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 

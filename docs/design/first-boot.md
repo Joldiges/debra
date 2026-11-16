@@ -1,13 +1,15 @@
 # First boot: from a flashed card to a working device
 
-**Status: partly implemented, 2026-11-15. Nothing here has run on a device.**
+**Status: partly implemented, 2026-11-16. One device has run the online path; nothing here has raised a radio or served the page.**
 
 The phase machine, the setup page and the first baseline exist as code under
 `control/setup/` and pass offline tests against a recorded fake NetworkManager.
-No radio has been raised, no `nmcli`, `hostnamectl` or `raspi-config` call has
-been executed by Debra, no card has been flashed, and the setup service has
-never been enabled at boot. Its system unit and installer now exist and are
-tested offline — see [the setup service](../../control/setup/README.md). Read
+One Zero 2 W has installed the service, been renamed from its serial, captured a
+baseline, and run the unit as part of a boot
+([result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)). No
+radio has been raised by it, no page has been served, and no join has been
+performed by it. Its system unit and installer are tested offline — see
+[the setup service](../../control/setup/README.md). Read
 [implemented today versus planned](#implemented-today-versus-planned)
 before relying on a step.
 
@@ -106,9 +108,9 @@ the operating system is at most `partial`.
 | Step | What it is | Status | What is missing |
 | --- | --- | --- | --- |
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
-| Applying the name | `hostnamectl set-hostname`, so the running system answers to the recorded name | partial | The call now exists and a name that would not resolve is refused before it runs. No boot has applied one on a device, and a failure is logged rather than retried |
+| Applying the name | `hostnamectl set-hostname`, the `/etc/hosts` alias, and a restart of the mDNS responder, so the running system answers to the recorded name | partial | Ran once on a Zero 2 W: a live rename kept the connection and the device answered `hostname -f` and `sudo` afterwards. Unproven: a rename by a *first* boot, and an image whose cloud-init metadata pins a hostname |
 | State across reboots | Closed JSON schema, atomic owner-only writes, refuses unknown keys and phases, and migrates a schema-1 record on read rather than refusing it | implemented | Corruption handling is an error by design; the migration is the one path that accepts a record the current validator would otherwise refuse, and it drops a schema-1 hotspot because that schema stored no password |
-| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist and are tested offline. Neither has been enabled or started on a device, and there is no image |
+| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) are installed and enabled on one Zero 2 W, and the unit has run as part of a boot, taking the online path. The access-point path has never run on a radio, and there is no image |
 | Raising the setup network | `nmcli device wifi hotspot` with a fixed profile name and a generated twelve-character password | partial | Never executed on a radio. The password is generated rather than derived from the device name, because the name is broadcast in the setup SSID; it is kept in the `0600` setup state (making that file a credential) and written to `debra-setup.txt` on the boot partition so the owner can read it. No idle timeout, no pinned channel, no enforced WPA2-only mode |
 | Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. The operating systems' captive-portal probe paths are answered with a redirect to the page, built from the bound address rather than the request's `Host`, but whether a phone's probe reaches the access point at all depends on the setup network's DNS, which Debra does not configure; that is unverified, and the card-note address remains the fallback. No phone has been tried. Nearby networks are scanned once, before the access point is raised, and offered in a picker; typing the name still works and is the fallback when the scan finds nothing |
 | Country | The country already on the device is read with `iw reg get`; the page asks only when there is none; `raspi-config nonint do_wifi_country` sets it | partial | The read is untested on a device. On a dual-band board with no country the radio is off, so the setup network cannot start at all, and asking inside the portal is still the wrong place to ask |
@@ -181,6 +183,7 @@ archive and one manifest, capturing the files that make this device this device:
 | --- | --- |
 | `etc/NetworkManager/system-connections` | The network profiles, so the device can be put back on a network |
 | `etc/hostname` | The name it answers to |
+| `etc/hosts` | Not captured: the loopback alias is derived from the name, and a restore of a stale one is a device that resolves the wrong name. Applying the name rewrites it |
 | `etc/timezone` | The clock's local time |
 | `etc/wpa_supplicant` | Any supplicant configuration still in use |
 | `var/lib/debra` | Debra's own records, including this setup state |
@@ -276,13 +279,15 @@ The offline checks behind the tables above:
 
 ```bash
 python3 -B -m unittest tests.test_onboarding -v
+python3 -B -m unittest tests.test_setup_identity -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-173 onboarding tests, 37 installer tests and 21 browser scenarios, all passing
-on 2026-11-15 against the then-current tree. They check the decisions and the
-HTTP contract against the fake NetworkManager, with the page driven in a real
-Chromium. They prove nothing about a radio, a real keyfile read, or systemd.
+177 onboarding tests, 39 installer tests, 25 identity tests and 21 browser
+scenarios, all passing on 2026-11-15 against the then-current tree. They check
+the decisions and the HTTP contract against the fake NetworkManager, with the
+page driven in a real Chromium. They prove nothing about a radio, a real keyfile
+read, or systemd.
 The browser scenarios run only with `DEBRA_BROWSER_TEST=1` and an installed
 Chromium, so a plain run of this suite does not drive the page at all.
 
