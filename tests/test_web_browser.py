@@ -48,6 +48,13 @@ window.testState = {
   // the file and a listed card are different facts, and the card must say which
   // it has.
   hatCardPresent: true,
+  // A device that has already been written to and not yet restarted, so a check
+  // can land in the state a *reload* produces rather than the one a write does.
+  // The page offers that restart from the device's own observation, because the
+  // tab-local flag is gone after a reload.
+  hatChoiceAtStart: new URLSearchParams(location.search).get("hatchoice") || "",
+  hatBootAtStart: new URLSearchParams(location.search).get("hatboot") || "",
+  hatCardAtStart: new URLSearchParams(location.search).get("hatcard") !== "none",
   // The two deliberate audio tests, and a way to hold one so a check can press
   // the other button while it is running.
   holdTest: false, releaseTest: null, testOutputGone: false,
@@ -86,6 +93,9 @@ window.testState = {
   discovery: {enabled: false, found: 0, seconds_since_scan: null, error: null, refused: []}
 };
 const state = window.testState;
+if (state.hatChoiceAtStart) state.hatChoice = state.hatChoiceAtStart;
+if (state.hatBootAtStart) state.hatBootOverlay = state.hatBootAtStart;
+state.hatCardPresent = state.hatCardAtStart;
 // This fixture script runs before app.js (both are deferred, in order), so the
 // removal is the page's first look at the API.
 if (state.noAbort) { try { delete AbortSignal.timeout; } catch (error) { /* the check fails */ } }
@@ -2171,6 +2181,51 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_HAT_PENDING = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+const shown = id => {
+  const node = document.getElementById(id);
+  return node && node.getClientRects().length > 0;
+};
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    for (let i = 0; i < 120 && !document.getElementById("hat-install-state").textContent; i++) await wait();
+    const state = () => document.getElementById("hat-install-state").textContent;
+    // The file names the board and the driver's sound card is not listed: the
+    // write happened, the restart has not. A reload must not hide the restart.
+    assert(/but no sound card/.test(state()), "the unapplied line is not reported: " + state());
+    assert(shown("hat-restart-button"),
+           "a reload hid the restart while the written line was still unapplied");
+    assert(shown("hat-remove-button"), "the configured board offers no remove control");
+    assert(!shown("hat-install-button"), "a configured board still offers Install");
+    // Offered because the device says so, not because this tab wrote anything.
+    assert(!window.testState.posts.some(post => post.path === "/api/setup/hat/install"),
+           "the restart was offered because this page installed something");
+    assert(!window.testState.posts.some(post => post.path === "/api/setup/restart"),
+           "the page restarted the device without being asked");
+    // It still asks before doing it.
+    const before = window.testState.hatRestartCalls;
+    window.confirm = () => false;
+    document.getElementById("hat-restart-button").click();
+    await wait(); await wait();
+    assert(window.testState.hatRestartCalls === before,
+           "declining the prompt still restarted the device");
+    result.textContent = "PASS: a written line that has not taken effect keeps offering the "
+      + "restart after a reload, without restarting anything by itself";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_DISCONNECT_WRITE = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -2591,7 +2646,8 @@ class BrowserTests(unittest.TestCase):
                                    "/check-stale.js", "/check-first-screen.js",
                                    "/check-nav.js", "/check-missing-readings.js",
                                    "/check-output-gone.js", "/check-audio-tests.js",
-                                   "/check-hat-choice.js", "/check-hat-install.js"):
+                                   "/check-hat-choice.js", "/check-hat-install.js",
+                                   "/check-hat-pending.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -2611,6 +2667,7 @@ class BrowserTests(unittest.TestCase):
                               "/check-audio-tests.js": CHECK_AUDIO_TESTS,
                               "/check-hat-choice.js": CHECK_HAT_CHOICE,
                               "/check-hat-install.js": CHECK_HAT_INSTALL,
+                              "/check-hat-pending.js": CHECK_HAT_PENDING,
                               "/check-refused-key.js": CHECK_REFUSED_KEY,
                               "/check-refused-keyless.js": CHECK_REFUSED_KEYLESS,
                               "/check-query-key.js": CHECK_QUERY_KEY,
@@ -2774,6 +2831,16 @@ class BrowserTests(unittest.TestCase):
         # helper's own answer shown, no control until a board is recorded, and a
         # restart that a person has to agree to.
         self.run_browser("?auth=none", "check-hat-install.js", budget=20000)
+
+    def test_a_written_line_that_has_not_taken_effect_keeps_offering_the_restart(self):
+        # The restart prompt used to live only in the tab that changed the file,
+        # so a reload dropped it while the driver silently stayed the old one.
+        # The device's own observation outlives the tab: the file names a board
+        # and that board's sound card is not listed, which is exactly a restart
+        # waiting to happen.
+        self.run_browser("?auth=none&hatchoice=respeaker-2mic-hat-v1"
+                         "&hatboot=wm8960-soundcard&hatcard=none",
+                         "check-hat-pending.js", budget=20000)
 
     def test_browser_and_server_url_contract_and_literal_labels(self):
         for url, expected in URL_CASES.items():

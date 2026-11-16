@@ -40,9 +40,13 @@ let testing = false;
 // Writing a HAT choice takes a round trip; a second change while it is in
 // flight would race the first.
 let hatBusy = false;
-// A boot-configuration change is not in effect until the device restarts. The
-// page offers the restart only after it has made such a change in this tab, so
-// a person is never invited to restart a device nothing was written to.
+// A boot-configuration change is not in effect until the device restarts, and
+// the page offers that restart in two situations only. The first is this tab
+// having just written the file, which is the reason a person has; the second is
+// the device showing the change is still unapplied -- the file names a board
+// whose sound card is not listed. The second matters because the first is lost
+// on reload: write the line, reload, and the restart prompt used to vanish
+// while the driver silently stayed the old one.
 let hatNeedsRestart = false;
 let hatRestarting = false;
 let volumeTimer = 0;
@@ -690,6 +694,12 @@ function renderHatInstall(hardware) {
   }
   const configured = choice.configured === true;
   const installable = choice.installable || {ok: true, reason: null};
+  // The device's own observation of whether the written line has taken effect:
+  // the boot configuration names the board, but no sound card with the driver's
+  // name is listed. That is a restart waiting to happen (or a wrong board), and
+  // it survives a reload, which this tab's own flag does not.
+  const card = choice.card || {};
+  const pendingByObservation = configured && Boolean(choice.overlay) && card.present === false;
   row.hidden = false;
   // Three states, one control each: install the chosen board, remove it again,
   // or -- for "No HAT" -- take the managed overlay out. Nothing is offered that
@@ -701,7 +711,7 @@ function renderHatInstall(hardware) {
   button.disabled = hatBusy || hatRestarting || !installable.ok;
   remove.hidden = !showRemove;
   remove.disabled = hatBusy || hatRestarting;
-  restart.hidden = !hatNeedsRestart || hatRestarting;
+  restart.hidden = !(hatNeedsRestart || pendingByObservation) || hatRestarting;
   restart.disabled = hatBusy || hatRestarting;
   if (hatRestarting) {
     state.textContent = "The device is restarting. This page will reconnect when it is back.";
@@ -720,15 +730,16 @@ function renderHatInstall(hardware) {
     // sound card the driver creates is (or is not) listed now, and neither is a
     // test of the microphone or the speaker. Saying "a restart applies it" to a
     // device that has already restarted told a person to do what was done.
-    const card = choice.card || {};
     if (card.present === true) {
       state.textContent = `The boot configuration names ${choice.overlay}, and this device lists ` +
         `the sound card it creates (${card.name}). Whether the microphone and speaker work is ` +
         `what the audio checks show.`;
     } else if (card.present === false) {
+      // The restart button is shown in this state, so the sentence can point at
+      // it instead of leaving a person to guess how the line takes effect.
       state.textContent = `The boot configuration names ${choice.overlay}, but no sound card ` +
-        `named ${card.name} is listed. It takes effect at the next restart, and if it is ` +
-        `still missing after that the board is not the one this overlay describes.`;
+        `named ${card.name} is listed. Restart the device to apply it; if it is still ` +
+        `missing after that, the board is not the one this overlay describes.`;
     } else {
       state.textContent = `The boot configuration names ${choice.overlay}. This page cannot ` +
         `read the sound-card list, so it cannot say whether the driver is loaded now.`;

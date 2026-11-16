@@ -211,6 +211,17 @@ now, and neither is a test of the microphone or speaker. A configured line with
 no card listed says the board is not the one the overlay describes, which is the
 failure a person actually needs to act on.
 
+Reading the code for the fourth fault turned up a worse one that no screenshot
+would show. The restart button was offered only by the tab that wrote the file,
+so a person who installed and then reloaded — or opened the page on a phone
+after writing it on a laptop — lost the prompt while the driver stayed the old
+one, and the card had no way back to it. The page now also offers the restart
+when the **device** says the change has not taken effect: the file names the
+board and no sound card with that driver's name is listed. That is an observation
+that outlives the tab. This is a code-reading finding, not something observed on
+a phone; the browser suite covers it by loading the page directly into that
+state (`check-hat-pending.js`) and fails if the button is hidden.
+
 ## What this does and does not prove
 
 - **Proven:** the HTTP endpoint reaches a root process with no password; the

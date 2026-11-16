@@ -131,8 +131,12 @@ an observation time.
   first, writes atomically, reads the file back, and restores the copy if what
   came out is not what was asked for. **Remove driver** takes the managed overlay
   out again; choosing "No HAT" does the same thing. A **Restart device** button
-  appears only after this tab has changed the file, and asks for confirmation
-  before sending `{"confirm": "restart"}`. The helper never restarts as a side
+  asks for confirmation before sending `{"confirm": "restart"}`, and appears in
+  two cases only: this tab has just changed the file, or the device itself shows
+  the change has not taken effect (the file names the board, and no sound card
+  with that driver's name is listed). The second case is what survives a reload —
+  the tab's own flag does not, and a reload used to drop the prompt while the
+  driver silently stayed the old one. The helper never restarts as a side
   effect, and no restart happens without that button.
 - The helper must be **enrolled once**, by the device's owner, with a password:
   `sudo python3 -B control/setup/hat_install.py --enroll`, which the installer
