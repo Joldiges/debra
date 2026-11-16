@@ -186,10 +186,24 @@ function audio(data) {
   if (data.available && !draft) el("volume").value = Math.min(100, data.percent);
   el("volume-value").textContent = volumeLabel(data);
 }
+function buildLabel(version) {
+  // The short digest is the same string the installer names a release
+  // directory by, so two devices can be compared by eye. A process whose files
+  // changed underneath it says so rather than claiming the edit is live.
+  if (!version || !version.short) {
+    return `Build: unknown${version && version.error ? ` (${version.error})` : ""}`;
+  }
+  const base = `Build ${version.short}`;
+  return version.restart_required ? `${base} · files changed on disk, restart to apply` : base;
+}
 function render(data) {
   el("pair").hidden = true;
   showPairStatus("");
   el("dashboard").hidden = false;
+  el("build").textContent = buildLabel(data.version);
+  // The full digest is what a person compares between devices; the short form
+  // is what fits. Hovering gives the whole thing without widening the footer.
+  el("build").title = (data.version && data.version.release) || "";
   el("hostname").textContent = data.hostname;
   el("model").textContent = data.model || "Board model unavailable";
   el("connection").textContent = "Connected · updates every 3 seconds";
