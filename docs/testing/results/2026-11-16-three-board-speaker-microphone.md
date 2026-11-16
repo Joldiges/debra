@@ -59,14 +59,35 @@ themselves were switched off:
 | `Capture` | 63 (+30 dB) | 63 |
 
 Switching the two input mixers on raised the room from −89 to −52.6 dBFS and the
-tone from 11.7 to 348 — a +44 dB change, with no other control touched. The
-change is **in place on the board now** and **will not survive a reboot**; making
-it durable needs an alsa-state restore or WirePlumber rule, which was not done.
+tone from 11.7 to 348 — a +44 dB change, with no other control touched. At the
+gains `11-mixer.sh` sets (PGA 63, ADC PCM 195, boost volume 0) a 4 s ambient
+capture peaked at 689 (−33 dBFS) with no sample at or above 32760, so the earlier
+"clips on room noise alone" reading did not reproduce and is superseded.
 
-This also explains a fact already recorded about this board: its LVA log has
-never shown a wake-word detection. A deaf input is consistent with that, and the
-"no wake word yet" gap recorded in `AGENTS.md` should be re-measured now that
-capture works rather than assumed to be an audio-path question.
+**The fix is durable.** `tools/device/lab-zero2w/11-mixer.sh` now turns both
+switches on and runs `alsactl store`; `alsa-restore.service` is enabled and active
+on the board. After the script ran, the stored state showed both switches `true`,
+the device was rebooted, and both still read `on`, with `linux-voice-assistant`,
+`debra-web` and `sendspin` all active and a 2 s capture at peak 260 (−61 dBFS).
+
+## The wake word now fires
+
+That fault, not a wake-engine problem, is why this board had never shown a
+detection. A 3 s `Okay Nabu` recording played through the board's own speaker at
+60% (an earlier capture from the Zero W's sweep directory) produced:
+
+- `Wake word 'Okay Nabu' activated (probability 0.918 exceeded threshold 0.850)`
+- `VOICE_ASSISTANT_RUN_START` for the Home Assistant TTS URL
+- `VOICE_ASSISTANT_STT_START`, then the intent, then TTS playback
+
+So wake detection and a full round trip are established on this board with the
+stock LVA v1.1.18 — the unpatched build, unlike the Zero W. Sink volume was set
+to 65% afterwards, which is where it was found.
+
+This also explains a fact already recorded about this board: its LVA log had
+never shown a wake-word detection. A deaf input was consistent with that, and
+the "no wake word yet" gap recorded in `AGENTS.md` was re-measured rather than
+assumed to be an audio-path question.
 
 ## The Zero W's noise floor
 
@@ -84,4 +105,9 @@ lacks in-tree, or supply noise on the single-core board. Not attributed.
 - The tone is 2 s at 65% sink volume on an unmuted output. It was audible.
 - The Zero 2 W change was made to a live device with LVA running; mixer state was
   otherwise left as found, and sink volume was restored by each script.
-- No wake-word, TTS or music playback was verified by this test.
+- The tone test itself verified no wake word, TTS or music playback. The wake
+  word was checked separately afterwards, on the Zero 2 W only (above).
+- The wake test used a recording played through the board's own speaker, not a
+  person speaking, and the wake engine is the stock one. It proves the codec,
+  routing and LVA pipeline work end to end; it does not measure far-field
+  detection distance or performance in noise.

@@ -54,10 +54,22 @@ before replaying if the mixer has been tuned by hand.
   resampling in the graph avoids the codec renegotiating mid-session.
 - **Capture gain is fixed, and it was measured.** With the codec's capture PGA at
   its maximum (+30 dB, value `63`) and the ADC digital volume at 0 dB (value
-  `195`), room noise in a quiet room peaks around −42 dBFS. Enabling the input
-  mixer boost stage instead added roughly +30 dB and clipped on room noise alone
-  (peak 17k–32k of 32 767), so it is **off**. `ADC PCM` 225 (+15 dB digital)
-  also measured too hot for speech peaks.
+  `195`), room noise in a quiet room peaks around −42 dBFS. `ADC PCM` 225
+  (+15 dB digital) measured too hot for speech peaks.
+- **Both input-mixer switches must be ON, and this was wrong for most of a day.**
+  `Left/Right Input Mixer Boost` were left off on an earlier reading that they
+  "clipped on room noise alone". Off, the ADC has **no source at all**: the room
+  read −89 dBFS at +30 dB gain and a −20 dBFS tone played to the speaker read
+  11.7 above silence. Turning them on moved the same tone to 348 (+44 dB) and a
+  4 s ambient capture peaked at 689 (−33 dBFS) with no sample at or above 32760.
+  So the clipping did not reproduce at these gains, and the earlier note is
+  superseded rather than deleted. That deaf input is why this board never logged
+  a wake word; with it fixed, an `Okay Nabu` recording played through the
+  speaker fired at 0.918 (threshold 0.850) and completed a Home Assistant round
+  trip. `11-mixer.sh` now turns both switches on and stores the state with
+  `alsactl store`, which is what makes it survive a reboot (`alsa-restore.service`
+  is enabled and active). If a board ever does clip, lower `ADC PCM` (numid 36)
+  before turning the boost off again.
 - **The ADC high-pass filter is off.** Enabling `ADC High Pass Filter` produced a
   near-constant full-scale offset (peak 238, RMS 216 on a stereo capture) instead
   of removing DC. That is either a driver inversion or a broken control; it is

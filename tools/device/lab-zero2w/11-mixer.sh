@@ -12,6 +12,19 @@
 #       -> peak 238 with RMS 216: a near-constant full-scale offset instead of
 #          DC removal. Recorded as a suspicion, not diagnosed; left OFF.
 #
+# CORRECTION, later the same day: leaving the two Input Mixer Boost switches OFF
+# made capture deaf, not merely quiet. With those switches off, the room read
+# -89 dBFS at +30 dB gain (peak 83 of 32768), and a -20 dBFS 1 kHz tone played to
+# the speaker read 11.7 above 2.2 in silence: a +44 dB change is what turning
+# them on produced. With them ON, at the gains this script sets (PGA 63, ADC PCM
+# 195, boost volume 0), a 4 s ambient capture peaked at 689 (-33 dBFS) with no
+# sample at or above 32760, and the tone read 348 above 2.2. So the earlier
+# "clips on room noise alone" observation does not reproduce at these settings;
+# it is superseded here rather than silently deleted. If a board does clip,
+# lower ADC PCM (numid 36) before turning the boost off again, because off is
+# deaf. PipeWire's own source volume was 100% for these captures, so the levels
+# are the codec's and not scaled by the sound server.
+#
 # The gain is a starting point. If wake-word or STT performance is poor, try
 # MIC_AUTO_GAIN=1 in the LVA unit before changing codec gain again.
 set -eu
@@ -37,8 +50,11 @@ amixer -c "$C" sset 'Left Boost Mixer LINPUT3' off >/dev/null
 amixer -c "$C" sset 'Right Boost Mixer RINPUT3' off >/dev/null
 set_numid 9 0         # Left Input Boost Mixer LINPUT1 Volume
 set_numid 8 0         # Right Input Boost Mixer RINPUT1 Volume
-amixer -c "$C" sset 'Left Input Mixer Boost' off >/dev/null
-amixer -c "$C" sset 'Right Input Mixer Boost' off >/dev/null
+# Both switches must be ON. With them off the ADC has no source at all and
+# capture is dead (-89 dBFS at +30 dB gain), even though every other control
+# looks correct. See the correction at the top of this file.
+amixer -c "$C" sset 'Left Input Mixer Boost' on >/dev/null
+amixer -c "$C" sset 'Right Input Mixer Boost' on >/dev/null
 
 # Playback. The overlay leaves the DAC disconnected from every output mixer, so
 # the card was silent with a healthy service and a moving volume slider: a tone
