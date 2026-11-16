@@ -1,4 +1,8 @@
-"""Offline Git fixtures only. Retained under /tmp/opencode, never auto-deleted."""
+"""Offline Git fixtures only.
+
+Fixtures live under /tmp/opencode. Each run prunes earlier runs, keeping the
+newest few (tools/tmpfixtures.py) so a tmpfs cannot run out of inodes.
+"""
 
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -12,7 +16,11 @@ import unittest
 
 
 SOURCE = Path(__file__).resolve().parent.parent
-FIXTURES = Path(tempfile.mkdtemp(prefix="debra-taskchain-tests-", dir="/tmp/opencode"))
+if str(SOURCE) not in sys.path:
+    sys.path.insert(0, str(SOURCE))
+
+import tools.tmpfixtures as tmpfixtures  # noqa: E402  (path set above)
+FIXTURES = tmpfixtures.root("debra-taskchain-tests-")
 # cwd alone cannot isolate Git: inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE
 # can redirect commands into another checkout. Drop every inherited Git override
 # and ignore the host's global/system config before running fixture commands.
