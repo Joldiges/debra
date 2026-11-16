@@ -395,8 +395,11 @@ def latest(destination):
     A manifest is only a baseline if it validates: the archive beside it exists
     as a direct child of this directory, still hashes to what the manifest says,
     opens as a gzip tar, and contains the members it claims. Without that a
-    damaged, half-written or unrelated file is reported as the device's
-    known-good point.
+    damaged or half-written file is reported as the device's known-good point.
+    It does not prove the archive is *this device's*: a manifest that claims no
+    captured files admits any gzip tar that hashes to it, and nothing here
+    records which device the state came from. The validator also reads the
+    archive whole, so it is not a size bound on what it is willing to hash.
     """
     destination = Path(destination)
     if not destination.is_dir():
