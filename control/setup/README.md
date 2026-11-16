@@ -128,9 +128,11 @@ none of them make it a secure portal:
   otherwise; that one line is the release decision. `--setup-security wpa`
   installs the protected mode, which stays implemented and tested, and the setup
   page can switch between them without a reinstall. The installer warns, and the
-  installed flag is the mode a device starts in; from the first change on the
-  page the stored choice is the one that is used. Never ship an image built that
-  way.
+  installed flag is the mode a device starts in. Two things outrank it: a change
+  on the page, whose stored choice is used from then on, and an upgrade from an
+  earlier build that kept a setup password, which starts protected even under
+  `--setup-security none` until somebody changes it. The boot journal says when
+  the mode did not come from the flag. Never ship an image built that way.
 - The service shuts the page down as soon as the device is online.
 
 Port 80 rather than 8080 is the same kind of choice: the journey promises
@@ -221,8 +223,11 @@ as an argument, so the mode a device **starts** in is something the unit says an
 not a default that a later change can reinterpret. It is not the last word on
 the mode: the page can switch the running device between the two without a
 reinstall, and from then on the stored choice in
-`/var/lib/debra/setup/setup-security` outranks the unit's argument. The installer
-prints a warning when the mode is `none`.
+`/var/lib/debra/setup/setup-security` outranks the unit's argument. A device
+upgraded from a build that kept the setup password in `setup.json` also arrives
+with `wpa` stored, so it starts protected even under `--setup-security none`; the
+boot journal reports the mode as set on the device rather than by the flag. The
+installer prints a warning when the mode is `none`.
 
 A tree prepared from a host for a card has no running systemd to ask, so
 `--enable` also creates

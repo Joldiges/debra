@@ -427,18 +427,25 @@ def serve(state_dir, card_note=None, network=None, address=None,
     onboarder = onboarding.Onboarder(
         network, state_path, state_dir / "baseline", root=capture_root,
         card_note_path=card_note, security=security)
+    if onboarder.security != security:
+        # The unit's argument and the mode the device carries disagree. The
+        # device wins, and that override is otherwise invisible: the installer's
+        # warning is about the flag it wrote, so a device that comes up
+        # protected under `--setup-security none` - because the page chose
+        # `wpa`, or because an upgrade carried that mode forward - would have
+        # exactly one line in the journal saying the opposite.
+        LOGGER.warning("setup network mode %s was set on the device, not by "
+                       "--setup-security %s", onboarder.security, security)
     if onboarder.security == "none":
         # Deliberately open, and said out loud every boot rather than once at
         # install time: the journal is where an open setup network is noticed.
         # The mode reported is the one the device will use, which after a change
         # on the page is the stored one rather than the unit's argument - so the
         # message names where it came from instead of always blaming the flag.
-        # An adopted upgrade is always `wpa`, so it cannot reach this line; the
-        # entry keeps the mapping from having a silent hole.
+        # An adopted record is always `wpa`, so it cannot reach this line.
         LOGGER.warning("setup network is OPEN: mode none, from %s",
-                       {"page": "the setup page",
-                        "upgrade": "an upgraded setup record"}.get(
-                            onboarder.security_source, "--setup-security"))
+                       "the setup page" if onboarder.security_source == "page"
+                       else "--setup-security")
 
     wait_for_uplink(network, uplink_wait)
     status = onboarder.resume()

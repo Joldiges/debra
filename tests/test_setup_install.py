@@ -16,6 +16,7 @@ so power-loss durability is unproven and these tests do not claim it.
 
 import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
@@ -467,6 +468,53 @@ class ServiceTests(Fixture):
             self.assertEqual(self.boot(network), 0)
         self.assertIsNone(seen.get("keyfile_dir"),
                           "the service is staging profiles outside NetworkManager's store")
+
+    def test_an_upgraded_record_is_named_as_why_the_mode_is_not_the_flag(self):
+        # A schema-2 record carries a password, so the boot protects the network
+        # even though the unit says `none`. The installer's warning is about the
+        # flag it wrote, so the journal has to say which one won, or the only
+        # thing anybody reads about the mode is wrong.
+        state = self.state / "setup.json"
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(json.dumps(dict(
+            state_module.blank("debra-abc123"), schema=2, phase="hotspot",
+            hotspot={"ssid": "Debra-Setup-abc123", "interface": "wlan0"},
+            hotspot_password="abcdefghjk2m")), encoding="utf-8")
+        network = FakeNetwork()
+        # The failed bind below takes the access point back down, so the
+        # password is recorded as it is handed to the adapter.
+        used = []
+        real = network.start_hotspot
+
+        def start_hotspot(name, interface, password=None):
+            used.append(password)
+            return real(name, interface, password)
+
+        network.start_hotspot = start_hotspot
+        with patch.object(onboarding, "serve",
+                          side_effect=OSError(98, "Address already in use")):
+            with self.assertLogs(installer.LOGGER, level="WARNING") as logs:
+                self.assertEqual(self.boot(network, security="none"), 1)
+        text = "\n".join(logs.output)
+        self.assertIn("mode wpa was set on the device, not by --setup-security none",
+                      text)
+        self.assertNotIn("setup network is OPEN", text)
+        self.assertEqual(used, ["abcdefghjk2m"],
+                         "the upgraded device was not protected by its old password")
+
+    def test_a_page_choice_is_named_instead_of_the_flag(self):
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / "setup-security").write_text("none\n", encoding="utf-8")
+        network = FakeNetwork()
+        with patch.object(onboarding, "serve",
+                          side_effect=OSError(98, "Address already in use")):
+            with self.assertLogs(installer.LOGGER, level="WARNING") as logs:
+                self.assertEqual(self.boot(network, security="wpa"), 1)
+        text = "\n".join(logs.output)
+        self.assertIn("mode none was set on the device, not by --setup-security wpa",
+                      text)
+        self.assertIn("from the setup page", text,
+                      "an open network chosen on the page was blamed on the flag")
 
     def test_a_device_with_no_wifi_interface_reports_instead_of_listening(self):
         network = FakeNetwork(interface=None)

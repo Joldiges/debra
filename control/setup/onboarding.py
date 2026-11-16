@@ -259,11 +259,20 @@ def adopt_legacy_secret(state_path, secret_path, security_path):
     if not isinstance(legacy, str) or not legacy:
         return None
     security_path = Path(security_path)
+    # The stored file is read rather than merely found. `exists()` counted a
+    # junk or unreadable file as "somebody chose a mode", and `_stored_security`
+    # reads the same file as "no usable choice" - so the two disagreed about the
+    # one direction this function exists to prevent: adoption would stand down,
+    # the mode would fall back to the installed `none`, and the first read would
+    # drop the password.
     try:
-        if security_path.exists():
-            # Somebody chose a mode on this device. That is the later decision.
-            return None
-    except OSError:
+        chosen = security_path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, IsADirectoryError):
+        chosen = None
+    except (OSError, UnicodeDecodeError):
+        chosen = None
+    if chosen in SETUP_SECURITY:
+        # Somebody chose a mode on this device. That is the later decision.
         return None
     secret_path = Path(secret_path)
     if not _store_secret(secret_path, legacy):
@@ -379,11 +388,11 @@ class Onboarder:
         # A carried-forward `wpa` is a decision even when it could not be
         # stored, so it outranks the installer's flag for this process at least.
         self.security = stored or self.adopted_security or security
-        # Which of the three decided, kept for the one place that has to say so
-        # out loud: the journal line that reports an open setup network.
-        self.security_source = ("page" if stored
-                                else "upgrade" if self.adopted_security
-                                else "install")
+        # Which of the two decided, kept for the one place that has to say so
+        # out loud: the journal line that reports an open setup network. Only
+        # the page can store `none` (an upgrade can only carry `wpa` forward),
+        # so that line cannot be reached with a carried-over mode.
+        self.security_source = "page" if stored else "install"
         self._last_submit = 0.0
         # Reentrant: a failure path may settle and then re-raise the access
         # point while still holding the admission lock, so a new request cannot
@@ -575,7 +584,11 @@ class Onboarder:
                 data["last_error"] = ("The setup network's password could not be "
                                       "written to the boot partition")
                 state_module.write(self.state_path, data)
-            return self.status()
+            # The access point is up and this is only the answer. A status read
+            # that fails here must not travel back up the raise path: `_rearm`
+            # would record it as "the setup network did not change", which is
+            # false for a change that did take.
+            return self._safe_status()
 
     def refresh_networks(self, interface=None):
         """Look for nearby networks while the radio is free. Never raises.

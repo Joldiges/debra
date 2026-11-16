@@ -107,7 +107,7 @@ and are waiting for the review rows below.
 | First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
 | Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
-| Setup-network secret behind a page toggle (branch `setup-ap-secret`), repair `ef8fce1` | `debra-review`, independent | **changes requested** on the seventh round, with two should-fix items: the "an upgrade cannot open a protected network" claim was absolute while a failed mode write fell back to `none` (and the mutation "give up when the password cannot be stored" survived), and the baseline docs still said the archive includes the setup state that `NEVER_CAPTURE` excludes. Both repaired, with tests that fail without them; every remaining item is a note and is recorded as a residual. Sixth verdict: `.local/reviews/setup-ap-20261115/verdict-sixth.md`; seventh: `verdict-seventh.md` |
+| Setup-network secret behind a page toggle (branch `setup-ap-secret`) | `debra-review`, independent | **approved with fixes** on the eighth round (`1893829`): the security path needed no behaviour change, but the README still said the flag and the page were the only two deciders (an upgrade also sets `wpa`, silently), and counts were stale in `current-status.md`, `roadmap.md` and the queue's own paragraph. Both repaired with tests — the boot now logs when the device's mode rather than the flag decided, and the adoption path reads the stored mode instead of calling `exists()` on it. A ninth review reads the repair. Verdicts, in order: `.local/reviews/setup-ap-20261115/verdict-and-followups.md`, `verdict-sixth.md`, `verdict-seventh.md`, `verdict-eighth.md` |
 
 ## Accepted
 
@@ -128,12 +128,11 @@ and are waiting for the review rows below.
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 255 onboarding tests
-and 40 installer tests) that has
+first baseline now have an implementation (`control/setup/`, 259 onboarding tests
+and 42 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 726 tests (49 skipped) plus 49 browser tests, which are
-opt-in and skip in an ordinary run (`-p 'test_*browser.py'` with
-`DEBRA_BROWSER_TEST=1`).
+whole offline suite is 732 tests, 49 of which are the opt-in browser cases that
+skip in an ordinary run (`-p 'test_*browser.py'` with `DEBRA_BROWSER_TEST=1`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,
 and the browser setup card (in progress). See the [first-boot design

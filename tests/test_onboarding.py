@@ -1592,6 +1592,20 @@ class LegacySecretAdoptionTests(Temp):
         self.assertFalse((self.dir / "setup-secret").exists(),
                          "a password file was created for a network switched off on purpose")
 
+    def test_a_junk_mode_file_is_not_a_choice(self):
+        # `_stored_security` reads a junk file as "no usable choice", and the
+        # adoption has to agree. Standing down for a file nobody can use would
+        # fall back to the installed `none` and drop the password in the same
+        # boot - the one direction this function exists to prevent.
+        self.legacy()
+        (self.dir / "setup-security").write_text("off\n", encoding="utf-8")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(FakeNetwork(), security="none")
+        self.assertEqual(onboarder.adopted_security, "wpa")
+        self.assertEqual(onboarder.security, "wpa")
+        self.assertEqual((self.dir / "setup-security").read_text(encoding="utf-8").strip(),
+                         "wpa", "the unusable mode file was left in place")
+
     def test_a_password_that_cannot_be_moved_still_keeps_the_boot_protected(self):
         # Writing the mode is what makes the network protected. The password
         # file failing is the narrower failure, and it must not open the
@@ -2005,6 +2019,35 @@ class WorkerBoundaryTests(Temp):
                             "a failed status read was recorded as a failed change")
         self.assertIsNone(recorded, "the raise succeeded, so there is nothing to record")
 
+    def test_a_status_failure_inside_the_raise_is_not_a_failed_change(self):
+        # `start_hotspot` ends by reading the status for its answer, and the
+        # access point is up by then. If that read fails, `_rearm` must not
+        # record "the setup network did not change" for a change that did.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="wpa")
+        onboarder.start_hotspot()
+        real = onboarder.status
+        calls = []
+
+        # A plain function replaces the method, so it receives the instance.
+        def status(_self):
+            calls.append(1)
+            if len(calls) == 1:
+                raise ValueError("synthetic")
+            return real()
+
+        with patch.object(onboarding.Onboarder, "status", status):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+                status_dict = onboarder.rearm_hotspot()
+        self.assertGreaterEqual(len(calls), 2, "the raise path never read the status")
+        self.assertEqual(len([call for call in network.calls
+                              if call[0] == "start_hotspot"]), 2,
+                         "the access point was not raised again")
+        self.assertEqual(status_dict["phase"], "hotspot")
+        self.assertIsNone(state_module.read(self.state_path)["last_error"],
+                          "a status read failed after the raise and was recorded "
+                          "as a change that did not happen")
+
     def test_the_mode_change_worker_does_not_raise_when_status_fails(self):
         # `status()` is the last thing the worker calls, and the state it reads
         # is the state the whole operation depends on.
@@ -2042,6 +2085,33 @@ class WorkerBoundaryTests(Temp):
                 status = onboarder.join_reserved("HomeWiFi", "correct horse battery",
                                                  None, token=token)
         self.assertEqual(status["phase"], "failed")
+
+
+class ModeSourceTests(Temp):
+    """The journal has to say which of the three sources set the mode."""
+
+    def test_a_stored_mode_is_attributed_to_the_page(self):
+        (self.dir / "setup-security").write_text("none\n", encoding="utf-8")
+        onboarder = self.onboarder(FakeNetwork(), security="wpa")
+        self.assertEqual(onboarder.security, "none")
+        self.assertEqual(onboarder.security_source, "page",
+                         "the page's choice was reported as the installer's flag")
+
+    def test_an_adopted_mode_is_never_reported_as_the_flag(self):
+        # Adoption writes `wpa` into the mode file before it is read, so the
+        # device runs protected under a flag that says `none`. The source is
+        # "page" in the narrow sense of "the mode the device carries"; what
+        # matters is that it is not "install", because the open-network journal
+        # line - the only reader - would then blame the flag.
+        self.state_path.write_text(json.dumps(dict(
+            state_module.blank("debra-345678"), schema=2, phase="hotspot",
+            hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"},
+            hotspot_password="abcdefghjk2m")), encoding="utf-8")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(FakeNetwork(), security="none")
+        self.assertEqual(onboarder.security, "wpa")
+        self.assertNotEqual(onboarder.security_source, "install",
+                            "a carried-over mode was attributed to the unit's flag")
 
 
 class AccessPointCheckTests(Temp):
