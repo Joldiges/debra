@@ -353,8 +353,8 @@ root and the unit being started by systemd. `ensure_identity` is byte-identical
 in this tree, so that run's two findings — `/etc/hosts` and `avahi-daemon` keeping
 the old name — apply here unchanged. The baseline does not transfer as-is: that
 tree archived `setup.json` and this one excludes the whole state directory. The
-list below is what this tree has still never done, which is everything involving
-a radio.
+list below is what this tree has not run; where that run has moved an item, the
+item says so, and everything left involves a radio.
 
 Ordered by how likely it is to bite on a real first boot.
 
