@@ -47,13 +47,13 @@ boot:
    is already set, and `resume()` may adopt a profile the trial never made.
    Useful only as a smoke test of the page and the installer.
 2. Install into a mounted card from a host with
-   `python3 -B control/setup/install.py --root /path/to/card --python <card-python>`,
-   then create `/etc/systemd/system/multi-user.target.wants/debra-setup.service`
-   as a symlink to `../debra-setup.service`. The rendered unit names
-   `/usr/local/lib/debra/setup/releases/<id>/install.py`, which is where the
-   `--root` install puts it on the card, so the paths agree once booted. The
-   README describes `--root` as "only useful for inspection or imaging"; this is
-   the imaging case, and **neither the symlink nor the boot has been tried**.
+   `python3 -B control/setup/install.py --root /path/to/card --python <card-python> --enable`,
+   which installs the files and links the unit into
+   `multi-user.target.wants` the way `systemctl enable` would. The rendered unit
+   names `/usr/local/lib/debra/setup/releases/<id>/install.py`, which is where
+   the `--root` install puts it on the card, so the paths agree once booted.
+   **Neither the enable nor the boot has been tried**: the installer's tests
+   check the link on disk, and no card has been prepared this way.
    This is the only route that reaches the real first boot, and it is itself part
    of what the trial would test.
 3. Build a distributable image. Does not exist. No Debra image has been built,

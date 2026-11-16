@@ -54,6 +54,9 @@ PLACEHOLDERS = ("@PYTHON@", "@RUNNER@", "@STATE@", "@CARD_NOTE@")
 LIB = Path("usr/local/lib/debra/setup")
 VAR = Path("var/lib/debra/setup")
 UNIT = Path("etc/systemd/system") / UNIT_NAME
+# Where `systemctl enable` puts its link. Written directly only when there is no
+# running systemd to ask, which is a card being prepared from a host.
+WANTS = Path("etc/systemd/system/multi-user.target.wants")
 # Raspberry Pi OS Bookworm mounts the boot partition at /boot/firmware; older
 # images use /boot. The note is where a person reads the setup-network password
 # before any page can be loaded.
@@ -270,6 +273,41 @@ def install(root, source, python=None, *, lib=LIB, var=VAR, unit=UNIT, card_note
             "previous_unit": str(previous) if previous else None, "changed": True}
 
 
+def enable(root, *, unit=UNIT, wants=WANTS):
+    """Link the installed unit into `multi-user.target.wants`.
+
+    `systemctl enable` is the right command on a running device: it also asks
+    the daemon to reload. This exists for the other case, a card prepared from
+    a host, where there is no running systemd to ask. It is what makes the
+    service start on the very first boot, which is the only way the first-boot
+    journey is ever tried before the person has a console.
+
+    It refuses to link a unit that is not there, and refuses to touch anything
+    in the wants directory that is not the link it would have made.
+    """
+    root = Path(root).resolve()
+    unit_path = under(root, unit)
+    if unit_path.is_symlink() or not unit_path.is_file():
+        raise ValueError("Enable needs a unit this installer wrote; nothing was linked")
+    try:
+        if not unit_path.read_text(encoding="utf-8").startswith(MARKER):
+            raise ValueError("Enable needs a unit this installer wrote; nothing was linked")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError("The installed unit cannot be read; nothing was linked") from exc
+    wants_dir = under(root, wants)
+    refuse_symlinks(root, wants_dir)
+    link = wants_dir / UNIT_NAME
+    if link.is_symlink():
+        if os.readlink(link) == os.path.join("..", UNIT_NAME):
+            return str(link)
+        raise ValueError(f"{link} is a different link; left unchanged")
+    if link.exists():
+        raise ValueError(f"{link} exists and is not a link; left unchanged")
+    directory(root, wants, private=False)
+    os.symlink(os.path.join("..", UNIT_NAME), link)
+    return str(link)
+
+
 def restore(root, backup, *, lib=LIB, unit=UNIT):
     """Put a retained unit back, atomically. Prepares files only.
 
@@ -463,6 +501,10 @@ def main(argv=None):
                         help="interpreter the unit will run")
     parser.add_argument("--restore", type=Path, metavar="UNIT",
                         help="put a retained previous unit back, atomically")
+    parser.add_argument("--enable", action="store_true",
+                        help="also link the unit into multi-user.target.wants, for a "
+                             "tree prepared from a host that has no running systemd "
+                             "(a card); on a device use systemctl enable")
     parser.add_argument("--state-dir", type=Path, default=target(VAR),
                         help="--serve: where the setup state lives")
     parser.add_argument("--card-note", type=Path, default=None,
@@ -490,13 +532,27 @@ def main(argv=None):
     try:
         if args.restore:
             result = restore(args.root, args.restore)
+            if args.enable:
+                result["enabled"] = enable(args.root)
         else:
             result = install(args.root, args.source, args.python)
+            # Enabling comes after the unit exists, and a failure here must not
+            # be reported as a failed install of files that are in place.
+            if args.enable:
+                result["enabled"] = enable(args.root)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     for name, value in result.items():
         print(f"{name}: {value}")
     print("Files prepared; no service started and no network setting changed.")
+    if args.enable:
+        if args.root.resolve() == Path("/"):
+            print("Next: systemctl daemon-reload")
+            print("The unit is enabled and starts at the next boot; nothing was started now.")
+        else:
+            print("The unit is enabled in the prepared tree: it starts at that "
+                  "tree's next boot. Nothing was started now.")
+        return 0
     if args.restore:
         print("Next: systemctl daemon-reload")
         print("Then: systemctl restart debra-setup.service")

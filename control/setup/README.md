@@ -171,6 +171,15 @@ sudo systemctl enable --now debra-setup.service
 still names the device paths (`/usr/local/lib/debra/setup/...`), so it is only
 useful for inspection or imaging. `--restore <unit>` is the rollback below.
 
+A tree prepared from a host for a card has no running systemd to ask, so
+`--enable` also creates
+`/etc/systemd/system/multi-user.target.wants/debra-setup.service` as the
+relative link `systemctl enable` would make. That link is what makes the service
+start on the card's first boot, and nothing in this repository does it otherwise.
+It refuses a unit it did not write and refuses to replace anything already at
+that path. On a running device, `systemctl enable` remains the right command: it
+also reloads the daemon. Neither route has been booted.
+
 ## What it writes
 
 | Path on device | Mode | Purpose |
@@ -181,6 +190,7 @@ useful for inspection or imaging. `--restore <unit>` is the rollback below.
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; this is where the passphrase is written (the baseline below archives a copy) |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
+| `/etc/systemd/system/multi-user.target.wants/debra-setup.service` | (link) | Only with `--enable`: a relative link to the unit, which starts it at the next boot |
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |
 
 `debra-setup.service` in this directory is the **template**: the installer
