@@ -123,6 +123,31 @@ class HostsNamingTests(Temp):
         self.assertEqual(nm_module.hosts_naming("", "debra-8518d6"),
                          "127.0.0.1 localhost\n127.0.1.1 debra-8518d6 debra-8518d6\n")
 
+    def test_a_truncated_localhost_name_is_not_mistaken_for_one(self):
+        # R9-01. A partial write left `127.0.0.1 local`, and checking only the
+        # address treated that as a localhost entry: the repaired file still
+        # could not resolve `localhost`.
+        self.assertEqual(nm_module.hosts_naming("127.0.0.1 local", "debra-8518d6"),
+                         "127.0.0.1 local\n127.0.1.1 debra-8518d6 debra-8518d6\n"
+                         "127.0.0.1 localhost\n")
+
+    def test_an_address_only_line_does_not_count_as_localhost(self):
+        self.assertEqual(nm_module.hosts_naming("127.0.0.1\n", "debra-8518d6"),
+                         "127.0.0.1\n127.0.1.1 debra-8518d6 debra-8518d6\n"
+                         "127.0.0.1 localhost\n")
+
+    def test_a_customised_localhost_line_without_the_name_gains_one(self):
+        self.assertEqual(nm_module.hosts_naming("127.0.0.1 router\n", "debra-8518d6"),
+                         "127.0.0.1 router\n127.0.1.1 debra-8518d6 debra-8518d6\n"
+                         "127.0.0.1 localhost\n")
+
+    def test_the_name_in_a_comment_does_not_count_as_localhost(self):
+        # `127.0.0.1 router # localhost` names `router`. Reading the whole line
+        # would find the word in the comment and leave the file unresolvable.
+        self.assertEqual(nm_module.hosts_naming("127.0.0.1 router # localhost\n", "new"),
+                         "127.0.0.1 router # localhost\n127.0.1.1 new new\n"
+                         "127.0.0.1 localhost\n")
+
     def test_applying_the_same_name_twice_changes_nothing_the_second_time(self):
         once = nm_module.hosts_naming(DEBIAN_HOSTS, "debra-8518d6")
         self.assertEqual(once, nm_module.hosts_naming(once, "debra-8518d6"))

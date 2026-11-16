@@ -1534,17 +1534,28 @@ class SetupPasswordTests(Temp):
     def test_the_household_passphrase_is_never_written_into_the_setup_state(self):
         # The old version of this test only raised the access point and never
         # submitted anything, so it could not fail on the passphrase at all.
-        onboarder = self.onboarder(security="wpa")
-        onboarder.start_hotspot()
-        status = onboarder.join("HomeWiFi", "correct horse battery", None)
-        self.assertEqual(status["phase"], "online")
-        stored = self.state_path.read_text(encoding="utf-8")
-        password = onboarding.setup_secret(onboarder.secret_path)
-        self.assertNotIn(password, stored)
+        #
         # The setup password is a separate, deliberately random credential, and
         # one full run generated `fpskukbbdwfz` - which contains "psk" and so
         # failed a substring check that was meant to say "no household key was
-        # stored". The key is what matters, so the JSON is parsed.
+        # stored". The key is what matters, so the JSON is parsed. The password
+        # is fixed here rather than left to the generator: a random draw only
+        # reproduces the old failure about once in ten thousand runs, so the
+        # regression was invisible.
+        with patch.object(onboarding, "_new_secret", return_value="fpskukbbdwfz"):
+            onboarder = self.onboarder(security="wpa")
+            onboarder.start_hotspot()
+            status = onboarder.join("HomeWiFi", "correct horse battery", None)
+        self.assertEqual(status["phase"], "online")
+        stored = self.state_path.read_text(encoding="utf-8")
+        self.assertEqual(onboarding.setup_secret(onboarder.secret_path),
+                         "fpskukbbdwfz",
+                         "the fixture no longer uses the password it was fixed to")
+        self.assertNotIn("correct horse", stored)
+        # The setup password lives in its own secret file under schema 3, and
+        # must not be written back into the state as well. Fixed above, so this
+        # is deterministic rather than waiting for a draw that contains "psk".
+        self.assertNotIn("fpskukbbdwfz", stored)
         record = json.loads(stored)
         self.assertNotIn("psk", record)
         self.assertNotIn("wifi_psk", record)

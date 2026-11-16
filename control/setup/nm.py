@@ -179,7 +179,10 @@ def hosts_naming(text, hostname):
     removed rather than left behind.
 
     If the text has no `localhost` entry the result gains one, so a file that was
-    truncated or left empty cannot come back without a resolvable localhost.
+    truncated or left empty cannot come back without a resolvable localhost. The
+    name is looked for among the line's aliases, not merely by the address: a
+    partially written `127.0.0.1 local` has the address and not the name, and
+    treating that as present left the file unable to resolve localhost.
     """
     alias = f"{HOSTS_ALIAS} {hostname} {hostname}"
     lines = []
@@ -193,7 +196,15 @@ def hosts_naming(text, hostname):
                 placed = True
             continue
         if fields[:1] == ["127.0.0.1"]:
-            has_localhost = True
+            # Aliases stop at a comment: `127.0.0.1 router # localhost` names
+            # `router`, and the comment says nothing.
+            names = []
+            for field in fields[1:]:
+                if field.startswith("#"):
+                    break
+                names.append(field)
+            if "localhost" in names:
+                has_localhost = True
         lines.append(existing)
     if not has_localhost:
         lines.append("127.0.0.1 localhost")

@@ -264,16 +264,25 @@ link and leaves the tree alone when one is already there: the relative
 `../debra-setup.service` this installer writes, and the absolute
 `/etc/systemd/system/debra-setup.service` that `systemctl enable` writes. Any
 other text is refused with the link untouched — an operator's link, a link that
-carries the preparing host's mount point, or a damaged one. Two things write
-this link and nothing else does, so there is no spelling worth guessing at.
+carries the preparing host's mount point, or a damaged one. That is a
+**deliberately narrow policy**, not a claim to recognise every spelling: systemd's
+own manual says an administrator may add or remove enablement links by hand, so a
+hand-made equivalent such as `.././debra-setup.service` is refused rather than
+guessed at. The refusal is safe — the link is left exactly as it was, and the
+installer writes its own spelling when the path is absent. Which exact target
+bytes a real `systemctl enable` writes is still unverified, and version-scoped.
 
-The accepted spelling must also actually **open**: it is resolved strictly, and a
-link through a missing directory, through a regular file or through a cycle is
-refused rather than reported as enabled. That check is the reason the comparison
-is on the text and not on the resolved destination: `realpath()` is not strict —
-it suppresses resolution errors and keeps normalizing — so comparing
-destinations accepted links the kernel could not open, and accepted a relative
-link that walked out to the preparing host's `/` and back into the card. On a
+The accepted spelling is then **confirmed against the kernel**: the two paths are
+compared with `os.path.samefile`, which stats them, so a component that cannot be
+reached raises instead of comparing two normalized strings. Both paths are
+interpreted inside the prepared tree — an absolute target is read as a path on
+the device, never opened against the host's own `/etc`. This is stat-level
+confirmation, not an atomic guarantee against a privileged change made between
+the check and the next boot. The comparison is on the link's text and not on the
+resolved destination because `realpath()` is not strict — it suppresses
+resolution errors and keeps normalizing — so comparing destinations accepted
+links the kernel could not open, and accepted a relative link that walked out to
+the preparing host's `/` and back into the card. On a
 running device, `systemctl enable` remains the right command: it also reloads
 the daemon. The installer's route has been booted - the device run enabled the
 unit and rebooted - but no real `systemctl enable` was run, so which link that

@@ -769,6 +769,43 @@ class EnableTests(Fixture):
             installer.enable(self.root)
         self.assertEqual(os.readlink(link), "../something-else.service")
 
+    def test_a_canonical_link_whose_kernel_confirmation_fails_is_refused(self):
+        # R9-02: the `samefile` confirmation had no repository defender. Removing
+        # it, comparing lexically, or comparing only directories each passed all
+        # 44 installer tests, because the spelling gate makes the ordinary cases
+        # redundant. These are the two ways the confirmation can say no.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.symlink_to(os.path.join("..", installer.UNIT_NAME))
+        with patch.object(installer.os.path, "samefile",
+                          side_effect=OSError(5, "I/O error")):
+            with self.assertRaisesRegex(ValueError, "does not open"):
+                installer.enable(self.root)
+        self.assertEqual(os.readlink(link), os.path.join("..", installer.UNIT_NAME),
+                         "a refusal replaced the link")
+        with patch.object(installer.os.path, "samefile", return_value=False):
+            with self.assertRaisesRegex(ValueError, "different link"):
+                installer.enable(self.root)
+        self.assertEqual(os.readlink(link), os.path.join("..", installer.UNIT_NAME))
+
+    def test_two_units_in_one_directory_are_not_the_same_unit(self):
+        # R9-02: comparing only the resolved *directory* passed every installer
+        # test. Two different managed units can live in the same directory, and
+        # the link has to name the one being enabled.
+        self.install()
+        other = self.root / "etc/systemd/system/other.service"
+        other.write_text(installer.MARKER + "[Service]\nExecStart=\"/bin/true\"\n",
+                         encoding="utf-8")
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.symlink_to(os.path.join("..", installer.UNIT_NAME))
+        with self.assertRaisesRegex(ValueError, "different link"):
+            installer.enable(self.root, unit=Path("etc/systemd/system/other.service"))
+        self.assertEqual(os.readlink(link), os.path.join("..", installer.UNIT_NAME))
+
     def test_a_link_through_a_missing_directory_is_refused(self):
         # R8-01. `realpath()` suppresses the error and keeps normalizing, so the
         # link was reported as enabled while the kernel could not open it.
