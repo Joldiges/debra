@@ -36,6 +36,12 @@ HAT_OPTIONS = (
                # `2-microphone` is the same board described in full.
                "model": (r"(?<![0-9])2[-\s]?(?:mics?|microphones?)(?![a-z0-9])",)},
      "card": "seeed2micvoicec",
+     # The name the kernel gives the codec's I2C device, which is what
+     # `/sys/bus/i2c/devices/<bus>-<addr>/name` reports. `tlv320aic3104` is the
+     # device-tree node name the tested overlay creates; `tlv320aic3x` is the
+     # driver's own name and appears when an overlay names the node that way.
+     # Both are the same codec, and neither names a board or a revision.
+     "codecs": ("tlv320aic3104", "tlv320aic3x"),
      # The in-tree overlay the Raspberry Pi kernel ships for this board. It is
      # the one the lab Pi 5 boots with today.
      "overlay": "respeaker-2mic-v2_0",
@@ -65,6 +71,7 @@ HAT_OPTIONS = (
      # both revisions as present at once.
      "match": (),
      "card": "wm8960soundcard",
+     "codecs": ("wm8960",),
      "overlay": "wm8960-soundcard",
      "needs_i2c": True,
      "modules": ("snd-soc-wm8960",),
@@ -87,6 +94,7 @@ HAT_OPTIONS = (
      # of this board would equally be proof of the Seeed v1 HAT above.
      "match": (),
      "card": "wm8960soundcard",
+     "codecs": ("wm8960",),
      "overlay": "wm8960-soundcard",
      "needs_i2c": True,
      "modules": ("snd-soc-wm8960",),
@@ -107,6 +115,7 @@ HAT_OPTIONS = (
      # Not a board: installing "none" means removing any overlay this table
      # manages, which is the honest way to undo one of the others.
      "overlay": None,
+     "codecs": (),
      "needs_i2c": False,
      "modules": (),
      "install_note": "This removes any audio-HAT overlay this page manages from the "
@@ -139,3 +148,90 @@ def card_for(board_id):
     """The ALSA card a board creates, or None for a board that creates none."""
     entry = option(board_id)
     return entry["card"] if entry else None
+
+
+def boards_for_codec(name):
+    """The boards this codec name is consistent with, or () if it is unknown.
+
+    More than one is normal and is reported as more than one: the Seeed v1 HAT
+    and the Waveshare board carry the same WM8960, so a codec name cannot pick
+    between them. A codec this table does not know returns () rather than a
+    guess, which makes it read as "not recognised" instead of as one of these.
+    """
+    if not name:
+        return ()
+    return tuple(entry["id"] for entry in HAT_OPTIONS if name in entry["codecs"])
+
+
+def probe_codec(devices, cards):
+    """How far the running kernel got with an audio codec, from two read-only sources.
+
+    `devices` is the I2C device list a caller read from sysfs — a list of
+    `{"bus", "address", "name", "driver"}` — or None when it could not be read.
+    `cards` is the ALSA card id list, or None when that could not be read. Both
+    being passed in keeps this a pure function: no device is touched here.
+
+    The four states need different actions, which is the reason to tell them
+    apart rather than report a single "detected" flag:
+
+    * ``bound`` — a known codec has its driver bound and its sound card is
+      listed. The driver and the card work; whether the microphones and speaker
+      do is what an audio check shows, not this.
+    * ``no_card`` — the driver is bound and no card with that name is listed.
+      The codec answered and the ASoC sound card did not register.
+    * ``present`` — the I2C device exists with no driver bound. The boot
+      configuration describes a codec and the module that drives it is not
+      loaded, so nothing can use it until that is fixed.
+    * ``none`` — no codec this table knows is configured.
+
+    ``none`` is not "no board fitted". This reads sysfs, not the bus: on these
+    images `i2c-dev` is not loaded, so `/dev/i2c-*` does not exist and a board
+    that is wired up but not described in the boot configuration leaves no
+    trace. A report of ``present`` does not need the bus either — a device-tree
+    node without a driver is already a statement about configuration.
+    """
+    blank = {"name": None, "address": None, "bus": None, "driver": None,
+             "card": None, "card_expected": None, "boards": []}
+    if devices is None:
+        return dict(blank, state="unknown",
+                    note="The I2C device list could not be read, so no codec is "
+                         "reported either way.")
+    for device in devices:
+        boards = boards_for_codec(device.get("name"))
+        if not boards:
+            continue
+        address = "0x%02x on I2C bus %s" % (device["address"], device["bus"])
+        expected = tuple(sorted({card_for(board) for board in boards if card_for(board)}))
+        driver = device.get("driver") or None
+        found = next((name for name in expected if cards and name in cards), None)
+        if not driver:
+            state = "present"
+            note = ("Codec %s at %s has no driver bound: the boot configuration "
+                    "describes it and the module that drives it is not loaded."
+                    % (device["name"], address))
+        elif cards is None:
+            state = "no_card"
+            note = ("The %s driver is bound to the codec at %s, but the ALSA card "
+                    "list could not be read, so whether its sound card registered "
+                    "is unknown." % (driver, address))
+        elif found is None:
+            state = "no_card"
+            note = ("The %s driver is bound to the codec at %s and no sound card "
+                    "named %s is listed." % (driver, address, " or ".join(expected)))
+        else:
+            state = "bound"
+            note = ("%s codec at %s: driver bound and the %s sound card is listed."
+                    % (device["name"], address, found))
+        return dict(blank, state=state, name=device["name"], address=address,
+                    bus=device["bus"], driver=driver,
+                    # A listed card named after the driver is its card only when
+                    # the driver is bound; without the driver it is not evidence
+                    # of anything this codec did.
+                    card=found if driver else None,
+                    card_expected=list(expected), boards=list(boards), note=note)
+    return dict(blank, state="none",
+                note="No audio codec this page knows is configured. That is not proof "
+                     "a board is absent: this reads the kernel's device list, not the "
+                     "I2C bus, so a board with no overlay configured looks the same as "
+                     "no board at all.")
+

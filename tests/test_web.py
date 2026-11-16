@@ -279,6 +279,29 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(status["selected_hardware"]["speaker"], "retained")
         self.assertFalse(any("set-sink" in " ".join(call) for call in self.commands.calls))
 
+    def test_the_status_reports_a_bound_codec_beside_the_eeprom_line(self):
+        # Two independent facts in one payload: what the board says about itself
+        # and what the kernel did with its codec. On the lab boards the EEPROM is
+        # empty while a codec is bound, so conflating them would lose the only
+        # identification those boards have.
+        device = self.root / "sys/bus/i2c/devices/1-001a"
+        device.mkdir(parents=True)
+        (device / "name").write_text("wm8960")
+        target = self.root / "sys/bus/i2c/drivers/wm8960"
+        target.mkdir(parents=True)
+        (device / "driver").symlink_to(os.path.relpath(target, device))
+        self.put("/proc/asound/cards", " 0 [wm8960soundcard]: simple-card\n")
+        status = self.backend.status()
+        self.assertIsNone(status["detected_hat"])
+        self.assertEqual(status["codec"]["state"], "bound")
+        self.assertEqual(status["codec"]["name"], "wm8960")
+        self.assertEqual(status["codec"]["card"], "wm8960soundcard")
+
+    def test_a_status_with_no_codec_directory_reports_unknown_not_absent(self):
+        status = self.backend.status()
+        self.assertEqual(status["codec"]["state"], "unknown")
+        self.assertEqual(status["codec"]["boards"], [])
+
     def test_volume_and_mute_are_separate_and_explicit(self):
         self.backend.change_audio("volume", {"percent": 0})
         self.assertIn(["pactl", "set-sink-volume", SINK, "0%"], self.commands.calls)
