@@ -162,7 +162,7 @@
       </div>
       <section id="setup" class="card">
         <p class="eyebrow">BUILD CHOICES</p><h2>Setup</h2>
-        <p>Planned setup choices. Anything marked <span class="badge planned">Planned</span> cannot be changed from this page.</p>
+        <p>Most of this is reported, not changed. Anything marked <span class="badge planned">Planned</span> cannot be touched from this page; the one thing it keeps is the audio board you say is fitted.</p>
         <!-- The status line stays outside the disclosure: a failure to read the
              build choices must not be hidden inside a panel that is closed by
              default. -->
@@ -176,9 +176,18 @@
           <div id="setup-observations" class="choices"></div>
           <p id="setup-hardware-note" class="detail"></p>
           <h3>Audio hardware</h3>
+          <!-- The one control this card offers, because choosing a board is a
+               record this page can keep honestly. What it does NOT do --
+               install a driver -- is stated underneath rather than offered as a
+               button that cannot work. -->
+          <div id="hat-choice" class="row" hidden>
+            <label for="hat-select">Which board is fitted?</label>
+            <select id="hat-select" disabled></select>
+          </div>
+          <p id="hat-state" class="detail"></p>
+          <p id="hat-note" class="detail"></p>
           <div id="setup-hats" class="choices">
-            <div class="choice"><div class="choice-head"><span class="choice-title">ReSpeaker 2-Mics Pi HAT v2</span><span class="badge planned">Planned</span></div><p class="choice-detail">Select this HAT for the setup; this page cannot change its drivers or verify compatibility yet.</p></div>
-            <div class="choice"><div class="choice-head"><span class="choice-title">No HAT: 3.5 mm jack or USB audio</span><span class="badge planned">Planned</span></div><p class="choice-detail">Select a jack or USB output for the setup; this page cannot choose outputs or confirm that this board has a jack.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Install this board’s driver</span><span class="badge planned">Planned</span></div><p class="choice-detail">Installing a HAT means writing a device-tree overlay and its driver, which needs privileges this page does not have. Recording your choice above is separate: it does not install anything.</p></div>
           </div>
           <h3>Tools and settings</h3>
           <div id="setup-settings" class="choices">

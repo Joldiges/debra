@@ -146,8 +146,12 @@ h3 { color: #d5e4e0; font-size: 15px; font-weight: 650; letter-spacing: .01em; m
 .choice-status { color: var(--accent); }
 .choice-control { display: flex; align-items: center; gap: 10px; }
 .choice input[type=radio] { margin: 0; accent-color: var(--accent); width: 18px; height: 18px; }
-.choice select { max-width: 100%; padding: 9px 12px; border: 1px solid #56716b; border-radius: 9px; background: #101619; color: #d5e4e0; font: inherit; font-size: 14px; }
-.choice input:disabled, .choice select:disabled { opacity: .6; cursor: default; }
+.choice select, #hat-choice select { max-width: 100%; padding: 9px 12px; border: 1px solid #56716b; border-radius: 9px; background: #101619; color: #d5e4e0; font: inherit; font-size: 14px; }
+.choice input:disabled, .choice select:disabled, #hat-choice select:disabled { opacity: .6; cursor: default; }
+/* A dropdown is a thumb target on a phone, like every other control here. */
+#hat-choice { align-items: flex-start; }
+#hat-choice label { color: var(--muted); font-size: 13px; }
+#hat-choice select { min-height: 44px; flex: 1 1 16rem; }
 .choice input[type=radio]:disabled { opacity: .8; }
 .choice button:disabled { opacity: .6; }
 .badge.planned { color: #eac88a; border: 1px solid #6b5a34; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }

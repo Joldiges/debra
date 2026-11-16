@@ -75,6 +75,38 @@ HAT_OPTIONS = (
          "The LEDs (APA102 on SPI) and the button (GPIO17) are not audio: no audio driver "
          "provides them.",
      )},
+    {"id": "respeaker-2mic-hat-v1",
+     "label": "ReSpeaker 2-Mics Pi HAT v1",
+     "summary": "The earlier Seeed board: a WM8960 codec, two microphones, 3.5 mm and "
+                "screw-terminal speaker outputs, and a user button.",
+     # Nothing here can read the revision. Seeed's EEPROM product string for the
+     # 2-Mics HAT does not carry one, and the difference between the revisions is
+     # the codec (WM8960 here, TLV320AIC3104 on v2), which this page does not
+     # interrogate. Claiming a match from the product name alone would report
+     # both revisions as present at once.
+     "match": (),
+     "card": "wm8960soundcard",
+     "caveats": (
+         "The WM8960 card being present is the only evidence this page has, and it "
+         "cannot name which board bound it.",
+         "The one device that bound this board used the in-tree "
+         "`wm8960-soundcard` overlay with dummy regulators, so the codec's supplies "
+         "are not controlled by that driver.",
+     )},
+    {"id": "waveshare-wm8960",
+     "label": "Waveshare WM8960 Audio HAT",
+     "summary": "Waveshare's WM8960 board: two MEMS microphones, 3.5 mm output and "
+                "screw terminals for the speakers it ships with.",
+     # A WM8960 codec does not name its vendor. Presenting a WM8960 card as proof
+     # of this board would equally be proof of the Seeed v1 HAT above.
+     "match": (),
+     "card": "wm8960soundcard",
+     "caveats": (
+         "A WM8960 card is consistent with this board and with the Seeed v1 HAT; "
+         "the driver does not say which one is fitted.",
+         "Waveshare sells several audio HATs. The vendor name does not identify a "
+         "model, a revision or its driver.",
+     )},
     {"id": "none",
      "label": "No HAT: 3.5 mm jack or USB audio",
      "summary": "The board's own headphone output, or a USB sound card.",
@@ -619,11 +651,15 @@ def metrics(root, previous=None, elapsed=None):
 
 class Backend:
     def __init__(self, sink, metadata, runner=run_command, root=Path("/"),
-                 capture=run_capture):
+                 capture=run_capture, state=None):
         if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.:-]*", sink):
             raise ValueError("Use an explicit native sink name, not a default alias")
         self.sink, self.metadata, self.runner, self.root = sink, metadata, runner, root
         self.capture = capture
+        # Where the person's HAT choice is kept. None means this backend has no
+        # device state (a test), and the card then offers no control rather than
+        # a control that silently forgets.
+        self.state = state
         self.lock = threading.Lock()
         self.previous = self.sample_time = self.cache_time = self.cached = None
         # A capture is one deliberate action at a time. Two tabs pressing Test
@@ -765,6 +801,17 @@ class Backend:
         finally:
             self.capture_lock.release()
 
+    def choose_hat(self, payload, deadline=None):
+        """Record which audio HAT this device has. Records only; installs nothing."""
+        if self.state is None:
+            raise ValueError("This server has no device state to record a choice in")
+        if set(payload) != {"choice"} or not isinstance(payload.get("choice"), str):
+            raise ValueError("choice must be one option id, or an empty string to clear it")
+        try:
+            return {"choice": store_hardware_choice(self.state, payload["choice"]) or None}
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
     def components(self, deadline=None):
         probes = {}
         for user in (True, False):
@@ -828,12 +875,14 @@ class Backend:
         return output
 
     def setup(self, deadline=None):
-        """What this device is built to do, and why the page cannot change it.
+        """What this device is built to do, and what the page can change about it.
 
-        Read-only by design. A HAT change is a device-tree overlay and driver
-        write, and there is no config model to record a setting in, so every
-        choice is reported unavailable rather than accepted and dropped. This
-        takes no backend lock: it reads no audio state and starts no write.
+        Almost all of it is read-only: applying a HAT change is a device-tree
+        overlay and driver write, and there is no config model for the settings,
+        so those are reported unavailable rather than accepted and dropped. The
+        one exception is which board a person says they fitted, which is a note
+        this page can keep honestly (`choose_hat`). This takes no backend lock:
+        it reads no audio state and starts no write.
         """
         product = read_text(self.root, "/sys/firmware/devicetree/base/hat/product") or None
         cards = alsa_cards(self.root)
@@ -858,6 +907,9 @@ class Backend:
                 "applied": present,
                 "caveats": list(option["caveats"]),
             })
+        choice = hardware_choice(self.state) if self.state is not None else ""
+        for option in options:
+            option["selected"] = bool(choice) and option["id"] == choice
         services = {row["name"]: row for row in self.components(deadline)}
 
         def observed(name):
@@ -866,9 +918,12 @@ class Backend:
                     "enabled": row.get("enabled")}
 
         return {
+            # Not "writable": the one thing this card can change is which board
+            # a person says is fitted, and that is a note, not a device setting.
             "writable": False,
-            "reason": "This page reports what the device is built to do; it cannot change "
-                      "any of it yet.",
+            "reason": "This page reports what the device is built to do. It can record which "
+                      "audio board you have; it cannot install a driver or change any other "
+                      "setting yet.",
             "hardware": {
                 "detected_hat": product,
                 "detected_source": "Device-tree HAT EEPROM product; empty means the HAT "
@@ -878,9 +933,19 @@ class Backend:
                                  "verified or applied choice.",
                 "cards": cards,
                 "cards_source": "/proc/asound/cards",
-                "selectable": False,
-                "reason": "Changing the HAT means writing a device-tree overlay and a driver "
-                          "configuration, which nothing here can do (roadmap A02, WEB03).",
+                # What the person chose, and what this page can and cannot do
+                # about it. Choosing is a record; installing a driver is a
+                # privileged write that this server never performs.
+                "selectable": self.state is not None,
+                "choice": choice or None,
+                "installed": None,
+                "reason": "Applying a HAT change means writing a device-tree overlay and a "
+                          "driver configuration. This page can record which board you have "
+                          "chosen; installing and enabling that board's driver is not "
+                          "something it can do (roadmap A02, WEB03).",
+                "choice_note": "A recorded choice is what you asked for. It is not proof "
+                               "that the driver for that board is installed, and this page "
+                               "does not install one.",
                 "options": options,
             },
             "settings": {
@@ -1201,7 +1266,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.permitted(write=True):
             return
         if self.path not in ("/api/audio/volume", "/api/audio/mute",
-                             "/api/audio/test-output", "/api/audio/test-input"):
+                             "/api/audio/test-output", "/api/audio/test-input",
+                             "/api/setup/hat"):
             self.reply(404, {"error": "Not found"})
             return
         try:
@@ -1220,6 +1286,10 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw)
             if not isinstance(payload, dict):
                 raise ValueError("JSON object required")
+            if self.path == "/api/setup/hat":
+                self.reply(200, self.server.backend.choose_hat(payload,
+                                                               deadline=self.deadline))
+                return
             route = self.path.rsplit("/", 1)[1]
             if route == "test-output":
                 result = self.server.backend.test_output(deadline=self.deadline)
@@ -1229,10 +1299,81 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.server.backend.change_audio(route, payload,
                                                           deadline=self.deadline)
             self.reply(200, result)
-        except (ValueError, UnicodeError):
-            self.reply(400, {"error": "Invalid audio request"})
+        except (ValueError, UnicodeError) as exc:
+            # A HAT choice is not an audio command: it has its own reason, which
+            # is written here and never contains command output.
+            if self.path == "/api/setup/hat":
+                self.reply(400, {"error": str(exc) or "That choice was not accepted"})
+            else:
+                self.reply(400, {"error": "Invalid audio request"})
         except (Unavailable, RequestExpired):
             self.reply(503, {"error": "Audio control unavailable; no fallback or restart attempted"})
+
+
+HARDWARE_CHOICES = tuple(option["id"] for option in HAT_OPTIONS) + ("",)
+
+
+def hardware_choice(state):
+    """The HAT a person chose on this device, or "" when they have not chosen.
+
+    This is a *selection*, not a detection and not an installation: it records
+    what someone asked for, so the next step can act on it and so the page does
+    not ask the same question twice. Nothing in this module applies it.
+    """
+    try:
+        data = json.loads((state / "hardware.json").read_text())
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    choice = data.get("hat_choice")
+    return choice if isinstance(choice, str) and choice in HARDWARE_CHOICES else ""
+
+
+def store_hardware_choice(state, choice):
+    """Record the chosen HAT, keeping every other retained field.
+
+    The state directory is checked exactly as the key's is: if it is not this
+    user's own private directory, this writes nothing and says why. The file is
+    replaced atomically, so an interruption leaves either the old choice or the
+    new one and never half of either.
+    """
+    if choice not in HARDWARE_CHOICES:
+        raise ValueError("Unknown HAT choice")
+    if state.is_symlink() or not state.is_dir():
+        raise ValueError("State directory is missing or a link")
+    info = state.stat()
+    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        raise ValueError("State directory must be owned by this user and owner-only (0700)")
+    path = state / "hardware.json"
+    if path.is_symlink():
+        raise ValueError("hardware.json is a link; refusing to write through it")
+    try:
+        current = json.loads(path.read_text()) if path.exists() else {}
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"hardware.json is not readable JSON ({exc})") from exc
+    if not isinstance(current, dict):
+        raise ValueError("hardware.json must hold an object")
+    current["hat_choice"] = choice
+    if not choice:
+        current.pop("hat_choice", None)
+    fd, staged = tempfile.mkstemp(prefix=".hardware-staged-", dir=state)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump(current, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        staged_file = Path(staged)
+        staged_file.chmod(0o600)
+        os.replace(staged_file, path)
+    except BaseException:
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        raise
+    return choice
 
 
 def init_state(state):
@@ -1371,7 +1512,7 @@ def main():
         if (not isinstance(metadata, dict) or set(metadata) - {"hat", "speaker"} or
                 any(not isinstance(v, str) or len(v) > 160 for v in metadata.values())):
             parser.error("hardware.json allows only hat/speaker labels up to 160 characters")
-    backend = Backend(args.sink, metadata)
+    backend = Backend(args.sink, metadata, state=state)
     scanner = DiscoveryCache()
     # A page nobody else can reach must not be advertised. This is the honest
     # reason rather than a silence, and it is why the development host on

@@ -313,11 +313,13 @@ class BackendTests(unittest.TestCase):
         # the "nothing established" value it already had.
         self.put("/sys/firmware/devicetree/base/hat/product", "ReSpeaker 2-Mics Pi HAT\0")
         self.put("/proc/asound/cards", " 0 [seeed2micvoicec]: simple-card\n")
-        respeaker, none = self.backend.setup()["hardware"]["options"]
+        options = self.backend.setup()["hardware"]["options"]
+        respeaker = options[0]
+        none = next(option for option in options if option["id"] == "none")
         self.assertIs(respeaker["detected"], True)
         self.assertIsNone(none["detected"])
         self.assertEqual(set(none), {"id", "label", "summary", "detected", "card", "applied",
-                                     "caveats"})
+                                     "selected", "caveats"})
         self.assertIs(web.hat_family_match("ReSpeaker 2-Mics Pi HAT", web.HAT_OPTIONS[1]), None)
 
     def test_reject_implicit_sink_and_command_injection(self):

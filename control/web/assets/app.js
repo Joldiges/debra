@@ -37,6 +37,9 @@ let queuedVolume = null;
 // One audio test at a time: a tone still playing or a capture still running is
 // not something to start again, and pressing twice must not stack up either.
 let testing = false;
+// Writing a HAT choice takes a round trip; a second change while it is in
+// flight would race the first.
+let hatBusy = false;
 let volumeTimer = 0;
 // Long enough that a drag is one command, short enough that a person who let go
 // does not wonder whether it took.
@@ -599,6 +602,70 @@ function hatStatus(option) {
   }
   return `Status: ${detected}; ${applied}.`;
 }
+// The one control on the Setup card. It records which board a person has; it
+// installs nothing, and the note underneath says so in the same breath.
+function renderHatChoice(hardware) {
+  const select = el("hat-select"), row = el("hat-choice");
+  if (!select || !row) return;
+  const options = hardware.options || [];
+  const chosen = hardware.choice || "";
+  const wanted = [["", "Not chosen yet"], ...options.map(o => [o.id, o.label])];
+  // A poll must not rebuild a control a person is using: replacing the options
+  // under an open dropdown closes it and takes the choice with it. The next
+  // poll after they let go redraws from what the device kept.
+  if (document.activeElement !== select) {
+    select.replaceChildren(...wanted.map(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      return option;
+    }));
+    select.value = chosen;
+  }
+  // An unselectable card keeps its control hidden rather than showing a
+  // dropdown whose answer nobody keeps.
+  row.hidden = !hardware.selectable;
+  select.disabled = !hardware.selectable || hatBusy;
+  const current = options.find(option => option.selected);
+  const parts = [];
+  parts.push(hardware.detected_hat
+    ? `Detected at setup: ${hardware.detected_hat}.`
+    : "Detected at setup: this device did not name a HAT.");
+  parts.push(current
+    ? `Chosen here: ${current.label}.`
+    : "Chosen here: nothing yet.");
+  if (current) {
+    // Three separate facts, so a person can see which one is missing when the
+    // speaker stays silent: what was detected, what was recorded, and whether
+    // the driver's sound card is there at all.
+    parts.push(!current.card || !current.card.name
+      ? "Driver: this choice has no sound card of its own to check."
+      : current.applied === true
+        ? `Driver: an ALSA card named ${current.card.name} is present.`
+        : current.applied === false
+          ? `Driver: no ALSA card named ${current.card.name} is present yet.`
+          : "Driver: the sound-card list could not be read.");
+  }
+  el("hat-state").textContent = parts.join(" ");
+  el("hat-note").textContent = hardware.choice_note || "";
+}
+el("hat-select").addEventListener("change", async () => {
+  const select = el("hat-select");
+  if (hatBusy) return;
+  hatBusy = true;
+  select.disabled = true;
+  try {
+    await api("/api/setup/hat", {choice: select.value});
+    await loadSetup();
+  } catch (error) {
+    el("hat-state").textContent = error.status === 401
+      ? "The device refused this tab's access. Enter its key again."
+      : `That choice was not recorded: ${error.message}.`;
+  } finally {
+    hatBusy = false;
+    select.disabled = false;
+  }
+});
 function observedLine(option) {
   if (!option.observed) return null;
   const parts = [];
@@ -637,6 +704,7 @@ function renderSetup(data) {
     observations.push(observationRow(option.label, hatStatus(option),
       (option.caveats || []).join(" ")));
   }
+  renderHatChoice(hardware);
   for (const setting of Object.values(settings)) {
     for (const option of setting.options || []) {
       const observed = observedLine(option);

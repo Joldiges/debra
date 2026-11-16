@@ -3,9 +3,9 @@
 Reusable Python-standard-library service and local HTML/CSS/JavaScript, not a
 complete appliance or an internet-facing administration server. Current scope:
 native **selected-sink volume and mute**, plus read-only hardware/resources,
-service probes, a **read-only Setup card** (HAT, tools and settings, updates)
-whose planned choices are static text with no control at all, and a **Planned
-task list** of the jobs the appliance will do later. See the
+service probes, a **Setup card** (HAT, tools and settings, updates) that is
+read-only apart from recording which audio board is fitted, and a **Planned task
+list** of the jobs the appliance will do later. See the
 [web requirements](../../docs/design/web-control.md), the
 [page design study](../../docs/design/device-page-ux-2026-11-16.md)
 and [roadmap](../../docs/roadmap.md#browser-first-device-control).
@@ -110,13 +110,27 @@ an observation time.
   and the card says why, in the device's own words. With nothing to read, the
   level says **No level** rather than showing the slider's default position as
   though it were a measurement.
-- The Setup card's HAT row reports a **family match**, not an identification: the
+- The Setup card offers **one real control**: a list of the boards a person
+  might have fitted (ReSpeaker 2-Mics v2, ReSpeaker 2-Mics v1, Waveshare WM8960,
+  or no HAT), which records the choice in `hardware.json` in the private state
+  directory. That record is what the person asked for. It is **not** an
+  installation and not a detection: applying a choice means a device-tree
+  overlay and a driver configuration, which is a privileged write this server
+  never performs, so installing the driver stays a **Planned** sentence under
+  the list. A device with no state directory to keep the choice in shows no
+  control at all rather than a dropdown that forgets. Next to the list the card
+  states three separate facts, because a silent speaker otherwise has no
+  traceable cause: what the EEPROM named, what was recorded, and whether an ALSA
+  card with the driver's name is present.
+- The Setup card's HAT rows report a **family match**, not an identification: the
   EEPROM product names a ReSpeaker/Seeed two-microphone board, and the exact
   model and revision are not established. The two-microphone match has a number
   boundary, so `12-Mics` in a product string is not read as `2-mic`. The "No HAT:
   3.5 mm jack or USB audio" row is an alternative rather than a board, so it is
   not asked of the EEPROM at all and does not claim the EEPROM fails to name a
-  ReSpeaker.
+  ReSpeaker. A WM8960 codec does not name its vendor, so the Seeed v1 and the
+  Waveshare boards are listed apart and both report the same card: the person
+  knows which board they bought even when the driver cannot say.
 - A **Device tasks** card lists the jobs a person will come to the page for —
   changing Wi-Fi, restarting speech or music, keeping a known-good copy,
   maintenance over SSH, speaking through the device — and marks every one
@@ -264,13 +278,16 @@ line. Neither dependency is installed by this installer.
 | `~/.local/share/debra/web/releases/<sha256>/` | Fixed runtime payload, content-addressed; old releases retained |
 | `~/.config/debra/web/access.key` | Persistent device key, owner-only regular file |
 | `~/.config/debra/web/.access-key.staged-*` | Private key-publication artifacts; retained, not alternative active keys |
-| `~/.config/debra/web/hardware.json` | Optional retained `hat`/`speaker` string labels; not hardware verification |
+| `~/.config/debra/web/hardware.json` | Optional retained `hat`/`speaker` string labels plus the board a person chose (`hat_choice`); not hardware verification and not an installation |
 | `~/.config/debra/web/devices-<sha256>.json` | Private, content-addressed device list referenced by its unit; previous lists retained |
 | `~/.config/systemd/user/debra-web.service` | Generated user service; no key in arguments |
 | `~/.local/share/debra/web/previous-units/` | Previous generated service files, retained for rollback |
 
 An unreadable, malformed or invalid `hardware.json` refuses server startup with
-an error message; correct it or preserve it elsewhere before starting again.
+an error message; correct it or preserve it elsewhere before starting again. A
+choice is written by `POST /api/setup/hat` with `{"choice": "<option id>"}` (or
+`""` to clear it), atomically and owner-only, keeping every other retained field;
+an unknown id is refused with a `400` and changes nothing.
 The generated unit retries on failure, and stops retrying after four attempts in
 five minutes (`StartLimitIntervalSec=300`, `StartLimitBurst=4`, in `[Unit]`).
 Without that limit a unit that cannot start — a refused `hardware.json`, for

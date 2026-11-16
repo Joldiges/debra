@@ -36,7 +36,9 @@ window.testState = {
   heldStatus: false,
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
-  holdSetup: false, releaseSetup: null, failSetup: false,
+  holdSetup: false, releaseSetup: null, failSetup: false, hatChoice: "",
+  // Whether this device can keep a board choice at all.
+  hatSelectable: true,
   // The two deliberate audio tests, and a way to hold one so a check can press
   // the other button while it is running.
   holdTest: false, releaseTest: null, testOutputGone: false,
@@ -84,21 +86,34 @@ if (state.noAbort) { try { delete AbortSignal.timeout; } catch (error) { /* the 
 if (new URLSearchParams(location.search).get("hold") === "setup") state.holdSetup = true;
 const setupPayload = () => ({
   writable: false,
-  reason: "This page reports what the device is built to do; it cannot change any of it yet.",
+  // The server's own words, so a check reads what the page was given.
+  reason: "This page reports what the device is built to do. It can record which audio "
+    + "board you have; it cannot install a driver or change any other setting yet.",
   hardware: {
     detected_hat: "ReSpeaker 2-Mics Pi HAT", detected_source: "fixture",
     retained_label: "ReSpeaker 2-Mics Pi HAT v2", retained_note: "fixture",
     cards: ["seeed2micvoicec", "vc4hdmi0"], cards_source: "/proc/asound/cards",
-    selectable: false, reason: "Changing the HAT is a device-tree and driver write (A02).",
+    selectable: state.hatSelectable, installed: null,
+    choice: state.hatChoice,
+    reason: "Applying a HAT change is a device-tree and driver write (A02).",
+    choice_note: "A recorded choice is what you asked for, not proof a driver is installed.",
     // The shape the server really sends: the alternative is not a board the
-    // EEPROM can name, so the server reports no verdict for it.
+    // EEPROM can name, so the server reports no verdict for it, and the two
+    // WM8960 boards are listed apart because a codec name names neither.
     options: [
       {id: "respeaker-2mic-hat-v2", label: "ReSpeaker 2-Mics Pi HAT v2",
        summary: "Two microphones and a codec.", detected: true,
        card: {name: "seeed2micvoicec", present: true}, applied: true,
+       selected: state.hatChoice === "respeaker-2mic-hat-v2",
        caveats: ["Positions are an estimate, not a measurement."]},
+      {id: "respeaker-2mic-hat-v1", label: "ReSpeaker 2-Mics Pi HAT v1",
+       summary: "The earlier WM8960 board.", detected: false,
+       card: {name: "wm8960soundcard", present: true}, applied: true,
+       selected: state.hatChoice === "respeaker-2mic-hat-v1",
+       caveats: ["The WM8960 card cannot name which board bound it."]},
       {id: "none", label: "No HAT: 3.5 mm jack or USB audio", summary: "Board output.",
        detected: null, card: {name: null, present: null}, applied: null,
+       selected: state.hatChoice === "none",
        caveats: ["This page cannot tell which output is in use."]}
     ]
   },
@@ -197,6 +212,14 @@ window.fetch = async (path, options) => {
         ? {played: false, muted: true,
            reason: "The output is muted, so a tone would be silent. Unmute it and try again."}
         : {played: true, hertz: 660, seconds: 0.5, muted: false}};
+    }
+    if (path === "/api/setup/hat") {
+      if (!["", "respeaker-2mic-hat-v2", "respeaker-2mic-hat-v1", "none"]
+          .includes(body.choice)) {
+        return {ok: false, status: 400, json: async () => ({error: "Unknown HAT choice"})};
+      }
+      state.hatChoice = body.choice;
+      return {ok: true, status: 200, json: async () => ({choice: body.choice || null})};
     }
     if (path === "/api/audio/test-input") {
       if (state.holdTest) await new Promise(resolve => { state.releaseTest = resolve; });
@@ -575,26 +598,35 @@ window.addEventListener("load", async () => {
            "the update reason is still repeated in the observation list");
     assert(document.getElementById("setup-hardware-source").textContent.includes("seeed2micvoicec"),
            "the ALSA card list is not shown");
-    assert(document.getElementById("setup-status").textContent.includes("cannot change"),
-           "the read-only reason is missing");
+    // The status line has to carry both halves: what the card can do, and what
+    // it cannot, or a person reads either a promise or a dead end.
+    const status = document.getElementById("setup-status").textContent;
+    assert(/can record which audio board you have/.test(status),
+           "the status does not say what the card can do: " + status);
+    assert(/cannot install a driver/.test(status),
+           "the status does not say what the card cannot do: " + status);
     // THE CARDINAL RULE: a planned capability is static text, never a control.
     // A disabled control is still a control: it promises a shape the page
     // cannot honour, and a handler on it runs the moment it is enabled.
     const staticRows = [...document.querySelectorAll("#setup-hats .choice, #setup-settings .choice, #setup-updates .choice")];
-    // Five, not eight: the three update rows (check/install/roll back) each
-    // described the same absent mechanism, and none was per component. They are
-    // one sentence in this card plus one row in Components, where a person looks
-    // for a single component's version.
-    assert(staticRows.length === 5, "expected five planned setup rows, saw " + staticRows.length);
+    // Four. The three update rows (check/install/roll back) each described the
+    // same absent mechanism, and none was per component: they are one sentence
+    // in this card plus one row in Components, where a person looks for a single
+    // component's version. Choosing a board stopped being a planned row because
+    // it is now a real control; installing its driver still is one.
+    assert(staticRows.length === 4, "expected four planned setup rows, saw " + staticRows.length);
     for (const row of staticRows) {
       assert(row.querySelector(".badge.planned"), "a planned setup row is not labelled: " + row.textContent.slice(0, 40));
       assert((row.querySelector(".choice-detail")?.textContent || "").length > 30,
              "a planned setup row does not say what it would do: " + row.textContent.slice(0, 40));
     }
+    // The card has exactly one control: the board a person says they fitted.
+    // Recording a choice is something this page can do honestly; everything
+    // else it shows stays text.
     const controls = [...document.querySelectorAll("#setup input, #setup select, #setup button, #setup textarea, #setup a[href]")]
       .filter(node => !node.closest("#access-details"));
-    assert(controls.length === 0,
-           "the setup card still offers " + controls.length + " control(s): "
+    assert(controls.length === 1 && controls[0].id === "hat-select",
+           "the setup card offers " + controls.length + " control(s): "
            + controls.map(node => node.tagName + "#" + node.id).join(", "));
     const interactive = [...document.querySelectorAll("#setup [tabindex], #setup [role=button], #setup [role=link], #setup [role=switch], #setup [role=checkbox], #setup [role=radio]")];
     assert(interactive.length === 0,
@@ -1743,9 +1775,9 @@ window.addEventListener("load", async () => {
     for (let i = 0; i < 40 && !rows().every(count => count > 0); i++) await wait();
     assert(rows().every(count => count > 0),
            "an audio write discarded a valid setup answer: " + rows());
-    assert(document.getElementById("setup-status").textContent.includes("cannot change"),
-           "the read-only reason is missing: "
-           + document.getElementById("setup-status").textContent);
+    assert(document.getElementById("setup-status").textContent.includes(
+             "cannot install a driver"),
+           "the reason is missing: " + document.getElementById("setup-status").textContent);
     result.textContent = "PASS: an audio write does not discard a Setup answer already in flight";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
@@ -1853,6 +1885,89 @@ window.addEventListener("load", async () => {
     const writes = testState.posts.filter(post => /volume|mute/.test(post.path));
     assert(writes.length === 0, "a test changed the audio settings: " + JSON.stringify(writes));
     result.textContent = "PASS: the two audio tests run only when pressed, report what happened, change nothing and keep nothing";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_HAT_CHOICE = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    const select = document.getElementById("hat-select"), row = document.getElementById("hat-choice");
+    for (let i = 0; i < 80 && row.hidden; i++) await wait();
+    assert(!row.hidden, "the board choice is hidden on a device that can record one");
+    assert(select && !select.disabled, "the board choice cannot be used");
+    const values = [...select.options].map(option => option.value);
+    // Four boards plus "not chosen yet": the two WM8960 boards are listed apart
+    // rather than merged, because a person knows which board they bought even
+    // when the driver cannot say.
+    assert(JSON.stringify(values) === JSON.stringify(["", "respeaker-2mic-hat-v2",
+                                                     "respeaker-2mic-hat-v1", "none"]),
+           "the board list is wrong: " + JSON.stringify(values));
+    assert(select.value === "", "a device with no recorded choice shows one anyway");
+    assert(/nothing yet/.test(document.getElementById("hat-state").textContent),
+           "the card does not say nothing has been chosen");
+
+    // Choosing writes once, and the answer comes from the device rather than
+    // being assumed.
+    select.value = "respeaker-2mic-hat-v1";
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+    for (let i = 0; i < 80 && !testState.hatChoice; i++) await wait();
+    const hatPosts = testState.posts.filter(post => post.path === "/api/setup/hat");
+    assert(hatPosts.length === 1, "expected one choice write, saw " + hatPosts.length);
+    assert(JSON.stringify(hatPosts[0].body) === '{"choice":"respeaker-2mic-hat-v1"}',
+           "the write carries something else: " + JSON.stringify(hatPosts[0].body));
+    for (let i = 0; i < 80 && !/Chosen here: ReSpeaker 2-Mics Pi HAT v1/.test(
+         document.getElementById("hat-state").textContent); i++) await wait();
+    const state = document.getElementById("hat-state").textContent;
+    assert(/Chosen here: ReSpeaker 2-Mics Pi HAT v1/.test(state), "the record is not shown: " + state);
+    assert(select.value === "respeaker-2mic-hat-v1", "the list does not show the kept choice");
+    // Three separate facts, so a silent speaker can be traced: what was
+    // detected, what was recorded, and whether the driver's card exists.
+    assert(/Detected at setup:/.test(state), "the detected board is no longer named: " + state);
+    assert(/Driver: an ALSA card named wm8960soundcard is present/.test(state),
+           "the driver's card is not reported: " + state);
+    // A choice is not an installation, and the page must not imply otherwise.
+    assert(!/installed|working|ready/i.test(document.getElementById("hat-note").textContent
+           .replace("not proof a driver is installed", "")),
+           "the note claims the choice installed something: "
+           + document.getElementById("hat-note").textContent);
+    assert(!document.querySelector("#hat-choice button"),
+           "the choice grew an Install button the page cannot honour");
+
+    // Clearing the choice is a real answer, not a mistake to be prevented.
+    select.value = "";
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+    for (let i = 0; i < 80 && testState.hatChoice !== ""; i++) await wait();
+    for (let i = 0; i < 80 && !/nothing yet/.test(
+         document.getElementById("hat-state").textContent); i++) await wait();
+    assert(/nothing yet/.test(document.getElementById("hat-state").textContent),
+           "clearing the choice is not reflected: "
+           + document.getElementById("hat-state").textContent);
+
+    // A device that cannot keep a choice offers none: a dropdown whose answer
+    // nobody stores is the disabled control this card exists to avoid.
+    testState.hatSelectable = false;
+    await loadSetup();
+    for (let i = 0; i < 80 && !row.hidden; i++) await wait();
+    assert(row.hidden, "a device that cannot record a choice still offers the control");
+    const shown = [...document.querySelectorAll("#setup input, #setup select, #setup button")]
+      .filter(node => !node.closest("#access-details") && node.getClientRects().length);
+    assert(shown.length === 0, "a control is still visible on a card that can change nothing: "
+           + shown.map(node => node.tagName + "#" + node.id).join(", "));
+    testState.hatSelectable = true;
+    result.textContent = "PASS: the board choice is one real control, records what was chosen, "
+      + "and never claims to have installed anything";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -2278,7 +2393,8 @@ class BrowserTests(unittest.TestCase):
                                    "/check-unverified-key.js", "/check-checking.js",
                                    "/check-stale.js", "/check-first-screen.js",
                                    "/check-nav.js", "/check-missing-readings.js",
-                                   "/check-output-gone.js", "/check-audio-tests.js"):
+                                   "/check-output-gone.js", "/check-audio-tests.js",
+                                   "/check-hat-choice.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -2296,6 +2412,7 @@ class BrowserTests(unittest.TestCase):
                               "/check-setup-current.js": CHECK_SETUP_CURRENT,
                               "/check-disconnect-write.js": CHECK_DISCONNECT_WRITE,
                               "/check-audio-tests.js": CHECK_AUDIO_TESTS,
+                              "/check-hat-choice.js": CHECK_HAT_CHOICE,
                               "/check-refused-key.js": CHECK_REFUSED_KEY,
                               "/check-refused-keyless.js": CHECK_REFUSED_KEYLESS,
                               "/check-query-key.js": CHECK_QUERY_KEY,
@@ -2446,6 +2563,13 @@ class BrowserTests(unittest.TestCase):
         # presses that report what happened -- and neither may quietly alter the
         # volume, or claim more than the level supports.
         self.run_browser("?auth=none", "check-audio-tests.js", budget=20000)
+
+    def test_the_board_choice_records_what_was_chosen_and_installs_nothing(self):
+        # The one control the Setup card offers. It is a record, not a driver
+        # install: the page has to say what was detected, what it kept, and
+        # whether the driver's sound card exists at all, or a silent speaker has
+        # no traceable cause.
+        self.run_browser("?auth=none", "check-hat-choice.js", budget=20000)
 
     def test_browser_and_server_url_contract_and_literal_labels(self):
         for url, expected in URL_CASES.items():
