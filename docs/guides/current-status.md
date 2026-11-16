@@ -28,7 +28,10 @@ a second finished device.
   `http://debra-8518d6.local:8787/`, against the ReSpeaker v1's WM8960 sink,
   with PipeWire and the user manager kept up by linger
   ([result](../testing/results/2026-11-16-zero2w-web-portal-and-hat-audio.md)).
-  The sink is readable; no sound has been played through it.
+  The sink is readable; no sound has been played through it. It currently runs
+  the **development bypass** (`--auth none`), so anyone on the LAN can read its
+  status and change volume/mute; the decided fix is
+  [browser enrollment](../design/browser-enrollment.md), not written yet.
 - An echo-cancel module loads here; whether cancellation works is untested ([audio outputs](../design/audio-outputs.md)).
 
 Power is reported better, not solved: an earlier supply produced "undervoltage

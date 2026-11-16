@@ -116,3 +116,50 @@ device only. It is not in this note, the repository or the logs.
 - The sink appears as `Built-in Audio Stereo` through WirePlumber's ACP
   fallback: there is no UCM profile for this card, which is the profile question
   the earlier note predicted, not a fault.
+
+## Addendum: the key failed with `{"error": "Not found"}`, and the board now runs the bypass
+
+Added the same day, after James tried the page and reported that the key would
+not connect.
+
+**The key itself works.** From the device, `GET /api/status` answers `401
+{"error": "Access key required"}` without it and `200` with it. What James saw
+was a different failure:
+
+```
+$ curl -s -o /dev/null -w '%{http_code}\n' 'http://…:8787/?key=abc'
+404        {"error": "Not found"}
+$ curl -s -o /dev/null -w '%{http_code}\n' 'http://…:8787/index.html'
+404        {"error": "Not found"}
+```
+
+The key form is JavaScript-only: `app.js` attaches the submit handler and calls
+`/api/status` with `Authorization: Bearer …`. If the form is submitted natively —
+Enter pressed before `app.js` has run, or scripting blocked — the browser does a
+plain `GET /?key=…`, and the server serves the page only at an exact `/`, so the
+person gets raw JSON. `/index.html` fails the same way. **This is a real defect
+in the page/server pair and is not fixed here**: `control/web/` belongs to
+another worker's packet, and a change there needs its own review. The fix is
+either a form that cannot submit without JavaScript or a server that answers
+`/?…` with the page and a clear message.
+
+**James's judgement on the key is the product judgement already recorded.**
+[Browser enrollment](../../design/browser-enrollment.md) is the decided path: the
+password is chosen during setup behind the card's setup-network password, so
+nobody types a 43-character key. That implementation is not written. The same
+decision sanctions a development bypass, so this board was switched to it:
+
+```
+$ python3 -B control/web/install.py --sink 'alsa_output.platform-soc_sound.stereo-fallback' \
+    --bind 0.0.0.0 --port 8787 --host debra-8518d6.local:8787 --host 192.168.0.99:8787 \
+    --auth none
+previous_unit: …/previous-units/20261116T052853951893Z.service
+```
+
+The running unit names `--auth none`, `/api/status` reports `"auth": "none"`, and
+the page offers **Continue without a key (development)** with its warning banner.
+That is a real security tradeoff, stated plainly: anyone who can reach port 8787
+on the household LAN can read this device's status and change its volume and
+mute, with no credential. It is a development mode, not the product. Reverting is
+the same install without `--auth none`, then `systemctl --user daemon-reload &&
+systemctl --user restart debra-web.service`; the previous unit is retained.
