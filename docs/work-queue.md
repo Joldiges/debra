@@ -38,8 +38,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `setup-r3` | — | `.local/reviews/setup-r3-20261115/` | independent, `gpt-6.1-sol`; reviews the r2 fixes, which are the first candidate that writes a persistent Wi-Fi profile |
-| Acceptance review `code-r7` | — | `.local/reviews/code-r7-20261115/` | independent, `gpt-6.1-sol`; the browser control since the approved discovery contract: the Setup card, atomic rollback, the phone nav, and the docs |
+| Acceptance review `setup-r4` | — | `.local/reviews/setup-r4-20261115/` | independent, `gpt-6.1-sol`; frozen on `5c8fde4`, judging whether the nine r3 findings and both surviving mutations are closed |
+| Acceptance review `code-r8` | — | `.local/reviews/code-r8-20261115/` | independent, `gpt-6.1-sol`; frozen on `709b3df`, judging whether the nine r7 findings are closed and what the repairs broke |
 
 ## Done this round
 
@@ -49,6 +49,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Setup service at boot | N02 | `cf88922` — system unit, installer, 24 tests; never loaded by systemd |
 | The r1 review's remaining blockers | N02 | `ef370d5` — reserved admission, active-profile check, classified errors, baseline retry and atomicity, form kept while polling |
 | Nearby-network picker in the setup page | N02 | this round — the radio is scanned once before the access point is raised, so a beginner chooses a name instead of typing it; 13 setup browser scenarios |
+| The r3 review's blockers | N02 | `5c8fde4` — the SSID is NetworkManager's byte list (proven against libnm), the hostname is reconciled every boot, the baseline pointer is verified or adopted, tar metadata comes from the read descriptor, claim/settle are atomic, and the page keeps a name's spaces and says "not known yet" instead of claiming a handover. Both surviving r3 mutations are now caught |
+| The r7 review's blockers | WEB03 | `709b3df` — the documented rollback command runs without `--host` and refuses an unstartable unit, the keyless dashboard carries its own warning, HAT detection needs a vendor and a two-mic word, parser refusals reach the page, a 390 px page holds a long sink identity, an oversized valid body is refused, same-device detection is the exact host or its `.local` alias, a Switch link is not refused as cross-site, and the labels name their sources |
 | The r2 review's blockers | N02 | this round — the profile is written where NetworkManager keeps it and promoted to autoconnect only after the join is verified; a per-attempt token replaces the SSID check; the reservation is released when the reply cannot be written; the country is set after the AP is down; the portal prints the address it is served on; the baseline is never overwritten, never archives itself, and `latest()` verifies the hash; the page keeps what was typed across a poll and shows a baseline failure |
 | Browser proof of the device list | — | `test_development_bypass_and_device_links` already drives the configured and discovered badges, the same-device case, a literal label, a discovery start failure, an empty scan and a refused advertisement |
 | Browser proof of the setup page | N02 | `508a7f9` — 7 Chromium scenarios; the page was unreachable and the tests caught it |
@@ -115,7 +117,9 @@ repository — the backlog was documentation, evidence and test gaps, not missin
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
 first baseline now have an implementation (`control/setup/`, 136 onboarding tests
 and 28 installer tests) that has
-**never run on a device**, and the activity TUI has a notices checklist.
+**never run on a device**, and the activity TUI has a notices checklist. The
+whole offline suite is 545 tests (33 skipped) plus 33 browser tests
+(`-p 'test_*browser.py'`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,
 and the browser setup card (in progress). See the [first-boot design
