@@ -106,6 +106,19 @@ const SECTIONS = ["audio", "health", "device", "components", "setup", "planned"]
 // section they had just asked for. One line of tolerance fixes that without
 // letting a section further down claim to be current.
 const SECTION_ARRIVED_PX = 48;
+// Sections whose real content lives behind a disclosure open it when the
+// section is chosen. Tapping "Tasks" and being shown a heading and a plus sign
+// answers a different question than the one asked. Audio and Health are left
+// out on purpose: their readings are already visible and their disclosures are
+// extra detail rather than the section itself.
+const SECTION_DISCLOSURES = {
+  device: "hardware-details", components: "components-details",
+  setup: "setup-details", planned: "tasks-details",
+};
+function revealSection(hash) {
+  const details = SECTION_DISCLOSURES[String(hash || "").replace("#", "")];
+  if (details && el(details)) el(details).open = true;
+}
 let navTimer = 0;
 function updateCurrentSection() {
   // Exactly one entry is current: the last section whose heading has passed
@@ -148,13 +161,17 @@ function watchSections() {
         if (other !== link) other.removeAttribute("aria-current");
       }
       link.setAttribute("aria-current", "location");
+      revealSection(link.getAttribute("href"));
     });
   }
   window.addEventListener("scroll", scheduleCurrentSection, {passive: true});
   window.addEventListener("resize", scheduleCurrentSection);
   // An anchor that lands on a section — typed, pasted or reloaded — is the same
   // arrival as a tap, and the bar must agree with it.
-  window.addEventListener("hashchange", scheduleCurrentSection);
+  window.addEventListener("hashchange", () => {
+    scheduleCurrentSection();
+    revealSection(location.hash);
+  });
 }
 function setBypassAvailable(available) {
   bypassAvailable = available;
@@ -579,7 +596,11 @@ async function refresh() {
     // A read failure is not a write outcome: it is named here, and the write's
     // rejection or uncertainty stays in its own region rather than replacing
     // or being replaced by it.
-    el("error").textContent = error.message;
+    // Written only when it changes. A poll that keeps failing with the same
+    // sentence would otherwise reassign the same text every three seconds, and
+    // an alert region that re-announces "the device did not answer" forever is
+    // worse than silence.
+    if (el("error").textContent !== error.message) el("error").textContent = error.message;
     showNotices();
     el("retry").hidden = false;
     el("connection").textContent = "Not connected · readings may be stale";
@@ -908,6 +929,8 @@ function showAddress() {
 }
 async function start() {
   showAddress();
+  // An address that names a section is the same request as a tap.
+  revealSection(location.hash);
   loadDevices();
   watchSections();
   // A device that is slow to answer used to show the key prompt with nothing

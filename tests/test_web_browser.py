@@ -814,6 +814,18 @@ window.addEventListener("load", async () => {
     setupLink.click();
     assert(current().length === 1, "tapping produced " + current().length + " current sections");
     assert(current()[0] === "#setup", "after tapping Setup the bar still says " + current());
+    // Asking for a section that keeps its content in a disclosure opens it.
+    // A heading and a plus sign is not what tapping "Tasks" asks for.
+    const tasksLink = links.find(a => a.getAttribute("href") === "#planned");
+    assert(!document.getElementById("tasks-details").open, "the tasks panel was open before any tap");
+    tasksLink.click();
+    assert(document.getElementById("tasks-details").open,
+           "choosing Tasks from the bar did not open the tasks");
+    // Audio keeps its readings visible, so its extra detail is left closed: a
+    // bar tap is not a request for the small print.
+    links.find(a => a.getAttribute("href") === "#audio").click();
+    assert(!document.getElementById("audio-help").open,
+           "choosing Audio opened a disclosure instead of leaving it closed");
     // Scrolling back to the top is not a tap, so this one goes through the
     // geometry. scrollTop rather than window.scrollTo: scrolling is asynchronous
     // in this headless browser and the check read the old position every time.
