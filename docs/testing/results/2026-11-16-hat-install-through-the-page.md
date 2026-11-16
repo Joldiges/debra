@@ -175,6 +175,41 @@ So one full loop is closed: the page wrote the line, the line survived a restart
 and the driver it names bound on the other side. That is the Pi 5 with the board
 it already had. It says nothing about a *different* board on the same device.
 
+## The pending state, seen without a reboot
+
+The restart above also gave the helper's new record its first real comparison. On
+the same boot, the Pi 5 was asked to install the **v1** board without restarting:
+
+```
+$ .../api/setup/hat --data '{"choice":"respeaker-2mic-hat-v1"}'
+$ .../api/setup/hat/install --data '{}'
+{"ok": true, "changed": true, ..., "overlay": "wm8960-soundcard",
+ "dropped": ["respeaker-2mic-v2_0"], ...}
+$ cat /var/lib/debra/hat-change.json
+{"boot_id": "284483c4-…", "overlay": "wm8960-soundcard", "written": "2026-11-16T19:07:42Z"}
+$ cat /proc/sys/kernel/random/boot_id
+284483c4-…
+```
+
+Same boot id, so the page called it pending, and the real browser showed the
+restart button and this sentence:
+
+> The boot configuration names wm8960-soundcard, but no sound card named
+> wm8960soundcard is listed. Restart the device to apply it; if it is still
+> missing after that, the board is not the one this overlay describes.
+
+Choosing v2 and installing it back returned the file to its previous state
+(backup `config.txt.debra-20261116-140749`), and the card went back to "lists the
+sound card it creates (seeed2micvoicec)" with **no** restart offered. `uptime`
+grew from 13 hours to 22 minutes across the whole session because of the one
+approved restart; nothing else restarted the device.
+
+The "written in an earlier boot and still missing" branch is exercised offline and
+in the browser suite but **not** on a device: producing it needs a restart with a
+board that does not bind here, and the WM8960-on-Pi-5 question is exactly what
+that restart would test. It was not run because the approved restart was the one
+on v2.
+
 ## The card, in a real browser
 
 The page was loaded from the device in headless Chrome over the DevTools
@@ -221,6 +256,21 @@ board and no sound card with that driver's name is listed. That is an observatio
 that outlives the tab. This is a code-reading finding, not something observed on
 a phone; the browser suite covers it by loading the page directly into that
 state (`check-hat-pending.js`) and fails if the button is hidden.
+
+A fifth fault followed from the same read: with the prompt restored, a wrong
+board would be told to restart *for ever*. Reboot as often as you like, an
+overlay that does not match the fitted board will never produce its sound card,
+and the page kept suggesting the one action that cannot help. The helper now
+records the boot id it wrote in (`/var/lib/debra/hat-change.json`) and the page
+compares it with `/proc/sys/kernel/random/boot_id`. Written in this boot: the
+line is pending, so the restart is offered. Written in an earlier boot and the
+card still absent: the board is wrong, the restart button disappears, and the
+card says restarting again will not change it. A record that is missing,
+unreadable or has no boot id is reported as "cannot tell" rather than guessed.
+
+That ordering is also why the restart test above is useful beyond itself: it is
+the only run so far where a *previous* boot could be compared to the current
+one, and the record it left is what the next writer reads.
 
 ## What this does and does not prove
 

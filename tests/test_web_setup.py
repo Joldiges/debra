@@ -7,6 +7,7 @@ is that the page tells the truth about what it cannot do.
 
 import http.client
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -27,7 +28,11 @@ TOKEN = "test_" + "a" * 40
 SETUP_KEYS = {"writable", "reason", "hardware", "settings", "updates"}
 HARDWARE_KEYS = {"detected_hat", "detected_source", "retained_label", "retained_note",
                  "cards", "cards_source", "selectable", "choice", "installed",
-                 "reason", "choice_note", "options", "boot", "helper"}
+                 "reason", "choice_note", "options", "boot", "helper", "change",
+                 "codec"}
+CODEC_KEYS = {"state", "name", "address", "bus", "driver", "card", "card_expected",
+              "boards", "note"}
+CHANGE_KEYS = {"overlay", "same_boot", "written"}
 OPTION_KEYS = {"id", "label", "summary", "detected", "card", "applied", "selected",
                "caveats", "installable", "configured", "overlay"}
 BOOT_KEYS = {"path", "readable", "overlays", "i2c"}
@@ -85,6 +90,8 @@ class SetupPayloadTests(unittest.TestCase):
                           "waveshare-wm8960", "none"])
         self.assertEqual(set(payload["hardware"]["boot"]), BOOT_KEYS)
         self.assertEqual(set(payload["hardware"]["helper"]), HELPER_KEYS)
+        self.assertEqual(set(payload["hardware"]["change"]), CHANGE_KEYS)
+        self.assertEqual(set(payload["hardware"]["codec"]), CODEC_KEYS)
         for option in payload["hardware"]["options"]:
             self.assertEqual(set(option), OPTION_KEYS)
             self.assertEqual(set(option["installable"]), INSTALLABLE_KEYS)
@@ -149,6 +156,55 @@ class SetupPayloadTests(unittest.TestCase):
             self.assertFalse(option["card"]["present"])
             self.assertFalse(option["detected"],
                              f"{option['id']} was identified from a codec name")
+
+    def put_device(self, entry, name, driver=None):
+        """One I2C device as sysfs shows it, with a driver symlink when bound."""
+        device = self.root / "sys/bus/i2c/devices" / entry
+        device.mkdir(parents=True)
+        (device / "name").write_text(name)
+        if driver:
+            target = self.root / "sys/bus/i2c/drivers" / driver
+            target.mkdir(parents=True, exist_ok=True)
+            (device / "driver").symlink_to(os.path.relpath(target, device))
+
+    def test_a_bound_codec_is_reported_with_the_boards_it_is_consistent_with(self):
+        self.put_device("1-001a", "wm8960", "wm8960")
+        self.put("/proc/asound/cards", " 0 [wm8960soundcard]: simple-card\n")
+        codec = self.backend().setup()["hardware"]["codec"]
+        self.assertEqual(codec["state"], "bound")
+        self.assertEqual(codec["name"], "wm8960")
+        self.assertEqual(codec["address"], "0x1a on I2C bus 1")
+        # Both WM8960 boards in the table, and no claim that it is either one.
+        self.assertEqual(sorted(codec["boards"]),
+                         ["respeaker-2mic-hat-v1", "waveshare-wm8960"])
+        self.assertEqual(codec["card"], "wm8960soundcard")
+
+    def test_a_codec_node_without_a_driver_is_present_and_undriven(self):
+        # The overlay described a codec and nothing bound to it: that is a
+        # configuration fault, and it must not read as a working board.
+        self.put_device("1-0018", "tlv320aic3104")
+        codec = self.backend().setup()["hardware"]["codec"]
+        self.assertEqual(codec["state"], "present")
+        self.assertEqual(codec["boards"], ["respeaker-2mic-hat-v2"])
+        self.assertIsNone(codec["driver"])
+        self.assertIsNone(codec["card"])
+
+    def test_no_codec_and_no_sysfs_are_two_different_answers(self):
+        # Nothing on the bus is "nothing configured"; an unreadable kernel
+        # directory is "unknown", and the page must not state the first when it
+        # only knows the second.
+        codec = self.backend().setup()["hardware"]["codec"]
+        self.assertEqual(codec["state"], "unknown")
+        (self.root / "sys/bus/i2c/devices").mkdir(parents=True)
+        codec = self.backend().setup()["hardware"]["codec"]
+        self.assertEqual(codec["state"], "none")
+
+    def test_an_unrelated_i2c_device_is_not_an_audio_codec(self):
+        self.put_device("1-0048", "mcp23017", "gpio")
+        self.put("/proc/asound/cards", " 0 [Headphones     ]: bcm2835\n")
+        codec = self.backend().setup()["hardware"]["codec"]
+        self.assertEqual(codec["state"], "none")
+        self.assertEqual(codec["boards"], [])
 
     def test_a_wm8960_card_is_consistent_with_two_boards_and_names_neither(self):
         # A codec name is not a vendor. Reporting this card as the Seeed v1 HAT
@@ -747,6 +803,38 @@ class HatInstallTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             backend.install_hat({"board": "waveshare-wm8960"})
         self.assertEqual(self.helper.calls, [])
+
+    def test_a_change_in_this_boot_is_reported_as_pending(self):
+        # Written, not yet applied: the same boot id, so a restart is still the
+        # answer.
+        self.put("proc/sys/kernel/random/boot_id", "boot-a\n")
+        self.put("var/lib/debra/hat-change.json",
+                 '{"overlay": "wm8960-soundcard", "boot_id": "boot-a", "written": "t"}')
+        change = self.backend().setup()["hardware"]["change"]
+        self.assertEqual(change, {"overlay": "wm8960-soundcard", "same_boot": True,
+                                   "written": "t"})
+
+    def test_a_change_from_an_earlier_boot_is_reported_as_restarted(self):
+        # The device has come up since, so "restart to apply it" is no longer an
+        # honest answer: the line is applied and the card is still missing.
+        self.put("proc/sys/kernel/random/boot_id", "boot-b\n")
+        self.put("var/lib/debra/hat-change.json",
+                 '{"overlay": "wm8960-soundcard", "boot_id": "boot-a", "written": "t"}')
+        self.assertFalse(self.backend().setup()["hardware"]["change"]["same_boot"])
+
+    def test_no_record_or_no_boot_id_says_it_cannot_tell(self):
+        payload = self.backend().setup()["hardware"]["change"]
+        self.assertIsNone(payload["same_boot"])
+        self.assertIsNone(payload["overlay"])
+        # A record but no readable boot id is still "cannot tell", not a guess.
+        self.put("var/lib/debra/hat-change.json",
+                 '{"overlay": "wm8960-soundcard", "boot_id": "boot-a", "written": "t"}')
+        self.assertIsNone(self.backend().setup()["hardware"]["change"]["same_boot"])
+
+    def test_a_corrupt_record_is_not_reported_as_a_change(self):
+        self.put("proc/sys/kernel/random/boot_id", "boot-a\n")
+        self.put("var/lib/debra/hat-change.json", "{not json")
+        self.assertIsNone(self.backend().setup()["hardware"]["change"]["overlay"])
 
     def test_the_helpers_refusal_reaches_the_page(self):
         self.helper.raises = web.HelperRefused("This image has no such overlay.")

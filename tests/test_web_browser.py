@@ -55,6 +55,9 @@ window.testState = {
   hatChoiceAtStart: new URLSearchParams(location.search).get("hatchoice") || "",
   hatBootAtStart: new URLSearchParams(location.search).get("hatboot") || "",
   hatCardAtStart: new URLSearchParams(location.search).get("hatcard") !== "none",
+  // What the helper last wrote, and whether this boot is that one. `same_boot`
+  // is null by default, which is the device that cannot tell.
+  hatChangeOverlay: null, hatChangeSameBoot: null,
   // The two deliberate audio tests, and a way to hold one so a check can press
   // the other button while it is running.
   holdTest: false, releaseTest: null, testOutputGone: false,
@@ -113,6 +116,12 @@ const setupPayload = () => ({
     detected_hat: "ReSpeaker 2-Mics Pi HAT", detected_source: "fixture",
     retained_label: "ReSpeaker 2-Mics Pi HAT v2", retained_note: "fixture",
     cards: ["seeed2micvoicec", "vc4hdmi0"], cards_source: "/proc/asound/cards",
+    // Sysfs, not the EEPROM: this board's codec is bound and its card listed.
+    codec: {state: "bound", name: "tlv320aic3104", address: "0x18 on I2C bus 1",
+            bus: 1, driver: "tlv320aic3x", card: "seeed2micvoicec",
+            card_expected: ["seeed2micvoicec"], boards: ["respeaker-2mic-hat-v2"],
+            note: "tlv320aic3104 codec at 0x18 on I2C bus 1: driver bound and the "
+              + "seeed2micvoicec sound card is listed."},
     selectable: state.hatSelectable, installed: null,
     choice: state.hatChoice,
     reason: "Each row is what this page can establish about that board: the EEPROM "
@@ -121,6 +130,8 @@ const setupPayload = () => ({
     choice_note: "A recorded choice is what you asked for. Installing is a separate step, "
       + "it changes a file that decides whether the device boots, and it only takes "
       + "effect after a restart.",
+    change: {overlay: state.hatChangeOverlay, same_boot: state.hatChangeSameBoot,
+             written: null},
     boot: {path: "/boot/firmware/config.txt", readable: true,
            overlays: state.hatBootOverlay ? [state.hatBootOverlay] : [], i2c: true},
     helper: {path: "/run/debra-hat/control.sock", present: state.hatHelper,
@@ -327,6 +338,13 @@ window.fetch = async (path, options) => {
   const data = path === "/api/status" ? {
     hostname: "Fixture device", model: "Test board", architecture: "fixture",
     os: "Fixture OS", selected_hardware: {speaker: "<script>untrusted</script>"},
+    // The status payload's own codec: the same board the Setup fixture shows,
+    // read from sysfs. A check can replace it to see the other states.
+    codec: state.codec || {state: "bound", name: "tlv320aic3104",
+                           address: "0x18 on I2C bus 1", bus: 1,
+                           driver: "tlv320aic3x", card: "seeed2micvoicec",
+                           card_expected: ["seeed2micvoicec"],
+                           boards: ["respeaker-2mic-hat-v2"]},
     uptime_s: 600, cpu_percent: cores, memory: {},
     power: state.powerSupply
       ? {throttle_flags: "0x0", supply_voltage_v: 5.10004,
@@ -374,6 +392,29 @@ window.addEventListener("load", async () => {
     assert(cores[0].querySelector(".core-name").textContent === "CPU0", "core label missing");
     assert(cores[0].querySelector(".core-value").textContent === "24%", "core reading missing");
     assert(cores[0].querySelector(".core-bar").style.width === "24%", "core bar does not match the reading");
+    // The EEPROM row and the codec row are two facts, and on this device the
+    // EEPROM is the one that says nothing useful. The codec has to be shown.
+    const codecRow = [...document.querySelectorAll("#device-values div")]
+      .find(row => row.querySelector("dt").textContent === "Audio codec");
+    assert(codecRow && /tlv320aic3104.*driver bound/.test(codecRow.querySelector("dd").textContent),
+           "the bound codec was not reported beside the EEPROM line: "
+             + document.getElementById("device-values").textContent);
+    // "No codec configured" and "the reading is unavailable" are different
+    // claims, and neither may be shown as "there is no board".
+    testState.codec = {state: "none", name: null, address: null, bus: null,
+                       driver: null, card: null, card_expected: [], boards: []};
+    await refresh();
+    assert(document.getElementById("device-values").textContent.includes("No audio codec configured"),
+           "an absent codec was not reported as such");
+    assert(/No EEPROM identification/.test(document.getElementById("device-values").textContent),
+           "an absent codec was turned into an absent board");
+    testState.codec = {state: "unknown", name: null, address: null, bus: null,
+                       driver: null, card: null, card_expected: [], boards: []};
+    await refresh();
+    assert(/Audio codecUnavailable/.test(document.getElementById("device-values").textContent),
+           "an unreadable codec was reported as a claim");
+    delete testState.codec;
+    await refresh();
     testState.cpu = {cpu: 150, cpu0: -1, cpu1: 150, cpu2: NaN, cpu3: Infinity, cpu4: "42"};
     await refresh();
     assert(document.querySelector("#health-values dd").textContent === "150% · out of range", "total CPU out-of-range reading was hidden or clamped");
@@ -2211,6 +2252,21 @@ window.addEventListener("load", async () => {
            "the restart was offered because this page installed something");
     assert(!window.testState.posts.some(post => post.path === "/api/setup/restart"),
            "the page restarted the device without being asked");
+    // Once the device can say the line was written in an earlier boot and the
+    // card is still absent, the board is wrong: the page stops offering a
+    // restart that cannot help, and says why.
+    window.testState.hatChangeOverlay = "wm8960-soundcard";
+    window.testState.hatChangeSameBoot = false;
+    await loadSetup();
+    for (let i = 0; i < 120 && !/Restarting again/.test(state()); i++) await wait();
+    assert(/Restarting again will not change that/.test(state()),
+           "a wrong board is still reported as a pending restart: " + state());
+    assert(!shown("hat-restart-button"),
+           "a restart that cannot help is still offered");
+    window.testState.hatChangeSameBoot = null;
+    await loadSetup();
+    for (let i = 0; i < 120 && !shown("hat-restart-button"); i++) await wait();
+
     // It still asks before doing it.
     const before = window.testState.hatRestartCalls;
     window.confirm = () => false;

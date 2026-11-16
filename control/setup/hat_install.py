@@ -57,6 +57,13 @@ TABLE_PATHS = (Path("/usr/local/lib/debra/hats.py"),
 
 CONFIG_CANDIDATES = ("boot/firmware/config.txt", "boot/config.txt")
 
+# A written line does nothing until the next boot. Recording *which* boot it was
+# written in is the difference between "restart to apply it" and "it has already
+# been restarted and the thing still is not there", and only the second one tells
+# a person the board is wrong rather than the restart missing.
+STATE_FILE = "var/lib/debra/hat-change.json"
+BOOT_ID = "proc/sys/kernel/random/boot_id"
+
 # `dtoverlay=name` or `dtoverlay=name,param=value`; the name is what identifies
 # a managed overlay, the rest belongs to the overlay.
 OVERLAY_LINE = re.compile(r"^\s*dtoverlay\s*=\s*([A-Za-z0-9_\-]+)")
@@ -206,6 +213,45 @@ def backup_name(config):
     return config.parent / candidate
 
 
+def boot_id(root=Path("/")):
+    """This boot's identifier, or None where it cannot be read (a test tree)."""
+    try:
+        return (Path(root) / BOOT_ID).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def remember(root, overlay):
+    """Record the overlay this program wrote and the boot it wrote it in.
+
+    Best effort and deliberately quiet: the boot configuration has already been
+    written and checked by the time this runs, so a state file that cannot be
+    saved must not turn a successful change into a reported failure. The page
+    treats a missing record as "cannot say", which is true.
+    """
+    path = Path(root) / STATE_FILE
+    record = {"overlay": overlay, "boot_id": boot_id(root),
+              "written": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record, sort_keys=True) + "\n")
+        os.chmod(path, 0o644)
+    except OSError:
+        return None
+    return record
+
+
+def change(root=Path("/")):
+    """The last recorded change, or None when there is no readable record."""
+    try:
+        record = json.loads((Path(root) / STATE_FILE).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict) or "boot_id" not in record:
+        return None
+    return record
+
+
 def write_config(config, text):
     """Replace the file atomically, keeping its mode, after backing it up."""
     backup = backup_name(config)
@@ -270,6 +316,7 @@ def install(board_id, root=Path("/"), release=None, dry_run=False):
         shutil.copy2(backup, config)
         raise Refused("%s The previous configuration was restored from %s."
                       % (exc, backup.name)) from exc
+    remember(root, overlay)
     return {"ok": True, "changed": True, "config": str(config),
             "backup": str(backup), "overlay": overlay,
             "dropped": changes["dropped"],
@@ -297,6 +344,7 @@ def remove(root=Path("/")):
         shutil.copy2(backup, config)
         raise Refused("%s The previous configuration was restored from %s."
                       % (exc, backup.name)) from exc
+    remember(root, None)
     return {"ok": True, "changed": True, "config": str(config), "backup": str(backup),
             "dropped": changes["dropped"],
             "note": "Removed. It applies after the next restart; the running "

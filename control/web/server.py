@@ -428,6 +428,32 @@ def boot_configuration(root=Path("/")):
     return {"path": None, "readable": False, "overlays": [], "i2c": None}
 
 
+def hat_change(root=Path("/")):
+    """The last audio-HAT change the helper made, and whether the device has
+    restarted since.
+
+    A written line does nothing until the next boot, so "restart to apply it" and
+    "it was restarted and the card is still missing" are different answers that a
+    person acts on differently. The helper records the boot it wrote in; comparing
+    that with this boot is the only reliable way to tell them apart, because a
+    page that only remembers what *it* did forgets on the next reload.
+    """
+    try:
+        record = json.loads(read_optional(
+            root, "var/lib/debra/hat-change.json") or "")
+    except ValueError:
+        return {"overlay": None, "same_boot": None, "written": None}
+    if not isinstance(record, dict):
+        return {"overlay": None, "same_boot": None, "written": None}
+    current = (read_optional(root, "proc/sys/kernel/random/boot_id") or "").strip()
+    recorded = record.get("boot_id")
+    same = None
+    if current and isinstance(recorded, str) and recorded:
+        same = current == recorded
+    return {"overlay": record.get("overlay"), "same_boot": same,
+            "written": record.get("written")}
+
+
 def image_contents(root=Path("/")):
     """Which overlays and codec modules this image carries.
 
@@ -511,6 +537,9 @@ def run_helper(request, *, timeout):
 
 
 CARD_LINE = re.compile(r"^\s*\d+\s+\[([^]]+)\]")
+# An I2C device node is named `<bus>-<four hex digits of the address>`; bus
+# adapters themselves are `i2c-<n>` and are not devices.
+I2C_DEVICE = re.compile(r"^(\d+)-([0-9a-fA-F]{4})$")
 
 
 def hat_family_match(product, option):
@@ -558,6 +587,39 @@ def alsa_cards(root):
         if match:
             cards.append(match.group(1).strip())
     return cards
+
+
+def i2c_devices(root):
+    """Every device the kernel registered on an I2C bus, or None when unreadable.
+
+    A device appears here once something created it — for an audio HAT that is
+    its device-tree overlay — whether or not a driver claimed it, so the list
+    separates "described but undriven" from "not described at all". The driver
+    is a symlink into /sys/bus/i2c/drivers and is absent when nothing bound.
+
+    This says nothing about the bus itself: `i2c-dev` is not loaded on the Debra
+    images, so there is no /dev/i2c-* to probe and a fitted board with no
+    overlay leaves no trace here.
+    """
+    directory = root / "sys/bus/i2c/devices"
+    try:
+        entries = sorted(os.listdir(directory))
+    except OSError:
+        return None
+    devices = []
+    for entry in entries:
+        match = I2C_DEVICE.match(entry)
+        if not match:
+            continue
+        try:
+            driver = os.path.basename(os.readlink(directory / entry / "driver"))
+        except OSError:
+            driver = ""
+        devices.append({"bus": int(match.group(1)),
+                        "address": int(match.group(2), 16),
+                        "name": read_text(root, "/sys/bus/i2c/devices/%s/name" % entry) or None,
+                        "driver": driver or None})
+    return devices
 
 
 def planned(identifier, label, summary, options, reason):
@@ -733,6 +795,10 @@ def metrics(root, previous=None, elapsed=None):
     data = {
         "model": read_text(root, "/sys/firmware/devicetree/base/model") or None,
         "detected_hat": read_text(root, "/sys/firmware/devicetree/base/hat/product") or None,
+        # What the running kernel made of an audio codec: a codec it knows, the
+        # driver bound to it, and its sound card. The EEPROM line above is what
+        # the board says about itself; this is what software did with it.
+        "codec": hats.probe_codec(i2c_devices(root), alsa_cards(root)),
         "cpu_percent": usage, "memory": memory, "storage": storage,
         "temperature_c": number("/sys/class/thermal/thermal_zone0/temp", 1000),
         "uptime_s": finite_number(uptime[0]) if uptime else None,
@@ -1054,6 +1120,7 @@ class Backend:
         """
         product = read_text(self.root, "/sys/firmware/devicetree/base/hat/product") or None
         cards = alsa_cards(self.root)
+        codec = hats.probe_codec(i2c_devices(self.root), cards)
         options = []
         for option in HAT_OPTIONS:
             # "No HAT: 3.5 mm jack or USB audio" is an alternative, not a board:
@@ -1140,12 +1207,18 @@ class Backend:
                                  "verified or applied choice.",
                 "cards": cards,
                 "cards_source": "/proc/asound/cards",
+                # What the kernel did with a codec, which is a different fact
+                # from the EEPROM string above: the codec name, whether a driver
+                # is bound to it, and whether its sound card registered.
+                "codec": codec,
                 # What the person chose, and what this page can and cannot do
                 # about it. Choosing is a record; installing a driver is a
                 # privileged write that this server never performs.
                 "selectable": self.state is not None,
                 "choice": choice or None,
                 "boot": boot,
+                # What the helper last did, and whether this boot is that one.
+                "change": hat_change(self.root),
                 # Two separate permissions, because they fail separately: the
                 # helper must exist, and sudo must allow this account to run it.
                 "helper": {"path": HELPER_SOCKET,

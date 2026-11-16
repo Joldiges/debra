@@ -88,6 +88,22 @@ const fmt = (value, suffix = "") => value == null ? "Unavailable" : `${value}${s
 const bytes = value => value == null ? "Unavailable" : `${(value / 1048576).toFixed(1)} MiB`;
 const cpuReading = value => typeof value !== "number" || !Number.isFinite(value) ? "Unavailable" :
   `${value}%${value < 0 || value > 100 ? " · out of range" : ""}`;
+// What the kernel did with an audio codec. Four outcomes, kept apart because
+// they need different actions, and "unavailable" is never shown as "none".
+const codecReading = codec => {
+  if (!codec) return "Unavailable";
+  if (codec.state === "bound") {
+    return `${codec.name} at ${codec.address} · driver bound, ${codec.card} listed`;
+  }
+  if (codec.state === "present") {
+    return `${codec.name} at ${codec.address} · no driver bound`;
+  }
+  if (codec.state === "no_card") {
+    return `${codec.name} at ${codec.address} · ${codec.driver} bound, no sound card listed`;
+  }
+  if (codec.state === "none") return "No audio codec configured";
+  return "Unavailable";
+};
 function rows(id, entries) {
   const list = el(id);
   list.replaceChildren();
@@ -410,6 +426,7 @@ function render(data) {
   rows("device-values", [
     ["Board", data.model || "Unavailable"], ["Architecture", data.architecture],
     ["Kernel", data.os], ["Detected HAT", data.detected_hat || "No EEPROM identification"],
+    ["Audio codec", codecReading(data.codec)],
     ["Selected HAT", data.selected_hardware.hat || "Not selected"],
     ["Speaker (retained label)", data.selected_hardware.speaker || "Not selected"],
     ["Uptime", data.uptime_s == null ? "Unavailable" : `${(data.uptime_s / 3600).toFixed(1)} hours`]
@@ -640,6 +657,10 @@ function renderHatChoice(hardware) {
   parts.push(hardware.detected_hat
     ? `Detected at setup: ${hardware.detected_hat}.`
     : "Detected at setup: this device did not name a HAT.");
+  // None of these boards has a HAT EEPROM, so the codec is the only thing that
+  // identifies the board at all -- and it is a fact about software, not about
+  // which vendor sold the board. The note says what it cannot tell apart.
+  if (hardware.codec) parts.push(`Audio codec: ${hardware.codec.note}`);
   parts.push(current
     ? `Chosen here: ${current.label}.`
     : "Chosen here: nothing yet.");
@@ -699,7 +720,15 @@ function renderHatInstall(hardware) {
   // name is listed. That is a restart waiting to happen (or a wrong board), and
   // it survives a reload, which this tab's own flag does not.
   const card = choice.card || {};
+  // The helper records the boot it wrote in, so the page can tell "restart to
+  // apply it" from "it has been restarted and the card is still not there". The
+  // second means the board is wrong, and inviting another restart would send a
+  // person round a loop that cannot end.
+  const change = hardware.change || {};
+  const restartedSince = change.same_boot === false &&
+        change.overlay === choice.overlay;
   const pendingByObservation = configured && Boolean(choice.overlay) && card.present === false;
+  const pointlessRestart = restartedSince && card.present === false;
   row.hidden = false;
   // Three states, one control each: install the chosen board, remove it again,
   // or -- for "No HAT" -- take the managed overlay out. Nothing is offered that
@@ -711,7 +740,8 @@ function renderHatInstall(hardware) {
   button.disabled = hatBusy || hatRestarting || !installable.ok;
   remove.hidden = !showRemove;
   remove.disabled = hatBusy || hatRestarting;
-  restart.hidden = !(hatNeedsRestart || pendingByObservation) || hatRestarting;
+  restart.hidden = !(hatNeedsRestart || pendingByObservation) || pointlessRestart ||
+    hatRestarting;
   restart.disabled = hatBusy || hatRestarting;
   if (hatRestarting) {
     state.textContent = "The device is restarting. This page will reconnect when it is back.";
@@ -734,6 +764,15 @@ function renderHatInstall(hardware) {
       state.textContent = `The boot configuration names ${choice.overlay}, and this device lists ` +
         `the sound card it creates (${card.name}). Whether the microphone and speaker work is ` +
         `what the audio checks show.`;
+    } else if (card.present === false && pointlessRestart) {
+      // The device has already restarted since the line was written and the
+      // card is still absent, so the overlay is not describing this board. There
+      // is no button here on purpose: the next step is a different board, not
+      // another reboot.
+      state.textContent = `The boot configuration names ${choice.overlay}. It was written ` +
+        `before the last restart and this boot has come up without a sound card named ` +
+        `${card.name}, so the board is not the one this overlay describes. Restarting again ` +
+        `will not change that: check which board is fitted, or use a different choice.`;
     } else if (card.present === false) {
       // The restart button is shown in this state, so the sentence can point at
       // it instead of leaving a person to guess how the line takes effect.

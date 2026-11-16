@@ -138,6 +138,13 @@ an observation time.
   the tab's own flag does not, and a reload used to drop the prompt while the
   driver silently stayed the old one. The helper never restarts as a side
   effect, and no restart happens without that button.
+- The helper records **which boot it wrote in** (`/var/lib/debra/hat-change.json`,
+  world-readable, best effort). Comparing that with `/proc/sys/kernel/random/boot_id`
+  is what separates "restart to apply it" from "it has been restarted and the
+  card is still missing". In the second case the board is wrong, so the card says
+  so and **stops offering the restart**: a button there would send a person round
+  a loop that cannot end. A missing or unreadable record is reported as "cannot
+  tell", never guessed.
 - The helper must be **enrolled once**, by the device's owner, with a password:
   `sudo python3 -B control/setup/hat_install.py --enroll`, which the installer
   prints. It installs the helper to `/usr/local/sbin/debra-hat-install`, its
@@ -161,6 +168,17 @@ an observation time.
   after the boot ([result](../../docs/testing/results/2026-11-16-hat-install-through-the-page.md)).
   That is one board with the board it already had; a *switch* to a different
   overlay on a device has still not been tested after a restart.
+- The page also reports the **codec**, read from sysfs rather than from the
+  EEPROM: the codec device on the I2C bus (`wm8960`, or `tlv320aic3104` for the
+  v2 board's TLV320AIC3104), whether a driver is bound to it, and whether its
+  sound card registered. Four states, because they need four different actions:
+  `bound`, `no_card` (driver bound, no card listed), `present` (the boot
+  configuration describes the codec and nothing drives it) and `none` (no codec
+  this table knows). Both WM8960 boards are named together: the codec does not
+  say which one it is on. `none` is deliberately not "no board fitted" — these
+  images do not load `i2c-dev`, so there is no `/dev/i2c-*` to probe and a fitted
+  board with no overlay configured leaves no trace. On all three lab boards the
+  HAT EEPROM is empty, so this is the only identification they offer.
 - The Setup card's HAT rows report a **family match**, not an identification: the
   EEPROM product names a ReSpeaker/Seeed two-microphone board, and the exact
   model and revision are not established. The two-microphone match has a number

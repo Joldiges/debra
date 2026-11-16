@@ -189,6 +189,53 @@ class InstallTests(HelperTestCase):
         self.assertNotIn("rebooting", answer)
 
 
+class ChangeRecordTests(HelperTestCase):
+    """What the helper records about a write, and how it reads a missing record.
+
+    The page needs to tell "restart to apply it" from "it has already restarted
+    and the driver still is not there", and only the helper knows which boot it
+    wrote in.
+    """
+
+    def boot(self, identifier):
+        target = self.pi.root / "proc/sys/kernel/random/boot_id"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(identifier + "\n")
+
+    def test_a_write_records_the_boot_it_was_written_in(self):
+        # The record is what lets the page say "restart to apply it" once, then
+        # "it has restarted and the card is still missing" instead of inviting
+        # the same restart forever.
+        self.boot("boot-a")
+        answer = self.install("respeaker-2mic-hat-v1")
+        self.assertTrue(answer["changed"])
+        record = hat_install.change(self.pi.root)
+        self.assertEqual(record["boot_id"], "boot-a")
+        self.assertEqual(record["overlay"], "wm8960-soundcard")
+        self.assertTrue(record["written"])
+
+    def test_removing_records_that_no_overlay_is_configured(self):
+        self.boot("boot-a")
+        self.install("respeaker-2mic-hat-v1")
+        hat_install.remove(self.pi.root)
+        record = hat_install.change(self.pi.root)
+        self.assertIsNone(record["overlay"])
+        self.assertEqual(record["boot_id"], "boot-a")
+
+    def test_no_record_reads_as_no_record(self):
+        self.assertIsNone(hat_install.change(self.pi.root))
+
+    def test_a_record_that_cannot_be_saved_does_not_fail_the_write(self):
+        # The boot configuration is already written and checked. A state file
+        # that cannot be created must not turn that into a reported failure.
+        self.boot("boot-a")
+        blocker = self.pi.root / "var" / "lib"
+        blocker.mkdir(parents=True, exist_ok=True)
+        (blocker / "debra").write_text("not a directory")
+        answer = self.install("respeaker-2mic-hat-v1")
+        self.assertTrue(answer["changed"])
+        self.assertIn("wm8960-soundcard", self.pi.config.read_text())
+
 class RefusalTests(HelperTestCase):
     def test_an_unknown_board_writes_nothing(self):
         before = self.pi.config.read_bytes()
@@ -534,6 +581,91 @@ class TableAgreementTests(unittest.TestCase):
         for entry in hats.HAT_OPTIONS:
             for name in entry["modules"]:
                 self.assertRegex(name, r"^[a-z0-9-]+$")
+
+
+class CodecProbeTests(unittest.TestCase):
+    """What two read-only sources can and cannot say about an audio codec.
+
+    Every input is a value passed in, so these run against no device: the point
+    is that the four states are told apart and that an unknown one is not
+    reported as a confident answer.
+    """
+
+    @staticmethod
+    def device(name, driver="", bus=1, address=0x1a):
+        return {"bus": bus, "address": address, "name": name, "driver": driver or None}
+
+    def test_every_board_names_the_codec_its_card_comes_from(self):
+        # A codec is what the probe can see, so the mapping from codec to board
+        # has to be in the same table as the card, or the page could never say
+        # which boards a probe result is consistent with.
+        for entry in hats.HAT_OPTIONS:
+            self.assertIn("codecs", entry)
+            if entry["card"]:
+                self.assertTrue(entry["codecs"], entry["id"])
+            else:
+                self.assertEqual(entry["codecs"], (), entry["id"])
+
+    def test_a_bound_codec_with_its_card_is_bound(self):
+        probe = hats.probe_codec([self.device("wm8960", "wm8960")], ["wm8960soundcard"])
+        self.assertEqual(probe["state"], "bound")
+        self.assertEqual(probe["driver"], "wm8960")
+        self.assertEqual(probe["card"], "wm8960soundcard")
+        self.assertEqual(probe["address"], "0x1a on I2C bus 1")
+        # The same codec is on two boards in this table. Reporting one of them
+        # would be inventing a vendor the driver never named.
+        self.assertEqual(sorted(probe["boards"]),
+                         ["respeaker-2mic-hat-v1", "waveshare-wm8960"])
+        self.assertIn("sound card is listed", probe["note"])
+
+    def test_the_tlv320_codec_is_only_consistent_with_the_v2_board(self):
+        probe = hats.probe_codec([self.device("tlv320aic3104", "tlv320aic3x")],
+                                 ["seeed2micvoicec"])
+        self.assertEqual(probe["state"], "bound")
+        self.assertEqual(probe["boards"], ["respeaker-2mic-hat-v2"])
+        # The node name and the driver name are different strings for one
+        # codec, and either one being present has to be recognised.
+        self.assertEqual(hats.boards_for_codec("tlv320aic3x"),
+                         ("respeaker-2mic-hat-v2",))
+
+    def test_a_codec_with_no_driver_bound_is_reported_as_present(self):
+        probe = hats.probe_codec([self.device("wm8960")], ["wm8960soundcard"])
+        self.assertEqual(probe["state"], "present")
+        self.assertIsNone(probe["driver"])
+        self.assertIsNone(probe["card"])
+        self.assertIn("no driver bound", probe["note"])
+
+    def test_a_driver_with_no_sound_card_is_not_reported_as_bound(self):
+        probe = hats.probe_codec([self.device("wm8960", "wm8960")], ["Headphones"])
+        self.assertEqual(probe["state"], "no_card")
+        self.assertIsNone(probe["card"])
+        self.assertIn("wm8960soundcard", probe["note"])
+
+    def test_an_unreadable_card_list_is_not_reported_as_bound_or_absent(self):
+        probe = hats.probe_codec([self.device("wm8960", "wm8960")], None)
+        self.assertEqual(probe["state"], "no_card")
+        self.assertIn("could not be read", probe["note"])
+
+    def test_no_known_codec_is_not_the_same_claim_as_no_board(self):
+        # A GPIO expander is on the bus and nothing audio is configured. The
+        # page must not turn that into "there is no HAT".
+        probe = hats.probe_codec([self.device("mcp23017", "gpio", address=0x48)],
+                                 ["Headphones"])
+        self.assertEqual(probe["state"], "none")
+        self.assertIsNone(probe["name"])
+        self.assertEqual(probe["boards"], [])
+        self.assertIn("not proof a board is absent", probe["note"])
+
+    def test_an_unreadable_device_list_is_unknown_rather_than_empty(self):
+        probe = hats.probe_codec(None, ["wm8960soundcard"])
+        self.assertEqual(probe["state"], "unknown")
+        self.assertIsNone(probe["name"])
+        self.assertIn("could not be read", probe["note"])
+
+    def test_an_unknown_codec_name_is_not_guessed_at(self):
+        self.assertEqual(hats.boards_for_codec("wm8961"), ())
+        self.assertEqual(hats.boards_for_codec(""), ())
+        self.assertEqual(hats.boards_for_codec(None), ())
 
 
 if __name__ == "__main__":
