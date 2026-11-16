@@ -113,7 +113,7 @@ and are waiting for the review rows below.
 | Browser control slice, r9 (`e170448`) | `gpt-6.1-sol`, independent | **changes requested** — the restore decoder accepted a larger language than it could reproduce (`\x20` read as `x20`), the release boundary was partial, four safety reversals survived every web test, an audio write could discard a valid Setup answer, and a write settling after Disconnect threw. All six repaired; `code-r10` reviews the repair. Verdict: `.local/reviews/code-r9-20261115/verdict.md` |
 | First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
-| Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
+| Device switcher and discovery fixes | — | **inside the `code-r10` candidate**: nothing under `control/web/` has changed since `e4b16e0`, so that review is their acceptance review rather than a separate one. It was asked to judge the R9 findings and to look for what a phone user would hit, which covers the switcher |
 
 ## Accepted
 
@@ -128,6 +128,8 @@ and are waiting for the review rows below.
 |---|---|---|
 | The v17 speaker mounting | The [lid](../models/parts/rpispeaker-v17-lid/README.md) is now the single front panel and the [cover](../models/parts/rpispeaker-v17-cover/README.md) is retired ([decision](notes/2026-11-15-v17-one-front-panel.md)), but the real driver is unmeasured: diameter, depth, frame outline, mounting pitch and thread. `SQ_PITCH` = 32 mm and `DRIVER_DEPTH` = 10 mm are assumptions, and only 5.40 mm separates the lid's plate underside from the bay's raised surfaces | the real speaker's measurements — [five numbers and what each changes](../models/parts/rpispeaker-v17-lid/measure-request.md) — then a mounting choice: protruding sleeve, or a flat plate with a rear clamp |
 | Speaker and board purchase decisions | DWEII listings return HTTP 503; Pi Zero 2 W out of stock at US sellers | re-checked listings, or a different supplier |
+| Polished device page: hierarchy, phone-first layout, empty/busy/stale states | `code-r10` holds `control/web/` until its verdict lands, and changing the files under review would make its findings ambiguous | its verdict, then screenshots at 390 and 1200 px driving the layout pass instead of geometry assertions |
+| An honest "is it working?" summary (voice, music, Home Assistant) | The page has no collector for voice, music or HA state, so there is nothing honest to show; service *detection* is not end-to-end health | the C01/C02 collector work, which defines what may be claimed and at what age |
 
 ## Open engineering work the harvest did not contain
 
