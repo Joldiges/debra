@@ -4,10 +4,46 @@ Reusable Python-standard-library service and local HTML/CSS/JavaScript, not a
 complete appliance or an internet-facing administration server. Current scope:
 native **selected-sink volume and mute**, plus read-only hardware/resources,
 service probes, a **read-only Setup card** (HAT, tools and settings, updates)
-where every choice is disabled with its reason, and a **Planned task list** of
-the jobs the appliance will do later. See the
-[web requirements](../../docs/design/web-control.md)
+whose planned choices are static text with no control at all, and a **Planned
+task list** of the jobs the appliance will do later. See the
+[web requirements](../../docs/design/web-control.md), the
+[page design study](../../docs/design/device-page-ux-2026-11-16.md)
 and [roadmap](../../docs/roadmap.md#browser-first-device-control).
+
+## The page
+
+One document, phone-first, no framework, no build step, no external asset. In
+order down the page: the device's name and board, a sticky section bar (Audio,
+Health, Device, Components, Setup, Tasks), then **speaker volume** — the only
+write — followed by read-only health, hardware, service detection, the planned
+setup choices, the planned tasks, and finally the list of other Debras on the
+network. Everything read once rather than operated is a native `<details>`;
+section headings and every warning stay outside them.
+
+This order is deliberate and measured, not stylistic. Before it, the page
+opened on "switch to another Debra" and the volume slider was 1262 px down a
+6733 px document on a 390 px phone; it is now on the first screen of a 3184 px
+one. The section bar was 16-19 px tall, in an order that disagreed with the
+document, with no indication of where you were; every entry is now a 44 px row
+that follows both taps and scrolling. Anyone changing this order should re-run
+the check named in [Development checks](#development-checks), which fails if the
+first screen loses the volume control.
+
+**Planned means text.** A capability that does not exist is a title, a `Planned`
+badge and one sentence saying what it will do and why it cannot yet. It is never
+a disabled button or a greyed field: a disabled control still shows a shape that
+cannot be honoured, still has to explain itself, and runs any handler attached
+to it the moment anything enables it. The Setup card used to build two radios,
+three selects and three buttons this way; it now builds none, and an offline
+check fails if a control builder returns.
+
+**Missing is named.** A reading the device does not have is shown as
+`Unavailable` inside the list, and a reading nothing collects — CPU-core voltage,
+which no collector reads — has its own row saying so and marked Planned. The one
+voltage a Pi 5 does report is the 5 V supply and is never presented as CPU-core
+voltage. Reading *age* is unknown: the device says when it sent a reading, not
+when it measured it, and the page says so rather than labelling its own clock as
+an observation time.
 
 ## What it changes
 
@@ -42,6 +78,14 @@ and [roadmap](../../docs/roadmap.md#browser-first-device-control).
 - Service found/active/enabled does **not** prove installation, configuration,
   pairing or successful end-to-end operation. Bluetooth proxy and Music
   Assistant server detection are not implemented.
+- A read failure is named at the top of the page, with **Try reading again**:
+  that control reads and only reads, so it can never become a replay of a write
+  whose outcome was uncertain. A failed poll labels the readings below it as the
+  last ones the device sent, with the time this page received them.
+- An output the device names but cannot use disables every control on the card,
+  and the card says why, in the device's own words. With nothing to read, the
+  level says **No level** rather than showing the slider's default position as
+  though it were a measurement.
 - The Setup card's HAT row reports a **family match**, not an identification: the
   EEPROM product names a ReSpeaker/Seeed two-microphone board, and the exact
   model and revision are not established. The two-microphone match has a number
@@ -369,11 +413,31 @@ This is **web-component rollback**, not whole-device recovery.
 From repository root:
 
 ```sh
-python -B -m unittest discover -s tests -p test_web.py -v
-DEBRA_BROWSER_TEST=1 python -B -m unittest discover -s tests -p test_web_browser.py -v
+python -B -m unittest discover -s tests -p 'test_web*.py' -v
+DEBRA_BROWSER_TEST=1 python -B -m unittest discover -s tests -p 'test_web_browser.py' -v
 ```
 
-The second check uses an already-installed Chromium with its sandbox enabled
-and synthetic responses, never host/device audio. Ordinary full-suite runs skip
-that opt-in check. Tests do not establish ARMv6 runtime support, physical audio
-quality, browser coverage outside Chromium or hostile-network security.
+The first covers `test_web.py`, `test_web_setup.py` and the installer tests. The
+second uses an already-installed Chromium with its sandbox enabled and synthetic
+responses, never host/device audio. Ordinary full-suite runs skip that opt-in
+check.
+
+The layout checks are geometric, not visual: they open the page in a 390 px
+iframe (headless Chromium clamps a window to 500 px) and assert where things
+are. These are the ones that fail if the order above is undone:
+
+- `test_the_device_and_its_volume_come_first_on_a_phone` — document order, the
+  keyless warning before the controls, volume/Apply/Mute inside the first
+  screen, unique ids, every section link resolving.
+- `test_the_section_bar_is_tappable_and_knows_where_you_are` — 44 px targets,
+  bar order matching document order, exactly one current section after a tap and
+  after a scroll.
+- `test_setup_card_offers_no_control_at_all` — zero controls, links,
+  `tabindex` or interactive roles in the Setup card, and no write when every row
+  is clicked, changed or touched.
+- `test_a_missing_reading_is_named_and_never_invented` — the supplied voltage
+  appears only as the 5 V supply, and the missing-reading row carries no number
+  and no state badge.
+
+Tests do not establish ARMv6 runtime support, physical audio quality, browser
+coverage outside Chromium, screen-reader behaviour or hostile-network security.
