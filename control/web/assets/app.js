@@ -144,6 +144,10 @@ function revokeBypass(message) {
   bypass = false;
   el("pair").hidden = false;
   el("dashboard").hidden = true;
+  // Nothing read under the bypass is still current once the device wants a key.
+  currentAudio = null;
+  lastReadAt = null;
+  el("stale-notice").textContent = "";
   if (message) showPairStatus(message);
 }
 function setOp(isVolume, value) {
