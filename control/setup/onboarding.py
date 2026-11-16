@@ -18,7 +18,9 @@ The flow this implements, in the order it actually happens on a fresh card:
    configuration baseline.
 
 Two things are deliberately not here: no reboot is ever used to "apply" Wi-Fi,
-and no passphrase is stored in the setup state.
+and no household passphrase is stored in the setup state. The setup network's
+own generated password is stored, because the person has to learn it from the
+boot-partition note.
 """
 
 from __future__ import annotations
@@ -95,7 +97,8 @@ def _baseline_reason(exc):
 
     The exception's own text is not used: an OSError carries the path it failed
     on, and a person reading the setup page has no use for the device's layout.
-    The journal keeps the detail.
+    The journal keeps a fixed sentence too, not the exception text: the path can
+    name a credential-bearing file.
     """
     if isinstance(exc, baseline_module.BaselineError):
         return "The device state is larger than one baseline can hold"
@@ -124,8 +127,10 @@ def new_hotspot_password():
     It used to be derived from the device name. That was not a secret: the name
     is broadcast in the setup network's own SSID, so anyone in range could
     compute the password. Generated is the only version that protects the setup
-    window at all, and it is long enough that `nmcli` cannot fall back to WEP
-    (it does that below eight characters).
+    window at all. The length is chosen so that a password-length rule is not
+    the reason a security type is refused; `nmcli device wifi hotspot` picks the
+    security type from the hardware's capabilities, and nothing here has
+    observed which one a real radio raises.
 
     The owner learns it from the boot-partition note, which is the same route
     the access point's name is learned from.
@@ -154,13 +159,19 @@ class Onboarder:
         # Where a Wi-Fi profile is staged before NetworkManager loads it.
         self.keyfile_dir = Path(keyfile_dir) if keyfile_dir else None
         self._last_submit = 0.0
-        self._lock = threading.Lock()
+        # Reentrant: the failure path settles and then re-raises the access
+        # point while still holding the admission lock, so a new request cannot
+        # be admitted against an access point that is not back yet.
+        self._lock = threading.RLock()
         # Nearby networks, scanned while the radio is free. Kept in memory: it
         # is a convenience for the form, not state the device should remember.
         self._networks = []
         # The address the setup page is served on, read from the access point
         # once it is up. None until then, so the fallback is explicit.
         self._portal_address = None
+        # A baseline failure that happened when the state file itself could not
+        # be written. The file cannot say it, so the running page must.
+        self._baseline_error = None
 
     # -- identity -----------------------------------------------------------
 
@@ -206,7 +217,7 @@ class Onboarder:
             "last_error": data["last_error"],
             "attempts": data["attempts"],
             "baseline": data["baseline"],
-            "baseline_error": data.get("baseline_error"),
+            "baseline_error": data.get("baseline_error") or self._baseline_error,
             "hotspot": ({**hotspot, "password": data["hotspot_password"]}
                         if hotspot else None),
             # The address the page is actually served on. A `.local` name here
@@ -217,6 +228,7 @@ class Onboarder:
             # the form can offer them instead of making a beginner type one.
             # Empty is normal and means "type it".
             "networks": list(self._networks),
+            "revision": data["revision"],
             "updated": data["updated"],
         }
 
@@ -231,59 +243,78 @@ class Onboarder:
         would leave the person disconnected with no page for that long. The list
         from the first boot is still in memory and still useful.
         """
-        data = state_module.read(self.state_path)
-        if not data["hostname"]:
-            # Assign it into the record that is about to be written. Reading the
-            # name from a separate call left this dict stale, and the write below
-            # then wiped the hostname it had just set.
-            data["hostname"] = self.ensure_identity()
-        hostname = data["hostname"]
-        try:
-            interface = self.network.wifi_interface()
-        except nm_module.NmError as exc:
-            # A missing or broken nmcli used to escape this function and kill the
-            # boot unit with a traceback. It is a failure the page can explain.
-            data.update(phase="failed", last_error=str(exc))
-            state_module.write(self.state_path, data)
-            return self.status()
-        if not interface:
-            data.update(phase="failed", last_error="No Wi-Fi interface was found")
-            state_module.write(self.state_path, data)
-            return self.status()
-        if not data["country"]:
-            # A country is already set on most devices; asking for it again is
-            # a question the user should not have to answer twice.
+        with self._lock:
+            data = state_module.read(self.state_path)
+            if not data["hostname"]:
+                # Assign it into the record that is about to be written. Reading
+                # the name from a separate call left this dict stale, and the
+                # write below then wiped the hostname it had just set.
+                data["hostname"] = self.ensure_identity()
+            hostname = data["hostname"]
             try:
-                detected = self.network.country()
-            except (AttributeError, nm_module.NmError):
-                detected = None
-            if detected:
-                data["country"] = detected
-        if rescan and not data["hotspot"]:
-            # The radio is still free here, which is the only safe moment to
-            # scan: asking for a scan with the access point up can drop the
-            # person's phone off it.
-            self.refresh_networks(interface)
-        name = hotspot_name(hostname)
-        # A new password each time the access point is raised: the note is
-        # rewritten with it, and a password that outlived the window it protects
-        # would be one more thing to keep.
-        password = new_hotspot_password()
-        try:
-            self.network.start_hotspot(name, interface, password)
-        except nm_module.NmError as exc:
-            data.update(phase="failed", last_error=str(exc))
+                interface = self.network.wifi_interface()
+            except nm_module.NmError as exc:
+                # A missing or broken nmcli used to escape this function and kill
+                # the boot unit with a traceback. It is a failure the page can
+                # explain.
+                data.update(phase="failed", hotspot=None, last_error=str(exc))
+                state_module.write(self.state_path, data)
+                return self.status()
+            if not interface:
+                data.update(phase="failed", hotspot=None,
+                            last_error="No Wi-Fi interface was found")
+                state_module.write(self.state_path, data)
+                return self.status()
+            if not data["country"]:
+                # A country is already set on most devices; asking for it again
+                # is a question the user should not have to answer twice.
+                try:
+                    detected = self.network.country()
+                except (AttributeError, nm_module.NmError):
+                    detected = None
+                if detected:
+                    data["country"] = detected
+            if rescan and not data["hotspot"]:
+                # The radio is still free here, which is the only safe moment to
+                # scan: asking for a scan with the access point up can drop the
+                # person's phone off it.
+                self.refresh_networks(interface)
+            name = hotspot_name(hostname)
+            # The password is generated once and reused for the life of the
+            # device. Rotating it on every raise broke both promised bootstrap
+            # routes: reading the note off the card needs a reboot, which raised
+            # the access point again and invalidated the password just read; and
+            # one wrong household password invalidated the credential the phone
+            # had saved for the setup network. It is stored, not derived, so the
+            # note and the page always agree.
+            password = data.get("hotspot_password") or new_hotspot_password()
+            # Record the network and its credential *before* raising it. The
+            # old order raised first, so a state write that failed left a live
+            # access point that no state described, no note named and nothing
+            # would take down. Writing first means a failed write raises nothing.
+            data.update(phase=phase, hotspot={"ssid": name, "interface": interface},
+                        hotspot_password=password, last_error=reason)
             state_module.write(self.state_path, data)
+            try:
+                self.network.start_hotspot(name, interface, password)
+            except nm_module.NmError as exc:
+                # There is no access point now, so the record must not describe
+                # one: `serve()` uses that field to decide whether to listen.
+                data.update(phase="failed", hotspot=None, last_error=str(exc))
+                try:
+                    state_module.write(self.state_path, data)
+                except (OSError, ValueError):
+                    LOGGER.warning("The failed access point could not be recorded")
+                return self.status()
+            try:
+                self._portal_address = self.network.device_address(interface)
+            except (AttributeError, nm_module.NmError):
+                self._portal_address = None
+            # A note that cannot be written must not take the access point down:
+            # the password is still on the status the page shows once the phone
+            # is on the network.
+            self._write_card_note(name, password, hostname)
             return self.status()
-        try:
-            self._portal_address = self.network.device_address(interface)
-        except (AttributeError, nm_module.NmError):
-            self._portal_address = None
-        data.update(phase=phase, hotspot={"ssid": name, "interface": interface},
-                    hotspot_password=password, last_error=reason)
-        state_module.write(self.state_path, data)
-        self._write_card_note(name, password, hostname)
-        return self.status()
 
     def refresh_networks(self, interface=None):
         """Look for nearby networks while the radio is free. Never raises.
@@ -385,15 +416,24 @@ class Onboarder:
             if self.clock() - self._last_submit < SUBMIT_INTERVAL_S:
                 return False, "throttle"
             # A capped counter starts again after the cooldown, so the retry the
-            # page offers is always a retry that can work.
+            # page offers is always a retry that can work. `_locked_out` already
+            # returned while the cooldown is running, so reaching here with a
+            # full count means the window has expired and the count starts at 1
+            # again. Keeping it at the cap let one wrong password re-arm the
+            # lockout immediately.
             self._last_submit = self.clock()
+            attempts = 0 if data["attempts"] >= MAX_ATTEMPTS else data["attempts"]
             # The token is random, not the timestamp: `last_attempt` has
             # one-second resolution and a retry can land in the same second as
             # the attempt it replaces.
             token = secrets.token_hex(8)
             data.update(phase="connecting", ssid=ssid, last_error=None,
-                        attempts=min(data["attempts"], MAX_ATTEMPTS - 1) + 1,
-                        last_attempt=state_module.now(), attempt_token=token)
+                        attempts=min(attempts, MAX_ATTEMPTS - 1) + 1,
+                        last_attempt=state_module.now(), attempt_token=token,
+                        # A new reservation is never already claimed. The old
+                        # marker belonged to a worker in a previous attempt (or a
+                        # previous process) and would make this one abandon.
+                        attempt_claimed=False)
             state_module.write(self.state_path, data)
             return True, token
 
@@ -459,7 +499,29 @@ class Onboarder:
         `token` is required. Without it a caller could skip the ownership check
         entirely, which is how a superseded worker used to join and then clear a
         newer reservation's state.
+
+        The whole attempt has a failure boundary. An unexpected exception in the
+        worker used to escape its thread, leave `phase=connecting` with the claim
+        set, and print a traceback containing a path to stderr. The claim is
+        per-process, so that device refused every later submission until the
+        state was repaired by hand.
         """
+        try:
+            return self._join_reserved(ssid, psk, country, token)
+        except Exception:
+            # No exception text: a state or file error can carry a path.
+            LOGGER.warning("The join worker failed unexpectedly; the attempt is released")
+            try:
+                self._fail(token, "The device could not finish the attempt")
+            except Exception:
+                LOGGER.warning("The failed attempt could not be rearmed")
+                try:
+                    self._abandon(token)
+                except Exception:
+                    LOGGER.warning("The attempt could not be released")
+            return self.status()
+
+    def _join_reserved(self, ssid, psk, country=None, token=None):
         data = self._claim(ssid, token)
         if data is None:
             # Something else moved the state on while this worker waited; the
@@ -508,14 +570,38 @@ class Onboarder:
         return self.status()
 
     def _fail(self, token, reason):
-        """Record a failed attempt that this worker still owns, then retry the AP."""
+        """Record a failed attempt that this worker still owns, then retry the AP.
+
+        The settlement and the rearm happen under the admission lock. The old
+        order settled (which released ownership), then re-raised the access point
+        outside the lock, so a new request could be admitted while the old worker
+        was still raising its recovery access point - and the old worker's stale
+        full-state write then overwrote the newer result, including a success.
+        """
         # `last_attempt` is kept: it is the time the capped counter last
         # started, and the cooldown is measured from it. Clearing it here made
         # the cap never apply, because the record no longer said when.
-        settled = self._settle(token, phase="failed", last_error=reason, ssid=None)
-        if settled is None:
-            return self.status()
-        return self.start_hotspot(reason=reason, phase="failed", rescan=False)
+        with self._lock:
+            data = state_module.read(self.state_path)
+            if not token or data["attempt_token"] != token:
+                return self.status()
+            data.update(phase="failed", last_error=reason, ssid=None,
+                        attempt_claimed=False, attempt_token=None)
+            state_module.write(self.state_path, data)
+            # Still holding the lock: a new POST is admitted only once the
+            # access point is back, and this write cannot land on a newer one.
+            return self.start_hotspot(reason=reason, phase="failed", rescan=False)
+
+    def _abandon(self, token):
+        """Clear a claimed attempt after an unexpected failure, without raising."""
+        with self._lock:
+            data = state_module.read(self.state_path)
+            if not token or data["attempt_token"] != token:
+                return
+            data.update(phase="failed",
+                        last_error="The device could not finish the attempt",
+                        ssid=None, attempt_claimed=False, attempt_token=None)
+            state_module.write(self.state_path, data)
 
     def _locked_out(self, data):
         """True while the capped attempt counter is cooling down."""
@@ -545,6 +631,13 @@ class Onboarder:
             # known-good point that `latest()` already knew was unusable, and
             # nothing ever retried.
             if baseline_module.verified(self.baseline_dir, pointer):
+                self._baseline_error = None
+                if data.get("baseline_error"):
+                    try:
+                        data["baseline_error"] = None
+                        state_module.write(self.state_path, data)
+                    except (OSError, ValueError):
+                        pass
                 return
             LOGGER.warning("The recorded baseline does not verify; looking for a whole one")
             try:
@@ -563,12 +656,18 @@ class Onboarder:
                 data["baseline"] = str(self.baseline_dir / existing["archive"])
                 data["baseline_error"] = None
                 state_module.write(self.state_path, data)
+                self._baseline_error = None
                 LOGGER.warning("Adopted an existing baseline that had no recorded pointer")
-                return
-            except (OSError, ValueError):
-                # Recording it failed again; carry on and capture as before so
-                # the failure is visible instead of silent.
-                LOGGER.warning("An existing baseline could not be recorded")
+            except (OSError, ValueError) as exc:
+                # The capture is whole and belongs to this device; only recording
+                # it failed. Capturing again would add another archive on a store
+                # that is already refusing writes, which is the wrong direction.
+                # The running page is told in memory; the next boot retries the
+                # attachment.
+                self._baseline_error = _baseline_reason(exc)
+                LOGGER.warning("An existing baseline could not be recorded: %s",
+                               self._baseline_error)
+            return
         try:
             manifest = baseline_module.capture(self.baseline_dir, root=self.root)
         except (baseline_module.BaselineError, OSError) as exc:
@@ -578,10 +677,12 @@ class Onboarder:
             # The fixed sentence, not the exception. `str(exc)` is the thing the
             # review showed carrying a path, and a path here can name a
             # credential-bearing file.
-            LOGGER.warning("Baseline not captured: %s", _baseline_reason(exc))
+            reason = _baseline_reason(exc)
+            LOGGER.warning("Baseline not captured: %s", reason)
+            self._baseline_error = reason
             try:
                 data = state_module.read(self.state_path)
-                data["baseline_error"] = _baseline_reason(exc)
+                data["baseline_error"] = reason
                 state_module.write(self.state_path, data)
             except (OSError, ValueError):
                 LOGGER.warning("Baseline error could not be recorded")
@@ -594,8 +695,10 @@ class Onboarder:
             data["baseline"] = str(self.baseline_dir / manifest["archive"])
             data["baseline_error"] = None
             state_module.write(self.state_path, data)
+            self._baseline_error = None
         except (OSError, ValueError) as exc:
             reason = _baseline_reason(exc)
+            self._baseline_error = reason
             LOGGER.warning("Baseline captured but not recorded: %s", reason)
             # The page must not say "captured" when nothing points at it. The
             # write may fail again - a full disk is the likely cause - but a
@@ -616,6 +719,19 @@ class Onboarder:
         # device. Reconciling is idempotent and never changes the chosen name.
         self.ensure_identity()
         data = state_module.read(self.state_path)
+        dead_attempt = data["attempt_claimed"] or data["attempt_token"] is not None
+        if dead_attempt:
+            # A claim belongs to the process that set it. This is a fresh boot,
+            # so any claim or token on disk is from a process that is gone.
+            # Leaving it set made every later admission busy for ever: the phase
+            # stayed `connecting`, and a reboot repeated the same sequence.
+            LOGGER.warning("Clearing an attempt that did not survive the last boot")
+            unfinished = data["phase"] == "connecting"
+            data.update(attempt_claimed=False, attempt_token=None)
+            if unfinished:
+                data.update(phase="failed",
+                            last_error="The last attempt did not finish")
+            state_module.write(self.state_path, data)
         active = self.network.active()
         if active and active["routable"] and active.get("has_route", True):
             data = state_module.read(self.state_path)
@@ -646,6 +762,11 @@ class Onboarder:
             return self.start_hotspot(reason="The previous network is not reachable", phase="failed")
         if data["phase"] == "connecting":
             return self.start_hotspot(reason="The last attempt did not finish", phase="failed")
+        if dead_attempt:
+            # The record already says why the last attempt stopped. Raising the
+            # access point with that reason puts the person back on the retry
+            # card instead of a blank form that forgets what happened.
+            return self.start_hotspot(reason=data["last_error"], phase="failed")
         return self.start_hotspot()
 
 

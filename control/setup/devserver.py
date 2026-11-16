@@ -63,6 +63,13 @@ def main():
     data["baseline_error"] = (args.baseline_error or None) if online else None
     if args.phase == "hotspot":
         data["hotspot"] = {"ssid": "Debra-Setup-demo1", "interface": "wlan0"}
+        # A described access point always has the stored password the note and
+        # the page need; the state refuses one without it.
+        data["hotspot_password"] = onboarding.new_hotspot_password()
+    if args.phase == "connecting":
+        data["hotspot"] = {"ssid": "Debra-Setup-demo1", "interface": "wlan0"}
+        data["hotspot_password"] = onboarding.new_hotspot_password()
+        data["attempt_token"] = "0123456789abcdef"
     state_module.write(state_path, data)
 
     network = FakeNetwork(country=args.country, behaviour=args.behaviour)

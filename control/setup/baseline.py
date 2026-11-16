@@ -1,9 +1,11 @@
 """A small, honest first baseline: the configuration, not the whole device.
 
 This is not whole-device recovery and does not pretend to be. It captures the
-files that make this device *this device* — its setup state, its hardware choice,
-its NetworkManager profiles and its package list — into one timestamped archive
-with a manifest, so a later change can be compared against a known point.
+files that make this device *this device* — its setup state, its NetworkManager
+profiles, and the few small system files in `CAPTURE` — into one timestamped
+archive with a manifest, so a later change can be compared against a known
+point. It captures no package list and builds no hardware inventory; a path that
+does not exist is recorded as missing rather than produced.
 
 Wi-Fi keyfiles are included because they are part of the device's configuration,
 and the archive is created 0600. That is still a secret on disk: the archive must
@@ -20,6 +22,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import tarfile
 from datetime import datetime, timezone
@@ -40,6 +43,25 @@ MAX_BYTES = 32 * 1024 * 1024
 
 class BaselineError(Exception):
     pass
+
+
+class _Changed(Exception):
+    """The source file changed while it was being read."""
+
+
+def _same_file(before, after):
+    """Whether two descriptor snapshots describe an unchanged file.
+
+    Size, modification and status-change times, inode and device: a same-size
+    rewrite moves the mtime and ctime, which a length check could not see.
+    Best effort by design - a writer that also restores the timestamps is not
+    detected, and nothing here is a transactional snapshot across files.
+    """
+    return (before.st_size == after.st_size
+            and before.st_mtime_ns == after.st_mtime_ns
+            and before.st_ctime_ns == after.st_ctime_ns
+            and before.st_ino == after.st_ino
+            and before.st_dev == after.st_dev)
 
 
 class _Collector:
@@ -97,28 +119,16 @@ class _Collector:
         # new, shorter size, so the member was silently cut and reported
         # captured.
         try:
-            with open(path, "rb") as stream:
-                info = os.fstat(stream.fileno())
-                if info.st_size > MAX_BYTES or self.total + info.st_size > MAX_BYTES:
-                    raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
-                chunks, size = [], 0
-                while True:
-                    chunk = stream.read(1 << 20)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if size > MAX_BYTES:
-                        raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
-                    chunks.append(chunk)
+            data, info = self._read(path)
         except OSError as exc:
             # A root-only keyfile read by a non-root run is the common case.
             self.skipped.append({"path": str(path),
                                  "reason": exc.__class__.__name__})
             return
-        data = b"".join(chunks)
-        if len(data) != info.st_size:
+        except _Changed:
             # The file changed while it was being read. Recording it would put
-            # a size in the header that the body does not fill.
+            # bytes in the archive that never all existed at once - a torn
+            # configuration - and the matching hash would then call it verified.
             self.skipped.append({"path": str(path.relative_to(self.root)),
                                  "reason": "changed while being read"})
             return
@@ -133,6 +143,39 @@ class _Collector:
         self.tar.addfile(member, io.BytesIO(data))
         self.total += len(data)
         self.captured.append(str(path.relative_to(self.root)))
+
+    def _read(self, path):
+        """Read a file and return its bytes only if it did not change.
+
+        Reading the whole file before touching the tar stream keeps a failed
+        read from leaving a truncated member. Metadata is taken from the
+        descriptor that was read, never from a second `stat` of the path, so a
+        truncation between the read and the header cannot produce a cut member.
+
+        The metadata is compared again after the read. A length check alone
+        missed a same-size in-place rewrite: the saved bytes could be the first
+        half from before the write and the second half from after, which is a
+        configuration that never existed. A changed file is skipped rather than
+        retried: a baseline is a point in time, and the next boot captures again.
+        """
+        with open(path, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if info.st_size > MAX_BYTES or self.total + info.st_size > MAX_BYTES:
+                raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
+            chunks, size = [], 0
+            while True:
+                chunk = stream.read(1 << 20)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    raise BaselineError(f"baseline would exceed {MAX_BYTES} bytes")
+                chunks.append(chunk)
+            after = os.fstat(stream.fileno())
+        data = b"".join(chunks)
+        if len(data) != info.st_size or not _same_file(info, after):
+            raise _Changed()
+        return data, info
 
 
 def capture(destination, paths=CAPTURE, root="/", stamp=None):
@@ -250,6 +293,82 @@ def _write(path, payload):
     return path
 
 
+ARCHIVE_NAME = re.compile(r"\Abaseline-[0-9A-Za-z-]+\.tar\.gz\Z")
+DIGEST = re.compile(r"\A[0-9a-f]{64}\Z")
+MANIFEST_KEYS = frozenset({"archive", "created", "sha256", "bytes", "captured",
+                           "skipped", "missing", "note"})
+
+
+def _manifest_for(destination, manifest_path):
+    """Read and fully validate one manifest, or return None.
+
+    A hash proves only that the archive matches the metadata beside it. It does
+    not prove the metadata describes a Debra baseline: a two-key JSON object
+    pointing at an unrelated file matched the old check. This validates the
+    manifest's own shape, that the archive is a direct child of this baseline
+    directory with the generated name, that its size and digest agree, that it
+    opens as a gzip tar, and that the members it claims to have recorded are
+    actually in it.
+    """
+    destination = Path(destination)
+    manifest_path = Path(manifest_path)
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        return None
+    if manifest_path.parent.resolve() != destination.resolve():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(manifest, dict) or set(manifest) != MANIFEST_KEYS:
+        return None
+    archive_name = manifest.get("archive")
+    if not isinstance(archive_name, str) or not ARCHIVE_NAME.match(archive_name):
+        return None
+    stem = archive_name[:-len(".tar.gz")]
+    if manifest_path.name != stem + ".json":
+        return None
+    if not isinstance(manifest.get("created"), str) or len(manifest["created"]) > 64:
+        return None
+    if not isinstance(manifest.get("note"), str) or len(manifest["note"]) > 500:
+        return None
+    digest = manifest.get("sha256")
+    if not isinstance(digest, str) or not DIGEST.match(digest):
+        return None
+    size = manifest.get("bytes")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        return None
+    captured = manifest.get("captured")
+    if not isinstance(captured, list) or not all(isinstance(name, str) for name in captured):
+        return None
+    for key in ("skipped", "missing"):
+        if not isinstance(manifest.get(key), list):
+            return None
+    archive = destination / archive_name
+    if archive.is_symlink() or not archive.is_file():
+        return None
+    try:
+        if archive.parent.resolve() != destination.resolve():
+            return None
+        if archive.stat().st_size != size:
+            return None
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
+            return None
+    except OSError:
+        return None
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            members = {member.name for member in tar.getmembers()}
+    except (OSError, tarfile.TarError):
+        return None
+    for name in members:
+        if name.startswith("/") or ".." in Path(name).parts:
+            return None
+    if not set(captured) <= members:
+        return None
+    return manifest
+
+
 def verified(destination, archive):
     """The manifest for one specific archive, or None if it does not verify.
 
@@ -260,17 +379,12 @@ def verified(destination, archive):
     """
     destination = Path(destination)
     archive = Path(archive)
-    if not archive.is_file():
+    if not ARCHIVE_NAME.match(archive.name):
         return None
-    try:
-        manifest = json.loads(
-            archive.with_suffix("").with_suffix(".json").read_text(encoding="utf-8"))
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    except (OSError, ValueError):
+    if archive.parent.resolve() != destination.resolve():
         return None
-    if not isinstance(manifest, dict) or manifest.get("archive") != archive.name:
-        return None
-    if digest != manifest.get("sha256"):
+    manifest = _manifest_for(destination, destination / (archive.name[:-len(".tar.gz")] + ".json"))
+    if manifest is None or manifest.get("archive") != archive.name:
         return None
     return manifest
 
@@ -278,9 +392,11 @@ def verified(destination, archive):
 def latest(destination):
     """The most recent usable manifest, or None.
 
-    A manifest is only a baseline if the archive beside it exists and still
-    hashes to what the manifest says. Without that check a damaged or
-    half-written archive is reported as the device's known-good point.
+    A manifest is only a baseline if it validates: the archive beside it exists
+    as a direct child of this directory, still hashes to what the manifest says,
+    opens as a gzip tar, and contains the members it claims. Without that a
+    damaged, half-written or unrelated file is reported as the device's
+    known-good point.
     """
     destination = Path(destination)
     if not destination.is_dir():
@@ -295,12 +411,7 @@ def latest(destination):
         except OSError:
             continue
     for _, _, path in sorted(found, reverse=True):
-        try:
-            manifest = json.loads(path.read_text(encoding="utf-8"))
-            archive = destination / manifest["archive"]
-            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
-        if digest == manifest.get("sha256"):
+        manifest = _manifest_for(destination, path)
+        if manifest is not None:
             return manifest
     return None

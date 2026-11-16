@@ -355,7 +355,9 @@ def serve(state_dir, card_note=None, network=None, address=None,
           grace=BASELINE_GRACE_S):
     """One boot of the setup service. Returns the process exit code.
 
-    Online: nothing to do, and no page is started. Otherwise the access point is
+    Online: no page and no access point are started. The boot is still not a
+    no-op — `resume()` re-applies the device name and checks or captures the
+    baseline — and then the process ends. Otherwise the access point is
     raised and the page is served until the device is online, at which point the
     listening socket is closed rather than left open.
     """

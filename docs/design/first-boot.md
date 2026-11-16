@@ -279,10 +279,12 @@ python3 -B -m unittest tests.test_onboarding -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-136 onboarding tests, 28 installer tests and 16 browser scenarios, all passing
-on 2026-11-15. They check the decisions and the HTTP contract against the fake
-NetworkManager, with the page driven in a real Chromium. They prove nothing
-about a radio, a real keyfile read, or systemd.
+163 onboarding tests, 28 installer tests and 19 browser scenarios, all passing
+on 2026-11-15 against the then-current tree. They check the decisions and the
+HTTP contract against the fake NetworkManager, with the page driven in a real
+Chromium. They prove nothing about a radio, a real keyfile read, or systemd.
+The browser scenarios run only with `DEBRA_BROWSER_TEST=1` and an installed
+Chromium, so a plain run of this suite does not drive the page at all.
 
 ## Where the code and the older notes disagree
 
@@ -292,7 +294,7 @@ was written; the rest are still open, so the coordinator can decide them.
 
 | Point | [Revision 2 of the onboarding note](../notes/2026-11-15-wifi-onboarding-options-revision.md) | `control/setup/` today |
 | --- | --- | --- |
-| Hotspot security | WPA2 with a per-device passphrase printed on the device | **Partly resolved:** the passphrase is generated, not derived, so it is not computable from the broadcast setup SSID, and it is written to the boot-partition note so it is readable before any page loads. It protects the setup window only: anyone holding the card during first boot can read it. That `nmcli` really raises a WPA2 access point with it, and that the access point cannot fall back to an open one, are unverified |
+| Hotspot security | WPA2 with a per-device passphrase printed on the device | **Partly resolved:** the passphrase is generated once per device, stored in the `0600` setup state and reused across retries and reboots, so it is not computable from the broadcast setup SSID. It is written to a file on the boot partition; that the owner can find and read that file is not demonstrated — a card reader needs a reboot, and a device whose boot partition never mounted gets only a journal warning. It protects the setup window only: anyone holding the card during first boot can read it. That `nmcli` really raises a WPA2 access point with it, and that the access point cannot fall back to an open one, are unverified |
 | Trial profile and rollback | Credentials stored as a trial profile (`autoconnect=no`, retries 1), deleted on failure, old profile kept | **Resolved in code:** the profile is written into NetworkManager's own profile directory with `autoconnect=false`, activated, verified, then promoted to `autoconnect=yes`. A failed attempt deletes the profile and its file, and a promotion that keeps failing is treated as a failed join. No profile has been loaded by a real NetworkManager |
 | Country | A precondition supplied at image build, because a disabled radio cannot host the portal | **Partly resolved:** the country already on the device is read first, so the question is only asked when there is none. The radio-off case is still an error |
 | Success test | Four layers: associated, routable address, default route, then DNS or an HTTP probe | **Three of four:** active device, routable address and default route. No DNS or HTTP probe, so a LAN with no internet still passes |
@@ -306,9 +308,11 @@ was written; the rest are still open, so the coordinator can decide them.
 
 - Does `nmcli device wifi hotspot` succeed on a fresh Pi OS Lite install with no
   country set, or does the radio refusal surface as a hotspot failure? Untested.
-- The setup passphrase is now derived and written to the boot partition, but is
-  it actually printed or shown anywhere a person will look? A card reader on the
-  Pi is not the same as a label on the case.
+- The setup passphrase is now generated and written to the boot partition, and it
+  is the same passphrase across retries and reboots, so reading it off the card
+  and power-cycling no longer invalidates it. But is it actually printed or shown
+  anywhere a person will look? A card reader on the Pi is not the same as a label
+  on the case, and no delivery route to the owner has been demonstrated.
 - Does a phone's captive-portal probe reach the access point at all? The probe
   paths are answered, but the setup network's DNS decides whether the phone asks
   them, and Debra does not configure that DNS. No phone has been tried.

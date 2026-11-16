@@ -26,7 +26,10 @@ from pathlib import Path
 # failed:       an attempt failed; the access point is coming back with a reason.
 PHASES = ("unconfigured", "hotspot", "connecting", "online", "failed")
 
-SCHEMA = 1
+# Schema 2 added `attempt_claimed`, `hotspot_password` and `revision`. Schema 1
+# records are migrated on read rather than refused: a device that already ran the
+# earlier prototype must not be left with a state file that stops the service.
+SCHEMA = 2
 
 
 def now():
@@ -62,6 +65,12 @@ def blank(hostname=""):
         # is separate from last_error, which is about joining: a device can be
         # online and still have no baseline.
         "baseline_error": None,
+        # A counter that increases with every write. The setup page uses it to
+        # tell a status answer that is genuinely newer than its own submission
+        # from one that merely started after it. `updated` has one-second
+        # resolution, which is not enough to order two writes in the same
+        # second - and a retry after a lost reply is exactly that.
+        "revision": 0,
         "updated": now(),
     }
 
@@ -109,6 +118,15 @@ def validate(data):
     if password is not None and (not isinstance(password, str)
                                  or not 8 <= len(password) <= 63):
         raise ValueError("Hotspot password must be 8-63 characters or null")
+    if password is not None:
+        # A generated WPA passphrase is printable and has no whitespace. A
+        # newline or a space here is not a credential any phone can type, and
+        # it would be written verbatim into the boot-partition note.
+        if any(not 33 <= ord(char) <= 126 for char in password):
+            raise ValueError("Hotspot password must be printable characters without spaces")
+    revision = data.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise ValueError("Revision must be a whole number from zero")
     hotspot = data.get("hotspot")
     if hotspot is not None:
         if not isinstance(hotspot, dict) or set(hotspot) != {"ssid", "interface"}:
@@ -116,10 +134,49 @@ def validate(data):
         for value in hotspot.values():
             if not isinstance(value, str) or not 1 <= len(value) <= 64:
                 raise ValueError("Hotspot values must be text of 1-64 characters")
+        # A described access point with no credential is one nothing can join.
+        # The old record could describe one because the password was not stored
+        # at all; now the two always travel together.
+        if password is None:
+            raise ValueError("A described hotspot needs its password")
+    if data.get("phase") == "hotspot" and hotspot is None:
+        raise ValueError("The hotspot phase needs a described hotspot")
+    if data.get("phase") == "connecting" and data.get("attempt_token") is None:
+        # `admit()` writes the token with the phase, under the lock. A record
+        # with one and not the other is a state this module did not write.
+        raise ValueError("The connecting phase needs an attempt token")
+    if data.get("phase") == "online" and hotspot is not None:
+        raise ValueError("An online device has no setup hotspot")
     baseline = data.get("baseline")
     if baseline is not None and (not isinstance(baseline, str) or len(baseline) > 200):
         raise ValueError("Baseline must be a path up to 200 characters")
     return data
+
+
+def _migrate_1(data):
+    """Bring a schema-1 record forward without guessing at a credential.
+
+    Schema 1 stored no setup-network password. It may still describe a hotspot,
+    because the old code raised one and then wrote the note; after an upgrade
+    the access point is not running. Keeping that description would leave a
+    phase of `hotspot` with no password, which the page cannot use and which
+    `validate()` rightly refuses. The description is dropped instead, and the
+    next boot raises the access point again with a fresh password.
+    """
+    migrated = dict(data)
+    migrated["schema"] = SCHEMA
+    migrated.setdefault("attempt_claimed", False)
+    migrated.setdefault("hotspot_password", None)
+    migrated.setdefault("revision", 0)
+    if migrated.get("hotspot") is not None and migrated.get("hotspot_password") is None:
+        migrated["hotspot"] = None
+        if migrated.get("phase") in ("hotspot", "connecting"):
+            migrated["phase"] = "failed"
+            migrated["last_error"] = ("The setup network is raised again after the "
+                                      "software update")
+        migrated["attempt_token"] = None
+        migrated["attempt_claimed"] = False
+    return migrated
 
 
 def read(path):
@@ -134,6 +191,10 @@ def read(path):
     except FileNotFoundError:
         return blank()
     data = json.loads(raw)
+    # `True == 1`, so a JSON `true` must not be treated as schema 1.
+    if (isinstance(data, dict) and not isinstance(data.get("schema"), bool)
+            and data.get("schema") == 1):
+        data = _migrate_1(data)
     return validate(data)
 
 
@@ -141,7 +202,16 @@ def write(path, data):
     """Replace the file atomically, owner-only, without following a symlink."""
     path = Path(path)
     validate(data)
-    data = dict(data, updated=now())
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8")).get("revision", 0)
+    except (OSError, ValueError):
+        previous = 0
+    if isinstance(previous, bool) or not isinstance(previous, int) or previous < 0:
+        previous = 0
+    current = data.get("revision", 0)
+    if isinstance(current, bool) or not isinstance(current, int) or current < 0:
+        current = 0
+    data = dict(data, updated=now(), revision=max(previous, current) + 1)
     payload = json.dumps(data, indent=1, sort_keys=True).encode() + b"\n"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, staged = tempfile.mkstemp(prefix=".setup.staged-", dir=path.parent)

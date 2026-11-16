@@ -16,15 +16,22 @@ The unit runs on every boot and asks `Onboarder.resume()`
 
 1. It gives NetworkManager up to 30 seconds to autoconnect. A configured device
    usually joins its own network in that window, and the boot is then quiet.
-2. `resume()` decides from the recorded state. Online: nothing to do, the
-   process exits 0 and no page is started.
+2. `resume()` decides from the recorded state. Online means no page and no
+   access point, but not a no-op boot: it re-applies the remembered device name
+   through `hostnamectl`, verifies the recorded baseline and adopts or captures
+   one if it is missing or damaged, and then exits 0. Because the name is
+   applied unconditionally, a name changed outside Debra is changed back on the
+   next boot; that is a deliberate choice, and no device test has measured what
+   an actual rename does to an online connection.
 3. No usable uplink: it sets the device name, looks for nearby networks while
    the radio is still free, raises the setup access point, writes the
    setup-network password to the boot partition, and serves the page on the
    address the access point actually got. In shared mode that is
    `http://10.42.0.1/`, which is also the fallback when the address cannot be
    read. The scan is a convenience for the form: a failure is an empty list and
-   the person types the name, which always works.
+   the person types the name. Typing accepts any printable UTF-8 name of 1–32
+   octets and refuses a name that is nothing but spaces; it does not make the
+   network reachable, discoverable, or compatible with the radio.
 4. A submission joins the household network. The profile is written into
    NetworkManager's own store, pinned to the radio in use, and promoted to
    autoconnect only after the join is verified, so the device rejoins the
@@ -48,8 +55,12 @@ The unit runs on every boot and asks `Onboarder.resume()`
    configuration files, not a package or hardware inventory. It contains
    secrets.
 
-Nothing reboots the device to apply Wi-Fi, nothing restarts NetworkManager, and
-no passphrase is written anywhere except NetworkManager's own keyfile.
+Nothing reboots the device to apply Wi-Fi, and nothing restarts NetworkManager.
+No household passphrase is put in the setup state, passed on a command line or
+kept in a log: NetworkManager's keyfile is where Debra writes it. That keyfile is
+not the only copy of the secret on the device — the first baseline archives it
+deliberately — and the setup network's own generated password is stored in the
+setup state, served to the page, and written to the boot partition.
 
 ## Why this is a system unit, not a user unit
 
@@ -80,12 +91,16 @@ none of them make it a secure portal:
   arrived from, and there is no firewall rule here. What actually keeps the page
   off the household network is that the address exists only while the access
   point does.
-- The access point is WPA2 with a **generated** password (twelve characters from
-  an alphabet without look-alike pairs), stored in the setup state and written
-  to the boot-partition note. It is not derived from anything broadcast, so a
-  neighbour who can see the setup network's name cannot compute it. It protects
-  the setup window, not the household: anyone who can read the card, or who is
-  told the password, can also submit the form.
+- The access point is raised by `nmcli device wifi hotspot`, which chooses the
+  security type from what the hardware and driver report rather than from
+  Debra. Twelve characters from an alphabet without look-alike pairs is chosen
+  to be typeable and long enough that a password-length downgrade is not the
+  reason; whether the radio actually raises WPA2 has **not** been observed here,
+  and no fallback is claimed. The password is stored in the setup state and
+  written to the boot-partition note. It is not derived from anything broadcast,
+  so a neighbour who can see the setup network's name cannot compute it. It
+  protects the setup window, not the household: anyone who can read the card, or
+  who is told the password, can also submit the form.
 - The service shuts the page down as soon as the device is online.
 
 Port 80 rather than 8080 is the same kind of choice: the journey promises
@@ -117,7 +132,10 @@ getent hosts connectivitycheck.gstatic.com   # should answer the AP address
 curl -sI http://connectivitycheck.gstatic.com/generate_204 | head -3
 ```
 
-A `302` with a `Location` on the setup network is the whole mechanism working.
+A `302` with a `Location` on the setup network proves that address redirection
+for that client and that request. It does not prove the operating system opened
+its sign-in sheet, that every client resolves those names through the shared-mode
+DNS, or that the handover and retry work afterwards.
 
 ## What the device must already have
 
@@ -161,7 +179,7 @@ useful for inspection or imaging. `--restore <unit>` is the rollback below.
 | `/usr/local/lib/debra/setup/previous-units/` | `0700` | Previous generated units, retained for rollback |
 | `/var/lib/debra/setup/setup.json` | `0600` | The setup state. No household passphrase; it does hold the generated setup-network password, so this file is a credential |
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
-| `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; it is the only copy of that passphrase |
+| `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; this is where the passphrase is written (the baseline below archives a copy) |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |
 
@@ -187,8 +205,10 @@ ss -ltn 'sport = :80'
 ```
 
 - On a device that is already online the unit is `inactive (dead)` with
-  `status=0/SUCCESS`. That is the expected result, not a failure: it decided
-  there was nothing to do. The journal says `setup phase online`.
+  `status=0/SUCCESS`. That is the expected result, not a failure: it found a
+  usable uplink, so no page and no access point. It did re-apply the remembered
+  device name and re-checked the baseline before exiting; the journal says
+  `setup phase online`.
 - On a device with no uplink the journal says `setup phase hotspot` and
   `setup page listening on http://<address>/`, naming the address it bound. The
   card note on the boot partition holds the setup-network name and password.
@@ -294,8 +314,12 @@ These are the decisions that the tests defend, and the reasons they exist:
   route. A connected radio is not proof of any of that.
 - **The country is set after the access point is down.** It is a radio change,
   and doing it before the reply could disrupt the only channel the person has.
-- **A failed attempt deletes its profile and its file**, so a wrong password
-  never leaves a profile competing with the household network.
+- **A failed attempt tries to delete its profile and its file**, so a wrong
+  password does not leave a second profile competing with the household network.
+  This is best effort: a deletion that fails is suppressed and logged, there is
+  no retry and no crash recovery, and no real NetworkManager has been asked to
+  clean up after a failure here. Treat "no competing profile" as the intent, not
+  as a guarantee.
 - **A baseline is published, not overwritten.** Each file is written under a
   name nothing reads, flushed, and linked into place; `os.link` refuses to
   replace an existing file, and the manifest is published last. A same-second
@@ -311,10 +335,17 @@ The offline checks behind this page:
 ```sh
 python3 -B -m unittest tests.test_setup_install -v
 python3 -B -m unittest tests.test_onboarding -v
+DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
 They check the artifacts on disk, the boot decisions, and the page's own
 behaviour in a real browser, all against a recorded fake NetworkManager. They do
-not prove anything about a radio, a real keyfile read, systemd, or hardware. Each
-of the guards above was also checked by breaking it and watching one of these
-tests fail, except where the page below says otherwise.
+not prove anything about a radio, a real keyfile read, systemd, or hardware. The
+browser cases need an already-installed Chromium and are opt-in, so a plain run
+does not exercise the page at all.
+
+Guards in this subsystem have been checked by breaking them and watching a test
+fail, but that is evidence about the guards that were broken, not a proof of the
+whole subsystem. The mutated lines, the failing test for each, and the survivors
+are recorded in the review notes under `.local/reviews/`; earlier rounds found
+guards that no test covered at the time.
