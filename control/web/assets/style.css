@@ -45,6 +45,8 @@ html { scroll-padding-top: 64px; }
 .grid { display: grid; grid-template-columns: 1fr; gap: 0; }
 label { display: block; margin: 16px 0 10px; color: #d5e4e0; font-size: 14px; }
 #volume-value { float: right; font-size: 22px; color: var(--accent); }
+/* Nothing to show is not a reading, so it is not coloured like one. */
+#volume-value.muted { color: var(--muted); font-size: 18px; }
 /* The number is the tallest thing on this line. Floating it out of a 14 px
    line box left the label shorter than its own content (19 px of text, 30 px
    of number), so the slider below was spaced from the wrong edge. A flow root

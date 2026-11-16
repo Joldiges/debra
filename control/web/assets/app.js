@@ -253,18 +253,33 @@ function volumeLabel(data) {
       ? `${selected}% selected · device reports ${data.percent}%`
       : `${selected}% · outcome unknown`;
   }
-  if (!data.available) return `${selected}% · not confirmed`;
+  // With no usable output there is no level to show. "50% · not confirmed" was
+  // the browser's own default slider position dressed up as a reading: a number
+  // the device never sent.
+  if (!data.available) return "No level";
   return draft ? `${selected}% · not applied` : `${data.percent}%`;
 }
 function audio(data) {
   currentAudio = data;
   for (const id of ["volume", "apply", "mute"]) el(id).disabled = !data.available || busy;
-  el("output").textContent = data.description ? `${data.description} (${data.sink})` : data.sink;
-  el("audio-status").textContent = data.available ? (data.muted ? "Muted" : "Output unmuted") : data.error;
+  if (data.available) {
+    el("output").textContent = data.description ? `${data.description} (${data.sink})` : data.sink;
+    el("audio-status").textContent = data.muted ? "Muted" : "Output unmuted";
+  } else {
+    // The device named a sink it cannot use. Which one, and why, belongs where
+    // the sink is named — above the controls — not in the small line beside a
+    // disabled button, where the only evidence a person gets is that nothing
+    // responds.
+    el("output").textContent = `No usable output${data.error ? `: ${data.error}` : ""} (${data.sink}).`;
+    el("audio-status").textContent = "Unavailable";
+  }
   el("mute").textContent = data.muted ? "Unmute" : "Mute";
   reconcile(data);
   if (data.available && !draft) el("volume").value = Math.min(100, data.percent);
   el("volume-value").textContent = volumeLabel(data);
+  // The level is printed in the accent colour. "No level" in the same colour
+  // read as a value at a glance, which is the one thing it must not do.
+  el("volume-value").classList.toggle("muted", !data.available);
 }
 function buildLabel(version) {
   // The short digest is the same string the installer names a release
@@ -591,8 +606,17 @@ async function change(path, body) {
   try {
     const result = await api(path, body);
     if (started !== session) return;
-    setOp(isVolume, null);
-    if (isVolume && el("volume").value === String(target)) draft = false;
+    if (!result.available) {
+      // The request was accepted but the device could not report the output,
+      // so whether it took effect is unknown. Treating this as settled is how
+      // an unreadable readback became "not applied", which is a different and
+      // stronger claim than the evidence supports.
+      setOp(isVolume, {status: "uncertain", target,
+        message: `The device accepted this ${isVolume ? "volume" : "mute"} change but could not report the output, so it may or may not have taken effect.`});
+    } else {
+      setOp(isVolume, null);
+      if (isVolume && el("volume").value === String(target)) draft = false;
+    }
     audio(result);
   } catch (error) {
     if (started !== session) return;

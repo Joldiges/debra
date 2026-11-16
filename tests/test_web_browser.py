@@ -49,6 +49,9 @@ window.testState = {
   powerSupply: new URLSearchParams(location.search).get("power") === "supply",
   cpu: {cpu: 12, cpu0: 24},
   longSink: new URLSearchParams(location.search).get("sink") === "long",
+  // `?sink=gone` is a device that names a sink it cannot use: the state where
+  // every control on this page is disabled at once.
+  sinkGoneAtStart: new URLSearchParams(location.search).get("sink") === "gone",
   cores: new URLSearchParams(location.search).get("cores") === "unavailable",
   noAuth: new URLSearchParams(location.search).get("auth") === "none",
   devices: new URLSearchParams(location.search).get("auth") === "none"
@@ -184,7 +187,11 @@ window.fetch = async (path, options) => {
       return {ok: false, status: state.failStatus, json: async () => ({error: "fixture failure"})};
     }
   }
-  const audio = {available: !state.sinkGone,
+  // The reason is server.py's own wording for this state, so the fixture shows
+  // a person what the device really says rather than a minimal stand-in.
+  const audio = {available: !(state.sinkGone || state.sinkGoneAtStart),
+    ...(state.sinkGone || state.sinkGoneAtStart
+      ? {error: "Selected output unavailable; no fallback was selected"} : {}),
     sink: state.longSink
       ? "alsa_output.platform_107c800000_sound.stereo_fallback_1234567890abcdef"
       : "test",
@@ -873,6 +880,43 @@ window.addEventListener("load", async () => {
            "the page claims the readings are fresh");
     result.textContent = "PASS: a missing reading is named as missing, and the supply "
       + "voltage is never presented as CPU-core voltage";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_OUTPUT_GONE = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    // Every control is disabled because the device named a sink it cannot use.
+    // Before, the only sign of that was a small line beside a dead button, and
+    // the sink was still presented as if it were the output in use.
+    for (const id of ["volume", "apply", "mute"]) {
+      assert(document.getElementById(id).disabled, id + " is usable with no usable output");
+    }
+    const output = document.getElementById("output").textContent;
+    assert(/No usable output/.test(output),
+           "the page does not say there is no usable output: " + output);
+    assert(/no fallback was selected/.test(output),
+           "the device's own reason is not shown: " + output);
+    assert(document.getElementById("audio-status").textContent === "Unavailable",
+           "the status line does not say the output is unavailable");
+    // And it must not invent a level. The slider keeps the browser's default
+    // position, which used to be rendered as "50% · not confirmed".
+    const level = document.getElementById("volume-value").textContent;
+    assert(!/\d/.test(level),
+           "the page shows a level for an output it cannot read: " + level);
+    result.textContent = "PASS: a device with no usable output says so, with its own reason";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -2014,7 +2058,8 @@ class BrowserTests(unittest.TestCase):
                                    "/check-refused-keyless.js", "/check-timeout.js",
                                    "/check-unverified-key.js", "/check-checking.js",
                                    "/check-stale.js", "/check-first-screen.js",
-                                   "/check-nav.js", "/check-missing-readings.js"):
+                                   "/check-nav.js", "/check-missing-readings.js",
+                                   "/check-output-gone.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -2041,7 +2086,8 @@ class BrowserTests(unittest.TestCase):
                               "/check-stale.js": CHECK_STALE,
                               "/check-first-screen.js": CHECK_FIRST_SCREEN,
                               "/check-nav.js": CHECK_NAV,
-                              "/check-missing-readings.js": CHECK_MISSING_READINGS}[self.path]
+                              "/check-missing-readings.js": CHECK_MISSING_READINGS,
+                              "/check-output-gone.js": CHECK_OUTPUT_GONE}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -2080,6 +2126,9 @@ class BrowserTests(unittest.TestCase):
         # meant to be used on. Before the reorder the volume slider sat 1262 px
         # down a 6733 px document, behind "switch to another Debra".
         self.run_browser("?auth=none", "check-first-screen.js", wrapper=True, budget=12000)
+
+    def test_a_device_with_no_usable_output_says_so(self):
+        self.run_browser("?auth=none&sink=gone", "check-output-gone.js", budget=12000)
 
     def test_a_missing_reading_is_named_and_never_invented(self):
         self.run_browser("?auth=none&power=supply", "check-missing-readings.js", budget=12000)
