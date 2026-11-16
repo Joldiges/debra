@@ -24,6 +24,11 @@ a second finished device.
   on one explicitly named sink (`alsa_output.platform-soc_107c000000_sound.stereo-fallback`),
   and the percentage is a control setting, not loudness or a safety limit
   ([quickstart](web-control-quickstart.md), [updates log](../updates/2026-11-15.md) — a logged deployment, not a device record).
+- The same slice now answers on the Zero 2 W at
+  `http://debra-8518d6.local:8787/`, against the ReSpeaker v1's WM8960 sink,
+  with PipeWire and the user manager kept up by linger
+  ([result](../testing/results/2026-11-16-zero2w-web-portal-and-hat-audio.md)).
+  The sink is readable; no sound has been played through it.
 - An echo-cancel module loads here; whether cancellation works is untested ([audio outputs](../design/audio-outputs.md)).
 
 Power is reported better, not solved: an earlier supply produced "undervoltage
