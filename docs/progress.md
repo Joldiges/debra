@@ -12,7 +12,7 @@ validated**, see the [evidence summary](guides/current-status.md).
 
 This is a **tracked planning snapshot, not a live device/worker monitor**.
 Status comes from the [roadmap](roadmap.md) and [work queue](work-queue.md).
-Source fingerprint: `88a3d943186b`. Regenerate after changing either source.
+Source fingerprint: `20b5105ff5bd`. Regenerate after changing either source.
 
 ## Colour key
 
@@ -124,7 +124,7 @@ flowchart TD
 
 ## Recorded active work
 
-- Acceptance review `code-r10` — WEB01.
+- Acceptance review `code-r11` — WEB03.
 - Re-review `setup-r8` — N02.
 
 This is what the queue records, not a liveness check. See
@@ -384,9 +384,9 @@ flowchart LR
     C01["C01 · Validated shared configuration<br/>BLOCKED"]:::blocked
     C02["C02 · Component operations<br/>BLOCKED"]:::blocked
     C05["C05 · Sanitized diagnostics<br/>BLOCKED"]:::blocked
-    WEB01["WEB01 · Native volume and mute<br/>IN REVIEW"]:::review
+    WEB01["WEB01 · Native volume and mute<br/>PARTIAL"]:::partial
     WEB02["WEB02 · Address and browser enrollment<br/>PARTIAL"]:::partial
-    WEB03["WEB03 · Hardware selection and detection<br/>PARTIAL"]:::partial
+    WEB03["WEB03 · Hardware selection and detection<br/>IN REVIEW"]:::review
     WEB04["WEB04 · Component state<br/>PARTIAL"]:::partial
     WEB05["WEB05 · Audio and voice settings<br/>BLOCKED"]:::blocked
     WEB06["WEB06 · LEDs and physical controls<br/>BLOCKED"]:::blocked
@@ -439,9 +439,9 @@ flowchart LR
 
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
-| WEB01 · Native volume and mute | IN REVIEW | prototype | Named target/recovery before deployment | — |
+| WEB01 · Native volume and mute | PARTIAL | prototype | Named target/recovery before deployment | — |
 | WEB02 · Address and browser enrollment | PARTIAL | ready | N02/N04 for final onboarding | N02, N04 |
-| WEB03 · Hardware selection and detection | PARTIAL | ready | A01/A02 evidence before writes | A01, A02 |
+| WEB03 · Hardware selection and detection | IN REVIEW | ready | A01/A02 evidence before writes | A01, A02 |
 | WEB04 · Component state | PARTIAL | ready | Read-only detection independent; C02 for lifecycle writes | C02 |
 | WEB05 · Audio and voice settings | BLOCKED | blocked | A02/A03, V03, M01/M03/M04 for respective writes | A02, A03, V03, M01, M03, M04 |
 | WEB06 · LEDs and physical controls | BLOCKED | blocked | A04 | A04 |
