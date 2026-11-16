@@ -1,0 +1,41 @@
+[Unit]
+Description=Linux Voice Assistant (Debra lab Zero 2 W)
+After=network-online.target pipewire.service wireplumber.service
+Wants=network-online.target pipewire.service
+PartOf=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/linux-voice-assistant
+Environment=PATH=%h/linux-voice-assistant/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
+Environment=PULSE_COOKIE=%h/linux-voice-assistant/tmp_pulse_cookie
+Environment=PREFERENCES_FILE=%h/linux-voice-assistant/preferences.json
+Environment="CLIENT_NAME=Debra Zero 2 W"
+Environment=ENABLE_DEBUG=1
+# Do NOT set HOST here. LVA advertises whatever HOST says as its mDNS address,
+# so HOST=0.0.0.0 makes it publish 0.0.0.0 and Home Assistant cannot reach it
+# even though the service looks healthy. Leaving it unset autodetects the
+# interface address.
+Environment=PORT=6053
+# Pin the audio endpoints. The HAT is the only sink today, but an HDMI cable
+# plugged into the board adds a second one and WirePlumber will happily make it
+# the default: the assistant would then talk to a monitor with no speakers.
+Environment=AUDIO_OUTPUT_DEVICE=pipewire/alsa_output.platform-soc_sound.stereo-fallback
+Environment=MUSIC_OUTPUT_DEVICE=pipewire/alsa_output.platform-soc_sound.stereo-fallback
+# The HAT has no echo cancellation and the codec has no hardware AEC, so the
+# wake sound and the reply are picked up by the microphones. A longer refractory
+# window stops the tail of a reply starting a second run.
+Environment=REFACTORY_SECONDS=3
+# MIC_AUTO_GAIN is deliberately unset (0). The v1 codec is weak and the capture
+# path is quiet; if transcription is poor, try MIC_AUTO_GAIN=1 here first.
+ExecStart=%h/linux-voice-assistant/docker-entrypoint.sh
+StandardOutput=append:%h/lab/lva.log
+StandardError=append:%h/lab/lva.log
+# always, not on-failure: this is an appliance, and a clean exit is still a fault.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

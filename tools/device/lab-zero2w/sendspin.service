@@ -1,0 +1,25 @@
+[Unit]
+Description=Sendspin player (Debra lab Zero 2 W)
+After=network-online.target pipewire.service wireplumber.service sound.target
+Wants=network-online.target pipewire.service
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# A Python process writing to a file buffers its output, so a failed start left
+# an empty log and looked like a healthy service. This makes the log honest.
+Environment=PYTHONUNBUFFERED=1
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
+# The daemon determines its address at startup for mDNS; if it starts before the
+# link has a route it advertises nothing and Music Assistant never finds it.
+ExecStartPre=/bin/sh -c 'for i in $(seq 60); do ip -4 route get 1.1.1.1 >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+# 8928 matches the Pi 5 build so one settings file shape works on both boards.
+ExecStart=%h/.local/bin/sendspin daemon --name "Debra Zero 2 W" --port 8928
+StandardOutput=append:%h/lab/sendspin.log
+StandardError=append:%h/lab/sendspin.log
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
