@@ -897,6 +897,14 @@ window.addEventListener("load", async () => {
     // A beginner is asked for a key with no statement of where it comes from.
     // The hint must say the page cannot show it and must not claim a setup
     // screen hands it over yet.
+    // A person with more than one Debra must be able to read which one they
+    // are about to type a key into, and must not be told the page verified it.
+    const address = document.getElementById("pair-address");
+    assert(address && address.textContent.includes(location.host),
+           "the welcome card does not say which address was opened: "
+           + (address && address.textContent));
+    assert(/cannot verify/.test(address.textContent),
+           "the welcome card implies the address was verified: " + address.textContent);
     const hint = document.getElementById("key-source");
     assert(hint && !hint.hidden, "no hint about where the access key comes from");
     assert(/never shows it/.test(hint.textContent), "the hint does not say the page cannot show the key");

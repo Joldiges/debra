@@ -23,6 +23,9 @@
     </div>
     <section id="pair" class="card">
       <p class="eyebrow">WELCOME</p><h1>Your device, within reach.</h1>
+      <!-- A person with more than one Debra needs to know which one they are
+           looking at before typing a key into it. -->
+      <p id="pair-address" class="detail"></p>
       <p>Enter this device’s access key. It stays in this browser tab. Use this prototype only on a trusted local network.</p>
       <form id="pair-form" method="post"><label for="key">Device access key</label><div class="row"><input id="key" type="password" autocomplete="off" required><button>Connect</button></div></form>
       <!-- What the page is doing before it knows whether a key is wanted. A

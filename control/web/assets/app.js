@@ -286,6 +286,9 @@ function render(data) {
   // The polling interval is not state a person needs, and it made the header
   // taller than the brand at phone width. The state is the word.
   el("connection").textContent = "Connected";
+  // The browser tab is part of the page: "Debra · Device" on every device makes
+  // two tabs impossible to tell apart.
+  document.title = `${data.hostname} · Debra`;
   // The warning must not live only on the pairing card: that card is hidden as
   // soon as the dashboard opens, so a person could believe the live controls
   // were protected by the key they may never have been asked for.
@@ -854,7 +857,15 @@ async function probeKeyless() {
   return false;
 }
 
+function showAddress() {
+  // The address is what the person typed. It is not an identity: nothing here
+  // proves the device at that address is the one they meant, which is worth
+  // saying before they type a key into it.
+  const node = el("pair-address");
+  if (node) node.textContent = `You opened ${location.host}. This page cannot verify that it is the device you meant.`;
+}
 async function start() {
+  showAddress();
   loadDevices();
   watchSections();
   // A device that is slow to answer used to show the key prompt with nothing
