@@ -968,11 +968,14 @@ class SetupBrowserTests(unittest.TestCase):
         self.assert_driven("lost-reply")
 
     def test_a_lost_change_reply_does_not_claim_the_password_was_turned_on(self):
-        # The same lesson as a lost join reply, in the other handler: the device
-        # answers before it touches the radio, so a reply that never arrived is
-        # not evidence that anything changed.
+        # The discriminating assertions live in the browser case (`security-lost`):
+        # the uncertain card must be shown, the handover must not, and the next
+        # status answer must still report the mode the device is really in. This
+        # wrapper only runs that case and checks the device was left alone.
         state = self.assert_driven("security-lost")
         self.assertIsNone(state.get("last_error"))
+        self.assertNotEqual(state.get("security"), "wpa",
+                            "a reply that never arrived changed the stored mode")
 
     def test_a_status_answer_from_before_the_submission_is_ignored(self):
         self.assert_driven("stale-poll")

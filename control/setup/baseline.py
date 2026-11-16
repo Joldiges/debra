@@ -35,14 +35,22 @@ CAPTURE = (
     "var/lib/debra",
 )
 
-# Directories that are never captured, whatever CAPTURE says. `var/lib/debra`
-# is on the list because it is device configuration worth recovering, but the
-# setup service's own directory inside it holds the setup network's password and
-# the chosen mode. A baseline is an archive that gets copied to a laptop and
-# attached to a report; the credential must not travel with it. The setup
-# password exists on exactly two readable surfaces, the owner-only file and the
-# boot-partition note.
-NEVER_CAPTURE = (Path("var/lib/debra/setup"),)
+# Paths that are never captured, whatever CAPTURE says. Both are the setup
+# network's password, which must not travel in an archive that gets copied to a
+# laptop and attached to a report:
+#
+# - `var/lib/debra/setup` holds it in an owner-only file (and the chosen mode);
+#   it is inside `var/lib/debra`, which is captured because the rest of that
+#   directory is device configuration worth recovering.
+# - the access point's own NetworkManager profile holds the same password as
+#   `psk=` while the access point is up, and `etc/NetworkManager/
+#   system-connections` is captured in full. The join deletes the access point
+#   before it captures, so this only matters after a power loss mid-raise - which
+#   is exactly when a baseline is taken on the next boot.
+NEVER_CAPTURE = (
+    Path("var/lib/debra/setup"),
+    Path("etc/NetworkManager/system-connections/debra-setup.nmconnection"),
+)
 
 MAX_BYTES = 32 * 1024 * 1024
 

@@ -211,6 +211,7 @@ without a reinstall, and that choice is kept in
 | `/var/lib/debra/setup/setup-secret` | `0600` | The setup-network password, so a re-raised access point matches the note |
 | `/var/lib/debra/setup/setup-security` | `0600` | The mode chosen on the page (`wpa` or `none`); one word, read at every start |
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
+| `/etc/NetworkManager/system-connections/debra-setup.nmconnection` | `0600` | The setup access point's profile. In `wpa` mode this is a **second copy of the setup password** (`psk=`) for as long as the access point exists; the join deletes it, and it is excluded from every baseline |
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; it is the only copy of that passphrase |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |

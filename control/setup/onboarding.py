@@ -139,6 +139,57 @@ def hotspot_name(hostname):
     return f"{HOTSPOT_PREFIX}-{suffix}"
 
 
+def _new_secret():
+    return "".join(secrets.choice(SECRET_ALPHABET) for _ in range(SECRET_CHARS))
+
+
+def _read_secret(path):
+    """The saved password, or "" when there is not a usable one."""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, IsADirectoryError):
+        return ""
+    except (OSError, UnicodeDecodeError) as exc:
+        # Readable is not required for a good password, only for the same one
+        # twice. Say so in the journal and carry on.
+        LOGGER.warning("Setup secret could not be read: %s", exc)
+        return ""
+
+
+def _store_secret(path, secret):
+    """Write the password owner-only, atomically, replacing an empty file.
+
+    Replacing rather than refusing matters: a power loss between creating the
+    file and writing it leaves an empty one, and "the file exists" is not "there
+    is a password". The previous version read back the empty file, generated a
+    fresh password on every call, and never repaired the file - so the reply,
+    the access point and the card note could each carry a different password.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, staged = tempfile.mkstemp(prefix=".setup-secret-", suffix=".part",
+                                      dir=path.parent)
+    except OSError:
+        return False
+    try:
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(secret + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(staged, 0o600)
+            os.replace(staged, path)
+        finally:
+            try:
+                os.unlink(staged)
+            except OSError:
+                pass
+    except OSError as exc:
+        LOGGER.warning("Setup secret could not be kept: %s", exc)
+        return False
+    return True
+
+
 def setup_secret(secret_path):
     """The setup network's password: random, kept on the device, stable.
 
@@ -151,35 +202,19 @@ def setup_secret(secret_path):
     It is kept so that the note stays true: the access point is raised again
     after a failed join, and a fresh password each time would strand a person
     holding a note that had already been read.
+
+    When the file cannot be written at all this returns a password it could not
+    save. `Onboarder.hotspot_password` remembers that one for the life of the
+    process, which is what keeps the reply, the access point and the note on the
+    same value; calling this function twice on an unwritable device does not.
     """
     path = Path(secret_path)
-    try:
-        saved = path.read_text(encoding="utf-8").strip()
-    except (FileNotFoundError, IsADirectoryError):
-        saved = ""
-    except (OSError, UnicodeDecodeError) as exc:
-        # Readable is not required for a good password, only for the same one
-        # twice. Say so in the journal and carry on with a fresh one.
-        LOGGER.warning("Setup secret could not be read: %s", exc)
-        saved = ""
+    saved = _read_secret(path)
     if saved:
         return saved
-    secret = "".join(secrets.choice(SECRET_ALPHABET) for _ in range(SECRET_CHARS))
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(secret + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-    except FileExistsError:
-        # Another process wrote one first: that is the one the note will carry.
-        try:
-            return path.read_text(encoding="utf-8").strip() or secret
-        except OSError:
-            return secret
-    except OSError as exc:
-        LOGGER.warning("Setup secret could not be kept: %s", exc)
+    secret = _new_secret()
+    if _store_secret(path, secret):
+        return secret
     return secret
 
 
@@ -229,6 +264,10 @@ class Onboarder:
         self.security_source = "page" if stored else "install"
         self._last_submit = 0.0
         self._lock = threading.Lock()
+        # The password this process is using, read once. Kept because
+        # `setup_secret` cannot always save what it draws, and three callers
+        # reading it independently would then disagree.
+        self._password = None
         # True while the radio is being cycled for a mode change. A join must
         # not start in that window: on one radio it would take the interface the
         # change is using and leave nobody's page reachable.
@@ -426,21 +465,22 @@ class Onboarder:
     def hotspot_password(self):
         """The setup network's password, or None for a deliberately open build.
 
-        One decision, used both when the access point is raised and when the
-        note is reprinted with the address the page really bound to. Two copies
-        of it could disagree, and a note describing the previous access point
-        is worse than no note.
+        One decision, read once per process. Every caller goes through here -
+        the raise, the note reprint and the reply that turns the password on -
+        so they cannot disagree about which password is in force.
 
-        Every caller goes through here - the raise, the note reprint and the
-        reply that turns the password on - so they cannot disagree about which
-        password is in force. `start_hotspot` used to call `setup_secret`
-        directly while this method kept its own cached copy; when the file could
-        not be written, `setup_secret` returns a fresh secret each time, so the
-        access point and the note could have been given different ones.
+        Read once, and kept, because `setup_secret` cannot always save what it
+        draws: on a read-only or full state directory it returns a password that
+        exists nowhere else. Without this the reply could carry one password, the
+        access point demand another, and the card note a third - a lockout on the
+        network in the one mode that exists to prevent one. Nothing rewrites the
+        secret, so there is nothing for this to go stale against.
         """
         if self.security != "wpa":
             return None
-        return setup_secret(self.secret_path)
+        if self._password is None:
+            self._password = setup_secret(self.secret_path)
+        return self._password
 
     def _write_card_note(self, ssid, password, hostname):
         """Write the three things needed before any page can be loaded.
@@ -598,12 +638,35 @@ class Onboarder:
         with self._lock:
             self._changing = False
 
-    def restore_security(self, mode, generation):
+    def _remember_error(self, message):
+        """Record why the last attempt failed, best effort. Never raises."""
+        try:
+            data = state_module.read(self.state_path)
+            data["last_error"] = message
+            state_module.write(self.state_path, data)
+        except (OSError, ValueError):
+            LOGGER.warning("The failure could not be recorded in the setup state")
+
+    def _safe_status(self):
+        """Status for a worker thread: the last one if the state cannot be read."""
+        try:
+            return self.status()
+        except (OSError, ValueError):
+            return {"phase": "failed", "security": self.security,
+                    "last_error": "The setup state could not be read"}
+
+    def has_stored_security(self):
+        """True when the device carries a mode somebody chose on the page."""
+        return self.security_path.exists()
+
+    def restore_security(self, mode, generation, had_choice=True):
         """Put the previous mode back, unless a later change has replaced it.
 
-        Reverting unconditionally would undo somebody else's accepted change:
-        two clients on the same open network can both ask, and the second one
-        is the one whose answer the device should honour.
+        Reverting unconditionally would undo somebody else's accepted change.
+        `had_choice` says whether there was a page-made choice to go back to: if
+        there was not, the file is removed rather than written, because a stored
+        file outranks the installer's flag for ever after and "the mode that was
+        already in force" is not a choice anybody made.
         """
         if mode not in SETUP_SECURITY:
             raise ValueError(f"security must be one of {', '.join(SETUP_SECURITY)}")
@@ -611,7 +674,13 @@ class Onboarder:
             if generation != self._security_generation:
                 LOGGER.info("A superseded setup network change was not reverted")
                 return
-            self._write_security(mode)
+            if had_choice:
+                self._write_security(mode)
+            else:
+                try:
+                    self.security_path.unlink(missing_ok=True)
+                except OSError:
+                    LOGGER.warning("The stored setup network mode could not be removed")
             self.security = mode
 
     def hotspot_running(self):
@@ -654,11 +723,32 @@ class Onboarder:
         finally:
             # The radio is free again, whatever happened. A failure that left
             # this set would refuse every join for the life of the process.
+            # The interval is stamped here rather than only when the claim was
+            # taken, so a change that outlasted it still buys the same quiet
+            # period afterwards instead of being immediately repeatable.
             with self._lock:
                 self._changing = False
+                self._last_security_change = self.clock()
 
     def _rearm(self, data):
-        """The part of `rearm_hotspot` that runs without holding the lock."""
+        """The part of `rearm_hotspot` that runs without holding the lock.
+
+        Every failure is caught here and not in the caller: this runs in a worker
+        thread, where a traceback goes to stderr and nowhere a person will look,
+        and the state has to say what happened instead.
+        """
+        try:
+            return self._rearm_now(data)
+        except (OSError, ValueError) as exc:
+            # A full or read-only state file. The mode is already stored, so the
+            # device will come up in it on the next start; what is missing is
+            # that anybody was told why this one did not take.
+            LOGGER.error("The setup network could not be raised again: %s",
+                         exc.__class__.__name__)
+            self._remember_error("The setup network did not change on this device")
+            return self._safe_status()
+
+    def _rearm_now(self, data):
         interface = data["hotspot"].get("interface")
         before = self._device_address(interface)
         self.start_hotspot(rescan=False)
@@ -671,12 +761,7 @@ class Onboarder:
             message = (f"The setup network moved from {before} to {after}, and the "
                        "page is still listening on the old address")
             LOGGER.warning("%s; restart the setup service to move it", message)
-            try:
-                data = state_module.read(self.state_path)
-                data["last_error"] = message
-                state_module.write(self.state_path, data)
-            except (OSError, ValueError):
-                LOGGER.warning("The moved setup network address could not be recorded")
+            self._remember_error(message)
         return self.status()
 
     def admit(self, ssid):
@@ -1232,45 +1317,61 @@ class PortalHandler(BaseHTTPRequestHandler):
             return
         generation = onboarder.security_generation()
         previous = onboarder.security
+        # Whether the device already carried a page-made choice. A revert must
+        # not create one: a stored file wins over the installer's flag for ever
+        # after, so writing "the mode that was already in force" here would make
+        # a later `--setup-security` silently ineffective.
+        had_choice = onboarder.has_stored_security()
+        started = False
         try:
-            onboarder.set_security(mode)
-        except ValueError:
-            onboarder.abandon_security_change()
-            self._reply(400, {"error": "Mode must be wpa or none"})
-            return
-        except OSError:
-            onboarder.abandon_security_change()
-            self._reply(500, {"error": "The device could not save that setting"})
-            return
-        password = onboarder.hotspot_password() if mode == "wpa" else None
-        payload = {"status": "changing", "mode": mode,
-                   "ssid": (onboarder.status().get("hotspot") or {}).get("ssid")}
-        if password:
-            payload["password"] = password
-        # Answer before the radio changes, for the same reason a join does: this
-        # reply is the last thing the setup network can carry.
-        try:
-            self._reply(202, payload)
-        except OSError:
-            # The browser never heard the answer. Turning the password on and
-            # raising a network that asks for one nobody was told is worse than
-            # not changing it, so the device goes back to the mode it is
-            # actually running in - but only if no later request has replaced
-            # this one, which would then be undone for no reason.
-            LOGGER.warning("The change of the setup network was not delivered; "
-                           "keeping the previous mode")
             try:
-                onboarder.restore_security(previous, generation)
-            except (ValueError, OSError):
-                LOGGER.warning("The previous setup network mode could not be restored")
-            onboarder.abandon_security_change()
-            return
-        # Not a daemon: the access point is between two states, and exiting in
-        # the middle of that leaves the setup network down with no page.
-        worker = threading.Thread(target=onboarder.rearm_hotspot,
-                                  kwargs={"generation": generation}, daemon=False,
-                                  name="debra-setup-security")
-        worker.start()
+                onboarder.set_security(mode)
+            except ValueError:
+                self._reply(400, {"error": "Mode must be wpa or none"})
+                return
+            except OSError:
+                self._reply(500, {"error": "The device could not save that setting"})
+                return
+            password = onboarder.hotspot_password() if mode == "wpa" else None
+            payload = {"status": "changing", "mode": mode,
+                       "ssid": (onboarder.status().get("hotspot") or {}).get("ssid")}
+            if password:
+                payload["password"] = password
+            # Answer before the radio changes, for the same reason a join does:
+            # this reply is the last thing the setup network can carry.
+            try:
+                self._reply(202, payload)
+            except OSError:
+                # The browser never heard the answer. Turning the password on
+                # and raising a network that asks for one nobody was told is
+                # worse than not changing it, so the device goes back to the
+                # mode it is actually running in - but only if no later request
+                # has replaced this one, which would then be undone for no
+                # reason.
+                LOGGER.warning("The change of the setup network was not delivered; "
+                               "keeping the previous mode")
+                try:
+                    onboarder.restore_security(previous, generation, had_choice)
+                except (ValueError, OSError):
+                    LOGGER.warning("The previous setup network mode could not be restored")
+                return
+            # Not a daemon: the access point is between two states, and exiting
+            # in the middle of that leaves the setup network down with no page.
+            worker = threading.Thread(target=onboarder.rearm_hotspot,
+                                      kwargs={"generation": generation}, daemon=False,
+                                      name="debra-setup-security")
+            worker.start()
+            # Only now does the worker own the release: it clears the claim in
+            # its own `finally`, and clearing it here too would let a join start
+            # while the radio is still being cycled.
+            started = True
+        finally:
+            if not started:
+                # Any other way out - an unreadable state file while building
+                # the reply, or a thread that could not be started - must give
+                # the radio back. `_changing` left set refuses every join and
+                # every later change for the life of the process.
+                onboarder.abandon_security_change()
 
 
 def serve(onboarder, page=None, address=("10.42.0.1", PORTAL_PORT)):

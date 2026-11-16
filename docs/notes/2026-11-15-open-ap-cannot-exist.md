@@ -14,13 +14,29 @@ sources:
   - src/core/nm-netns.c (nm_netns_shared_ip_reserve), tag 1.42.8
   - docs/notes/2026-11-15-dev-setup-bypass.md (superseded claim), read 2026-11-15
 supersedes:
-  - docs/notes/2026-11-15-dev-setup-bypass.md (the mechanism, not the intent)
+  - docs/notes/2026-11-15-dev-setup-bypass.md (the mechanism, the default, and
+    the lifetime of the mode)
 ---
 
-This corrects [the earlier note](2026-11-15-dev-setup-bypass.md), which says the
-open setup network "comes up open" and that the password is "handed to
-`nmcli device wifi hotspot` in its argument list". Neither was true. The note is
-left as written; this one supersedes those claims and cites them.
+This corrects [the earlier note](2026-11-15-dev-setup-bypass.md). That note is
+left as written; this one supersedes its claims and cites them, including four
+that a later reviewer found still wrong:
+
+- **Its line 41 says `wpa` is the default** ("`--setup-security wpa` (default,
+  `install.py` and the unit)"). The default is `none`, as its own line 48 says
+  and as `DEFAULT_SETUP_SECURITY` in `onboarding.py` implements. The installer
+  writes whichever mode it was given into the unit, so the flag is explicit; the
+  *default when the flag is omitted* is the open network.
+- **Its lines 85-86 say the mode is per-install** ("A device installed with
+  `none` stays open until it is reinstalled, by design"). It is not: the page
+  stores the choice in `setup-security` and it survives reboots, which is what
+  `POST /api/security` exists for.
+- **Its line 93 says the review's other findings are not addressed.** All
+  fourteen are addressed in this branch.
+- **Its "Evidence" counts (415 tests, 9 browser cases) are stale.** The figures
+  at the end of this note are the ones this work was checked against.
+
+Its claims about the mechanism were also wrong, which is the section below.
 
 ## What was wrong
 
@@ -86,20 +102,68 @@ nowhere else: not in `/api/status`, not in the state, not in the journal. A repl
 that cannot be delivered reverts the stored mode, because raising a network that
 demands a password nobody was told is worse than not changing it.
 
+## What the second review changed
+
+The first independent review of this work returned fourteen findings. Answering
+them produced five more that only appeared in the repair, and the worst of those
+was a lockout:
+
+- **One password, and it is the one the radio uses.** Making
+  `hotspot_password()` the single reader was not enough while `setup_secret`
+  still *generated* a different password on each call whenever it could not save
+  one - a read-only or full state directory, or a file left empty by a power
+  loss between creating and writing it. The reply could then carry one password
+  and the access point demand another. `setup_secret` now repairs an empty file
+  instead of treating "exists" as "has a password", and the value it could not
+  save is held for the life of the process.
+- **The radio is always given back.** `rearm_hotspot` clears its claim in a
+  `finally`; the handler did not, so any failure between claiming the radio and
+  starting the worker (an unreadable state file, a thread that could not be
+  created) refused every join and every later change until the service
+  restarted. The handler now releases the claim unless it handed it to a worker.
+- **A failed change does not invent a stored choice.** Reverting wrote the mode
+  that was already in force into `setup-security`. A stored file outranks the
+  installer's flag for ever after, so a later `--setup-security wpa` would say
+  `wpa` in the unit and the device would keep coming up open.
+- **The other copy of the password is excluded too.** The access point's own
+  NetworkManager profile holds it as `psk=` while the access point is up, and
+  that directory is captured in full by every baseline. A power loss between
+  raising and joining left the file for the next boot's baseline to archive.
+- **An empty key-management value counts as open.** `none` is what a
+  `key-mgmt=none` profile is documented to report, but a build that materialises
+  no security setting prints nothing - and treating that as a mismatch would
+  take down the only setup network the device has. Only the open mode accepts
+  it; a password still demands `wpa-psk`.
+
 ## Evidence
 
 Executed in the worktree, offline, on this machine:
 
 ```sh
-python3 -B -m unittest discover -s tests                                  # 547 tests, OK, 30 skipped
-DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_setup*.py'   # 47 tests, OK
+python3 -B -m unittest discover -s tests                                 # 607 tests, OK, 39 skipped
+DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'  # 39 tests, OK
 ```
 
-Mutation evidence, each in a scratch copy under `/tmp/opencode` and reverted
-there: re-delegating the access point to `nmcli device wifi hotspot` (5 failures
-+ 3 errors in `AccessPointCheckTests`); ignoring the stored mode (3 failures);
-dropping the page's poll guard over the change handover (1 browser failure);
-disabling the key-management comparison (3 failures, re-run by the coordinator).
+Mutation evidence, each applied in this checkout and reverted with `git
+checkout` (or in a scratch copy under `/tmp/opencode`), so each is a defect the
+suite is known to catch:
+
+| Mutation | Result |
+| --- | --- |
+| Re-delegate the access point to `nmcli device wifi hotspot` | 5 failures + 3 errors in `AccessPointCheckTests` |
+| Ignore the stored mode | 3 failures in `SetupSecuritySwitchTests` |
+| Read the key management with `-t` instead of `-g` | `NmError: could not be secured as asked` in `AccessPointCheckTests` |
+| Drop the page's poll guard over the change handover | 1 browser failure |
+| Make the toggle's lost reply claim success | 1 browser failure |
+| Drop the join/change reservation in `admit` | 1 failure (join refused during a change) |
+| Drop the phase from "is there an access point" | 1 failure (change allowed during a join) |
+| Remove the password cache in `hotspot_password` | 1 failure (reply and access point disagree) |
+| Always write a mode file when a reply is lost | 1 failure (a choice nobody made) |
+| Do not release the radio when the worker cannot start | 1 failure (joins refused for good) |
+| Stamp the throttle only at the start of a change | 1 failure (a long change is immediately repeatable) |
+| Do not record a rearm that cannot run | 1 error (uncaught `OSError` in the worker) |
+| Accept only `none`, not an empty value, as open | 1 error (an open access point is torn down) |
+| Stop excluding the setup state from a baseline | 1 failure (the password reached the archive) |
 
 ## Known limits of the mode switch
 

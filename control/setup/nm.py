@@ -587,7 +587,14 @@ class Nmcli:
         except NmError:
             self._forget_hotspot(path)
             raise
-        if actual != wanted:
+        # An open profile is the one case where the value cannot be trusted to
+        # be a word: `none` is what a keyfile with `key-mgmt=none` reports, but
+        # a build that materialises no security setting at all prints an empty
+        # value. Both mean "no key". Demanding the exact word would take down
+        # the only setup network the device has, which is the failure this whole
+        # mechanism exists to prevent, so both are accepted.
+        matched = (actual == wanted) or (wanted == "none" and actual == "")
+        if not matched:
             self._forget_hotspot(path)
             raise NmError("The setup network could not be secured as asked")
         if detail["state"] != NM_ACTIVATED or detail["connection"] != SETUP_CONNECTION:
@@ -625,10 +632,19 @@ class Nmcli:
         return {"state": state, "connection": connection, "address": address}
 
     def _hotspot_security(self):
-        """The key management of the profile the access point is running.
+        """The key management setting of the profile the setup access point uses.
 
-        An open profile reports `none`, not an empty value, so that is what a
-        deliberate open network is compared against.
+        `-g` and not `-t`: terse output keeps the property name in front of the
+        value (`802-11-wireless-security.key-mgmt:wpa-psk`), so comparing the
+        stripped line to `wpa-psk` never matched and every access point was torn
+        down as if it had come up wrong. `-g` is the `--get-values` form, which
+        prints the value alone. That was checked against a real nmcli (1.58.1),
+        not inferred: the same command with `-t` printed the labelled line.
+
+        This reads the profile, not the beacon; `start_hotspot` checks the
+        activated device separately. What a real NetworkManager prints for an
+        open profile here is unverified - `none` is documented, and an empty
+        value is accepted as open too, in `start_hotspot`.
         """
         output = self._run(["nmcli", "-g",
                             "802-11-wireless-security.key-mgmt",

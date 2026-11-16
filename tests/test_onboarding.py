@@ -755,6 +755,10 @@ class SecurityEndpointTests(Temp):
     def test_turning_the_password_off_answers_without_one(self):
         self.onboarder.set_security("wpa")
         self.onboarder.rearm_hotspot()
+        # Raising the access point above stamped the change interval, which is
+        # the behaviour this endpoint is throttled by; step past it as a person
+        # waiting for the page would.
+        self.onboarder._last_security_change = float("-inf")
         self.network.calls.clear()
         calls_before = len(self.network.calls)
         code, body = self.request("/api/security", {"mode": "none"})
@@ -771,9 +775,11 @@ class SecurityEndpointTests(Temp):
                       self.note.read_text(encoding="utf-8"))
 
     def test_the_password_never_reaches_the_journal(self):
-        # The root logger, not `onboarding.LOGGER`: the access point is raised
-        # by `debra.setup.nm`, and a password logged there would sit outside the
-        # one logger this test used to watch.
+        # The root logger rather than `onboarding.LOGGER`, so a message logged
+        # from any module on this path is caught. The access point here is
+        # raised by the fake adapter, so the adapter's own logger is not
+        # exercised; what this proves is that nothing on the reply path, the
+        # state write or the note write carries the password.
         calls_before = len(self.network.calls)
         with self.assertLogs(level="DEBUG") as logs:
             code, body = self.request("/api/security", {"mode": "wpa"})
@@ -842,6 +848,80 @@ class SecurityEndpointTests(Temp):
         finally:
             self.onboarder.abandon_security_change()
 
+    def test_the_password_in_the_reply_is_the_one_the_access_point_uses(self):
+        # A state directory that cannot be written is exactly when
+        # `setup_secret` returns a password it could not save. The reply, the
+        # access point and the card note still have to agree, or the person is
+        # told a password the network rejects and can never join it again.
+        with patch.object(onboarding, "_store_secret",
+                          lambda path, secret: False):
+            calls_before = len(self.network.calls)
+            code, body = self.request("/api/security", {"mode": "wpa"})
+            self.assertEqual(code, 202)
+            told = json.loads(body)["password"]
+            self.settle(calls_before)
+        used = self.network.hotspot["password"]
+        self.assertEqual(used, told,
+                         "the access point was raised with a different password")
+        self.assertIn(told, self.note.read_text(encoding="utf-8"),
+                      "the card note carries a password the network does not use")
+        self.assertGreaterEqual(len(told), 8)
+
+    def test_a_reply_that_cannot_be_delivered_invents_no_stored_choice(self):
+        # The revert puts the mode that was already in force back. Writing it to
+        # the mode file would create a "choice" nobody made, and a stored choice
+        # outranks the installer's flag for ever after - so a later
+        # `--setup-security wpa` would say wpa in the unit and come up open.
+        self.assertFalse(self.state_path.with_name("setup-security").exists())
+        real_reply = onboarding.PortalHandler._reply
+
+        def reply(handler, code, body, content_type="application/json"):
+            if code == 202:
+                raise BrokenPipeError(32, "Broken pipe")
+            return real_reply(handler, code, body, content_type)
+
+        with patch.object(onboarding.PortalHandler, "_reply", reply):
+            with self.assertRaises(OSError):
+                self.request("/api/security", {"mode": "wpa"})
+        self.assertFalse(self.state_path.with_name("setup-security").exists(),
+                         "the failed change left a mode file behind")
+
+    def test_the_radio_is_given_back_when_no_worker_could_be_started(self):
+        # `_changing` left set refuses every join and every later change for the
+        # life of the process. A thread that cannot be created is the one path
+        # where the handler alone can release it.
+        #
+        # Driven through the handler directly, not over HTTP: patching
+        # `threading.Thread` is process-wide, so a live server could not start
+        # the thread that would handle the request, and the test would then pass
+        # without the handler ever running.
+        class NoThread:
+            def __init__(self, *arguments, **keywords):
+                pass
+
+            def start(self):
+                raise RuntimeError("can't start new thread")
+
+        replies = []
+
+        class Handler:
+            def __init__(self, onboarder):
+                self.server = type("Server", (), {"onboarder": onboarder})()
+
+            def _reply(self, code, body, content_type="application/json"):
+                replies.append(code)
+
+        before = len(self.network.calls)
+        with patch.object(threading, "Thread", NoThread):
+            with self.assertRaises(RuntimeError):
+                onboarding.PortalHandler._security(Handler(self.onboarder),
+                                                  {"mode": "wpa"})
+        self.assertEqual(replies, [202], "the page was not answered before the failure")
+        self.assertEqual(len(self.network.calls), before,
+                         "the radio was changed although no worker could run")
+        admitted, reason = self.onboarder.admit("HomeWiFi")
+        self.assertTrue(admitted, f"the radio was never given back: {reason}")
+
     def test_a_foreign_origin_is_refused_like_the_join_handler(self):
         before = len(self.network.calls)
         code, _ = self.request("/api/security", {"mode": "wpa"}, host="evil.example")
@@ -885,6 +965,18 @@ class SetupPasswordTests(Temp):
         self.assertGreaterEqual(len(first), 8)
         self.assertLessEqual(len(first), 63)
         self.assertTrue(set(first) <= set(onboarding.SECRET_ALPHABET))
+
+    def test_an_empty_secret_file_is_repaired_rather_than_redrawn_each_time(self):
+        # A power loss between creating the file and writing it leaves exactly
+        # this. "The file exists" was taken to mean "there is a password", so
+        # every caller got a fresh one and the file was never repaired.
+        path = self.dir / "secret"
+        path.write_text("", encoding="utf-8")
+        first = onboarding.setup_secret(path)
+        self.assertEqual(onboarding.setup_secret(path), first)
+        self.assertEqual(path.read_text(encoding="utf-8").strip(), first,
+                         "the empty file was never repaired")
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_the_password_is_kept_so_a_second_raise_agrees_with_the_note(self):
         # The access point is raised again after a failed join. A fresh
@@ -1057,6 +1149,111 @@ class SetupSecuritySwitchTests(Temp):
         with self.assertLogs(onboarding.LOGGER, level="WARNING"):
             onboarder = self.onboarder(security="wpa")
         self.assertEqual(onboarder.status()["security"], "wpa")
+
+    def test_a_second_change_is_refused_while_one_is_running(self):
+        # The claim, not the throttle: a second request arriving during a change
+        # must not cycle the radio again, whatever the interval says.
+        clock = [1000.0]
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="none", clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        self.assertIs(onboarder.begin_security_change(), True)
+        clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+        self.assertEqual(onboarder.begin_security_change(), "busy")
+        onboarder.abandon_security_change()
+        self.assertIs(onboarder.begin_security_change(), True)
+        onboarder.abandon_security_change()
+
+    def test_the_radio_is_released_when_the_change_finishes(self):
+        # The sibling of the line above: a claim that is never released turns
+        # every later join and change into a refusal.
+        clock = [1000.0]
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="none", clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        self.assertIs(onboarder.begin_security_change(), True)
+        generation = onboarder.security_generation()
+        onboarder.set_security("wpa")
+        onboarder.rearm_hotspot(generation)
+        clock[0] += 2 * onboarding.SUBMIT_INTERVAL_S
+        self.assertIs(onboarder.begin_security_change(), True,
+                      "the change never released the radio")
+        onboarder.abandon_security_change()
+
+    def superseded(self, network):
+        """An onboarder with a stale generation from an abandoned change.
+
+        The clock is stepped past the interval between the two claims: without
+        that the second `begin_security_change` would be throttled and would not
+        advance the generation, so there would be nothing stale to compare.
+        """
+        clock = [1000.0]
+        onboarder = self.onboarder(network, security="none", clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        self.assertIs(onboarder.begin_security_change(), True)
+        stale = onboarder.security_generation()
+        onboarder.abandon_security_change()
+        clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+        self.assertIs(onboarder.begin_security_change(), True)
+        return onboarder, stale
+
+    def test_a_superseded_change_is_not_raised(self):
+        # Two changes could not both be admitted now, but the guard is what makes
+        # that true if the admission rule ever loosens. An older change applied
+        # after a newer one leaves the access point in a mode whose password the
+        # client that asked for it was never given.
+        network = FakeNetwork()
+        onboarder, stale = self.superseded(network)
+        onboarder.set_security("wpa")
+        before = len(network.calls)
+        onboarder.rearm_hotspot(stale)
+        self.assertEqual(network.calls[before:], [],
+                         "a superseded change still cycled the radio")
+
+    def test_a_superseded_revert_is_not_applied(self):
+        network = FakeNetwork()
+        onboarder, stale = self.superseded(network)
+        onboarder.set_security("wpa")
+        onboarder.restore_security("none", stale)
+        self.assertEqual(onboarder.security, "wpa",
+                         "a superseded request undid a later change")
+        self.assertEqual(
+            self.state_path.with_name("setup-security").read_text().strip(), "wpa")
+
+    def test_a_rearm_that_cannot_run_is_recorded_rather_than_raised(self):
+        # This runs in a worker thread, where a traceback goes to stderr and
+        # nowhere a person will look. The mode is already stored, so what is
+        # missing is that anybody was told this raise did not take.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="none")
+        onboarder.start_hotspot()
+        onboarder.set_security("wpa")
+        with patch.object(onboarding.Onboarder, "start_hotspot",
+                          side_effect=OSError(28, "No space left on device")):
+            status = onboarder.rearm_hotspot()
+        self.assertEqual(status["last_error"],
+                         "The setup network did not change on this device")
+        # And the radio was given back: the failure must not lock the device out
+        # of joining for the life of the process.
+        admitted, reason = onboarder.admit("HomeWiFi")
+        self.assertTrue(admitted, f"the radio was never given back: {reason}")
+
+    def test_the_interval_is_measured_from_the_end_of_a_change(self):
+        # A change that outlasts the interval must still buy the same quiet
+        # period afterwards, or the next request is admitted the moment it
+        # arrives and the radio is cycled twice in a row.
+        clock = [1000.0]
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="none", clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        self.assertIs(onboarder.begin_security_change(), True)
+        generation = onboarder.security_generation()
+        onboarder.set_security("wpa")
+        clock[0] += 4.0
+        onboarder.rearm_hotspot(generation)
+        clock[0] += 2.0
+        self.assertEqual(onboarder.begin_security_change(), "throttle",
+                         "a long change was repeatable as soon as it finished")
 
     def test_a_second_change_inside_the_interval_is_refused(self):
         # Anybody on the access point can post the toggle, and it is open by
@@ -1266,6 +1463,20 @@ class AccessPointCheckTests(Temp):
             network.start_hotspot("Debra-Setup-demo1", "wlan0", None)
         self.assertIn(["nmcli", "connection", "delete", "debra-setup"], recorder.calls)
 
+    def test_an_open_access_point_whose_security_reads_empty_is_still_open(self):
+        # `none` is what a keyfile with `key-mgmt=none` reports, but a build that
+        # materialises no security setting at all prints nothing. Treating that
+        # as a mismatch would tear down the only setup network the device has -
+        # the failure this whole mechanism exists to prevent.
+        network = self.adapter(key_mgmt="")
+        raised = network.start_hotspot("Debra-Setup-demo1", "wlan0", None)
+        self.assertEqual(raised["key_mgmt"], "")
+        # The same empty value must still be a failure when a password was asked
+        # for: this acceptance is about the open mode only.
+        network = self.adapter(key_mgmt="")
+        with self.assertRaises(nm_module.NmError):
+            network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
+
     def test_wep_is_not_accepted_in_place_of_wpa2(self):
         with self.assertRaises(nm_module.NmError):
             self.adapter(key_mgmt="wep-key").start_hotspot(
@@ -1391,6 +1602,14 @@ class BaselineExclusionTests(Temp):
         (fake / "var" / "lib" / "debra" / "setup" / "setup-security").write_text(
             "wpa\n", encoding="utf-8")
         (fake / "var" / "lib" / "debra" / "keep.me").write_text("x", encoding="utf-8")
+        # The access point's own NetworkManager profile holds the same password
+        # as `psk=` while it is up, and that directory is captured in full.
+        profiles = fake / "etc" / "NetworkManager" / "system-connections"
+        profiles.mkdir(parents=True)
+        (profiles / "debra-setup.nmconnection").write_text(
+            "[wifi-security]\npsk=s3cretvalue\n", encoding="utf-8")
+        (profiles / "HomeWiFi.nmconnection").write_text(
+            "[wifi]\nssid=HomeWiFi\n", encoding="utf-8")
         onboarder = self.onboarder(root=str(fake), security="wpa")
         onboarder.start_hotspot()
         status = onboarder.join("HomeWiFi", "correct horse", None)
@@ -1401,6 +1620,12 @@ class BaselineExclusionTests(Temp):
         self.assertNotIn("var/lib/debra/setup/setup-security", captured)
         self.assertIn("var/lib/debra/keep.me", captured,
                       "the exclusion must not swallow the rest of the directory")
+        self.assertNotIn(
+            "etc/NetworkManager/system-connections/debra-setup.nmconnection",
+            captured, "the access point's profile carried the password into the baseline")
+        self.assertIn("etc/NetworkManager/system-connections/HomeWiFi.nmconnection",
+                      captured,
+                      "the exclusion must not swallow the household network's profile")
 
 
 class Recorder:
