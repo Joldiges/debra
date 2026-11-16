@@ -1,5 +1,38 @@
 # RPiSpeaker v17 speaker mount options
 
+> **Correction, 2026-11-16: the housing in this analysis is the wrong size.**
+> James identified the v17 speaker as the DWEII `701715519671`
+> ([B0B4D1BN4F](https://www.amazon.com/dp/B0B4D1BN4F)), and the listing's own
+> dimension drawing gives **31 x 28.2 x 15.3 mm** — 31 mm across the two
+> mounting tabs — not the 44 x 28 x 15 mm from the third-party sheet this
+> analysis used. See the
+> [correction note](../notes/2026-11-16-dweii-671-dimensions-confirmed.md).
+> The analysis below is left as written so its reasoning can be checked; every
+> figure that reads "44" is superseded.
+>
+> What the corrected envelope changes, and what it does not:
+>
+> - **"The 671 cannot fit wholly within the lower footprint" survives, but only
+>   just.** The lower footprint is 31.10 x 28.125. The module is 31 x 28.2. Put
+>   its 31 mm across X and it clears by 0.10 mm and overruns Z by **0.075 mm**;
+>   put 28.2 across X and it overruns Z by 2.875. So the better orientation is
+>   short by less than a print tolerance and less than the drawing's own
+>   rounding. This is now a question for a caliper, not an arithmetic
+>   conclusion.
+> - **The depth figure changes slightly.** Seated on the raised Y = 8.50
+>   surfaces it reaches Y = 23.80, not 23.50, so 8.3 mm beyond the front
+>   reference plane rather than 8.
+> - **The pilot relationship inverts.** With a 31 mm length centred at Z = 0 the
+>   housing ends at Z = ±15.5, so the pilot centres at Z = ±18.25 now lie 2.75
+>   outside each end rather than 3.75 inside. A bracket spanning the pilots
+>   brackets the housing instead of passing beneath it — but the tabs are the
+>   only attachment the module actually has, their hole positions and diameter
+>   are unpublished, and the drawing shows **two ears, not four screws**. The
+>   four-screw interface in the v17 body remains unexplained.
+> - **Unchanged:** the unresolved four-screw pattern, the two pilots' geometry,
+>   the Ø10 wire hole, and the conclusion that a separate lid and support frame
+>   are proposals rather than evidence.
+
 The supplied v17 body has a recessed speaker side and two threaded through
 holes, but no square four-screw speaker pattern was found in it and there are no
 dedicated four-screw lid bosses; the wider [search](../notes/2026-11-15-v17-square-pattern-search.md)
@@ -21,9 +54,11 @@ the second bay opens toward +Y. The body dimensions and holes are the supplied
 extraction measurements, not measurements repeated for this note. See the
 [v17 reference](../../models/components/rpispeaker-v17/README.md) and its
 [extraction record](../notes/2026-11-15-rpispeaker-v17-extraction.md). The
-[DWEII record](../../models/components/dweii-speakers/README.md) says 44 x 28 x
-15 is a seller-sourced 671 envelope, not a measured module, and records a
-conflicting 31 mm length. The ~40 x 40 x 5-8 bare driver below is a hypothetical
+[DWEII record](../../models/components/dweii-speakers/README.md) now gives the
+671 envelope as 31 x 28.2 x 15.3 mm from the listing's own drawing — a seller
+figure, not a measured module, and the 44 x 28 x 15 mm used throughout the
+analysis below is superseded (see the banner above). The ~40 x 40 x 5-8 bare
+driver below is a hypothetical
 envelope, not an identified or measured original speaker.
 
 The lower speaker-side X span is **31.10 mm**: the measured bounds are X 17.15 and X 48.25,

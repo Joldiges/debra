@@ -9,27 +9,27 @@
    "command": "parameters.add",
    "params": {
     "name": "S671_L",
-    "expression": "44 mm",
+    "expression": "31 mm",
     "unit": "mm",
-    "comment": "701715519671: the manuals.plus spec sheet gives 44 x 28 x 15; one seller page gives 31 x 28 x 15. The larger envelope is the one a pocket must fit"
+    "comment": "701715519671: the seller's own dimension drawing for B0B4D1BN4F gives 31 mm across the mounting tabs (28.2 mm body) x 15.3 mm thick. A 44 x 28 x 15 figure from a third-party spec sheet is superseded; the drawing is the listing's own"
    }
   },
   {
    "command": "parameters.add",
    "params": {
     "name": "S671_W",
-    "expression": "28 mm",
+    "expression": "28.2 mm",
     "unit": "mm",
-    "comment": "701715519671 face width"
+    "comment": "701715519671 body width from the seller's dimension drawing (31 mm is the tab-to-tab length)"
    }
   },
   {
    "command": "parameters.add",
    "params": {
     "name": "S671_D",
-    "expression": "15 mm",
+    "expression": "15.3 mm",
     "unit": "mm",
-    "comment": "701715519671 module depth"
+    "comment": "701715519671 thickness from the seller's dimension drawing"
    }
   },
   {
@@ -54,27 +54,27 @@
    "command": "parameters.add",
    "params": {
     "name": "S664_L",
-    "expression": "44 mm",
+    "expression": "31 mm",
     "unit": "mm",
-    "comment": "701715519664: the ASIN is a 4-pack of the same 3 W 8 ohm JST-PH2.0 module as 671, with identical feature text; 44 x 28 x 15 is the documented size of that family. No listing gives an individual module size for this ASIN"
+    "comment": "701715519664: a 4-pack of the same module as 671, so it inherits the drawing's 31 mm across tabs; no drawing is published for this ASIN"
    }
   },
   {
    "command": "parameters.add",
    "params": {
     "name": "S664_W",
-    "expression": "28 mm",
+    "expression": "28.2 mm",
     "unit": "mm",
-    "comment": "701715519664 face width, from the shared family"
+    "comment": "701715519664 body width, inherited from the shared module"
    }
   },
   {
    "command": "parameters.add",
    "params": {
     "name": "S664_D",
-    "expression": "15 mm",
+    "expression": "15.3 mm",
     "unit": "mm",
-    "comment": "701715519664 module depth, from the shared family"
+    "comment": "701715519664 thickness, inherited from the shared module"
    }
   },
   {
