@@ -22,6 +22,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [SolidCraft enclosure requirements](design/enclosures.md) | Candidate dimensions, reusable parts, case variants, wiring/card/power access, lids and speaker grilles/cloth |
 | [Corrected preliminary research](research/2026-11-14-preliminary-findings.md) | Useful mechanical, ARMv6, onboarding, recovery and reuse findings; not completed packets |
 | [ARMv6 wheel availability](research/2026-11-15-armv6-wheels.md) | 35-package instruction-set and packaging matrix for original Pi Zero W: the `armv6l` tag is not a promise, and both wake-word engines ship an x86-64 TensorFlow Lite library |
+| [First-boot trial plan](testing/first-boot-trial-plan.md) | What one card/Pi run would prove, the missing card-preparation step, the run sheet and recovery; a plan, not authorization |
 | [F01/F05 readiness](testing/results/2026-11-14-ai-readiness.md) | Baseline closure, partial permission evidence, unresolved extra file and closed dispatch |
 | [F05 source-test feasibility](testing/results/2026-11-15-f05-source-feasibility.md) | Version-pinned upstream test helpers, interception pitfalls and missing isolated runtime; no new executed permission coverage |
 | [F05 runtime feasibility](testing/results/2026-11-15-f05-runtime-feasibility.md) | Node now runs TypeScript and the core has node variants, but the permission service statically reaches 980 modules and 63 packages; the blocker is a pinned dependency environment, not a runtime |
@@ -122,7 +123,7 @@ These are purpose-based locations, not a requirement to create empty folders.
 | `docs/design/` | Requirements and reviewed decisions, with status made explicit | Enclosure requirements exist; architecture decisions remain planned under F02 |
 | `docs/comparisons/` | Curated hardware/software comparisons with evidence and scope | Device table, music-playback detail and a numbered source register exist; R05's "choose your path" guide remains open |
 | `docs/guides/` | Human-facing setup, assembly, maintenance, and recovery instructions | Getting-started, current status, lab backup, runner and web quickstart guides exist; complete prepared-unit walkthrough remains R06 |
-| `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | AI-readiness, F05 source feasibility and four lab-Pi 5 result records exist; device acceptance strategy remains T01 |
+| `docs/testing/` | Acceptance procedures and sanitized, versioned observed results | AI-readiness, F05 source feasibility, a first-boot trial plan and four lab-Pi 5 result records exist; device acceptance strategy remains T01 |
 | `docs/templates/` | Consistent task and learning-note forms | Exists |
 | `docs/work/` | Dispatch catalog, bounded starter cards, sanitized per-claim result/review records | Catalog/cards exist; results created by assigned workers |
 | `docs/archive/` | Superseded documents retained with provenance and replacement pointers | Original README research preserved; use only for historical investigation |
