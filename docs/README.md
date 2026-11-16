@@ -68,6 +68,7 @@ sources; read the review before using it.
 | [License and provenance proposal](notes/2026-11-15-license-and-provenance-proposal.md) | F04 | MIT proposed for Debra's own work; nothing applied |
 | [Agent permission scoping](notes/2026-11-15-agent-permission-scoping.md) | F06 | Proposal only; no configuration changed |
 | [F05 live permission probes](notes/2026-11-15-f05-live-permission-probes.md) | F05 | Executed: real refusals for out-of-scope edit, new-file write, private and external reads; `grep` disclosed a read-denied file, so search is now denied. Not acceptance |
+| [Captive-portal DNS in NM shared mode](notes/2026-11-15-captive-portal-dns-in-nm-shared-mode.md) | N02 | NM shared dnsmasq has no upstream without an uplink; one `dnsmasq-shared.d` fragment with `address=/#/<AP>` is the smallest fix. Not implemented or device-tested |
 | [v17 second-bay corrections](notes/2026-11-15-rpispeaker-v17-second-bay-corrections.md) | V17 | The 31.10 mm X span remains useful; the [bay inventory](notes/2026-11-15-rpispeaker-v17-bay-inventory.md) withdraws the rectangular pocket, continuous-wall and blind-pilot interpretations |
 | [Optional network services](notes/2026-11-15-optional-network-services.md) | optional extras | Desk study only; NTP client and device health proposals, household-service exclusions; no devices contacted |
 | [Optional radio and presence](notes/2026-11-15-optional-radio-and-presence.md) | optional extras | Desk study only; separate ESP32 BLE proxy and separate home-radio infrastructure candidates; no devices contacted |
