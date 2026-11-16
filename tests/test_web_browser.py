@@ -670,6 +670,15 @@ window.addEventListener("load", async () => {
     // A 390 px viewport is the phone this page is meant to be usable on. The
     // check is geometric: nothing may be wider than the screen.
     assert(document.getElementById("pair").hidden === false, "pairing card not shown");
+    // The pairing card is the first screen a person sees, so it is measured
+    // before the dashboard is opened, not after.
+    const pairWide = [...document.querySelectorAll("#pair *")]
+      .filter(node => {
+        const box = node.getBoundingClientRect();
+        return (box.width || box.height) && (box.right > document.documentElement.clientWidth + 0.5 || box.left < -0.5);
+      })
+      .map(node => (node.id || node.tagName) + " right=" + Math.round(node.getBoundingClientRect().right));
+    assert(pairWide.length === 0, "the pairing card is wider than the screen: " + pairWide.join(", "));
     document.getElementById("bypass").click();
     for (let i = 0; i < 60 && document.getElementById("dashboard").hidden; i++) await wait();
     assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
