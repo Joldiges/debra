@@ -39,7 +39,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
 | Acceptance review `code-r9` | — | `.local/reviews/code-r9-20261115/` | independent, `gpt-6.1-sol`; frozen on `e170448` (the `f974f7f` repair plus a setup-test flake fix), judging whether R8-01…R8-07 are closed and what the repairs broke |
-| Acceptance review `setup-r7` | — | `.local/reviews/setup-r7-20261115/` | independent, `gpt-6.1-sol`; to be frozen after this commit, judging the eight r6 findings and re-running the r6 survivor transforms |
+| Acceptance review `setup-r7` | — | `.local/reviews/setup-r7-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b3125` (the r6 repair, the boundary that must not raise, and the narrowed baseline-validator sentence), judging the eight r6 findings and re-running the r6 survivor transforms |
 
 ## Done this round
 
@@ -119,10 +119,10 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 172 onboarding tests
+first baseline now have an implementation (`control/setup/`, 173 onboarding tests
 and 37 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 619 tests (41 skipped) plus 41 browser tests
+whole offline suite is 620 tests (41 skipped) plus 41 browser tests
 (`-p 'test_*browser.py'`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,

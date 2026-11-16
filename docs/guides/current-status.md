@@ -35,9 +35,9 @@ These run on a Fedora development computer, not on the Pi.
 
 - The browser slice in `control/web/` is a standard-library service and local page
   for status, selected-sink volume and mute ([README](../../control/web/README.md)):
-  86 tests in `tests/test_web.py` on 2026-11-15; the Chromium scenarios are opt-in
-  and skip in an ordinary run (13 in `test_web_browser.py` and 16 in
-  `test_setup_browser.py`, 29 skipped in total).
+  105 tests in `tests/test_web.py` on 2026-11-15; the Chromium scenarios are opt-in
+  and skip in an ordinary run (20 in `test_web_browser.py` and 21 in
+  `test_setup_browser.py`, 41 skipped in total).
 - Its installer, `control/web/install.py`, prepares files only: five runtime files
   in a content-addressed release, an owner-only key and a systemd user unit, with
   previous units kept for rollback. No packages, sudo, audio writes or service starts.
@@ -46,8 +46,8 @@ These run on a Fedora development computer, not on the Pi.
   notices checklist 24; the task helper and research runner 15 and 9
   ([unattended runner](scheduled-runner.md)).
 - The first-boot setup service in `control/setup/` is offline-tested only
-  ([README](../../control/setup/README.md)): 136 tests for naming, onboarding and
-  the baseline, and 28 for its installer. This code has never run on a device: it
+  ([README](../../control/setup/README.md)): 173 tests for naming, onboarding and
+  the baseline, and 37 for its installer. This code has never run on a device: it
   has raised no radio, joined no network, applied no name or captured a baseline.
 - The activity TUI has a **Notices** tab: one checklist of everything worth not
   missing (blockers, confirmations, failed research tasks, a turn running too
