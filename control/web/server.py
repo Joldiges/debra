@@ -58,7 +58,8 @@ HAT_OPTIONS = (
                # Matched as a pattern, with a number boundary either side of the
                # 2: plain substring matching read `2-mic` inside `12-Mics` and
                # reported a twelve-microphone board as this two-microphone one.
-               "model": (r"(?<![0-9])2[-\s]?mics?\b",)},
+               # `2-microphone` is the same board described in full.
+               "model": (r"(?<![0-9])2[-\s]?(?:mics?|microphones?)(?![a-z0-9])",)},
      "card": "seeed2micvoicec",
      "caveats": (
          "Microphone and LED positions are an estimate, not a measurement of this board: "
@@ -285,8 +286,11 @@ def hat_family_match(product, option):
 
     A family match is all this can establish. Two independent words are
     required - one vendor and one model - so a different ReSpeaker board or an
-    unrelated Seeed HAT is not reported as this one. The revision is still
-    unknown: an EEPROM product string does not carry one.
+    unrelated Seeed HAT is not reported as this one. Each vendor word has to
+    stand on its own: a substring match read `respeaker` inside `NotReSpeaker`
+    and `seeed` inside `Unseeeded`, which made any string containing those
+    letters this family. The revision is still unknown: nothing this page reads
+    establishes one.
 
     An option with no `match` (the alternative below) is not a board the EEPROM
     could name, so this is never the question to ask about it: `None` here.
@@ -297,7 +301,18 @@ def hat_family_match(product, option):
     if not vendor or not model:
         return None
     words = (product or "").lower()
-    return any(word in words for word in vendor) and any(re.search(word, words) for word in model)
+
+    def names_vendor(word):
+        # A vendor word has to stand on its own. A plain substring matched
+        # `respeaker` inside `NotReSpeaker` and `seeed` inside `Unseeeded`, so an
+        # unrelated board was reported as this family. Letters and digits are
+        # the boundary; an underscore or hyphen is not one, so `ReSpeaker_2-Mics`
+        # and `seeed-2mic` still match.
+        return re.search(r"(?<![a-z0-9])" + re.escape(word) + r"(?![a-z0-9])",
+                         words) is not None
+
+    return (any(names_vendor(word) for word in vendor)
+            and any(re.search(word, words) for word in model))
 
 
 def alsa_cards(root):

@@ -140,12 +140,29 @@ class BackendTests(unittest.TestCase):
                 ("ReSpeaker 2-Mics Pi HAT", True),
                 ("Seeed 2mic voice card", True),
                 ("ReSpeaker 2 Mic Array", True),
+                ("ReSpeaker 2-microphone HAT", True),
+                ("ReSpeaker_2-Mics_Pi_HAT", True),
                 ("ReSpeaker 12-Mics Pi HAT", False),
                 ("ReSpeaker 22-mic array", False),
                 ("ReSpeaker 4 Mic Array", False),
                 ("Seeed unrelated sensor HAT", False)):
             with self.subTest(product=product):
                 self.assertEqual(web.hat_family_match(product, option), expected)
+
+    def test_a_vendor_word_must_stand_on_its_own(self):
+        # A plain substring read `respeaker` inside `NotReSpeaker` and `seeed`
+        # inside `Unseeeded`, so any string containing those letters was
+        # reported as this family. A board name is a word, not a substring.
+        option = web.HAT_OPTIONS[0]
+        for product in ("NotReSpeaker unrelated 2-mic gadget",
+                        "Unseeeded 2mic",
+                        "Norespeaker 2-mic array"):
+            with self.subTest(product=product):
+                self.assertIs(web.hat_family_match(product, option), False)
+        # An ALSA card id has no word boundaries. It is not an EEPROM product
+        # string, and matching it would need a different rule with different
+        # evidence; the card is reported separately, as a card.
+        self.assertIs(web.hat_family_match("seeed2micvoicec", option), False)
 
     def test_the_alternative_is_not_asked_about_the_eeprom(self):
         # "No HAT" is an alternative, not a board the EEPROM can name. Reporting
