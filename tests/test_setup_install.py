@@ -627,14 +627,17 @@ class EnableTests(Fixture):
         self.assertEqual(os.readlink(link), "/etc/systemd/system/something-else.service")
 
     def test_a_link_that_jumps_through_a_symlink_to_a_foreign_unit_is_refused(self):
-        # `normpath` removes `jump/..` without looking at `jump`. A link spelled
-        # `../jump/../debra-setup.service` therefore compared equal to the
+        # `normpath` removes `jump/..` without looking at `jump`, so a link
+        # spelled `../jump/../debra-setup.service` compared equal to the
         # installed unit while the kernel resolved it into another directory.
-        # The comparison has to follow links, because the kernel does.
+        # Destination comparison alone did not fix it either: `realpath()` is not
+        # strict, so it normalizes through the missing directory and returns a
+        # path that names nothing. Only the two spellings an enablement writes
+        # are accepted now, so this is refused before anything is resolved.
         self.install()
         system = self.root / "etc/systemd/system"
         foreign = self.root / "foreign"
-        foreign.mkdir(parents=True)
+        (foreign / "directory").mkdir(parents=True)
         (foreign / "debra-setup.service").write_text("not the installed unit\n", encoding="utf-8")
         (system / "jump").symlink_to(foreign / "directory")
         wants = self.root / installer.WANTS
@@ -643,10 +646,77 @@ class EnableTests(Fixture):
         link.symlink_to("../jump/../debra-setup.service")
         self.assertEqual(link.resolve(), (foreign / "debra-setup.service").resolve(),
                          "the fixture does not resolve to the foreign unit")
-        with self.assertRaisesRegex(ValueError, "different link"):
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
             installer.enable(self.root)
         self.assertEqual(os.readlink(link), "../jump/../debra-setup.service",
                          "enable replaced the operator's link")
+
+    def test_a_relative_link_to_another_unit_in_the_same_directory_is_refused(self):
+        # R8-03. The plain other-unit case above uses an absolute target, which
+        # the spelling check refuses before the landing check is reached. The
+        # same operator mistake spelled relatively has to be refused too.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        (self.root / "etc/systemd/system/something-else.service").write_text(
+            "x\n", encoding="utf-8")
+        link = wants / installer.UNIT_NAME
+        link.symlink_to("../something-else.service")
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
+            installer.enable(self.root)
+        self.assertEqual(os.readlink(link), "../something-else.service")
+
+    def test_a_link_through_a_missing_directory_is_refused(self):
+        # R8-01. `realpath()` suppresses the error and keeps normalizing, so the
+        # link was reported as enabled while the kernel could not open it.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.symlink_to("../absent-directory/../debra-setup.service")
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
+            installer.enable(self.root)
+        self.assertEqual(os.readlink(link), "../absent-directory/../debra-setup.service")
+
+    def test_a_link_through_a_regular_file_is_refused(self):
+        # R8-01, the ENOTDIR half: a component that is a file, not a directory.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        (self.root / "etc/systemd/system/ordinary-file").write_text("x\n", encoding="utf-8")
+        link = wants / installer.UNIT_NAME
+        link.symlink_to("../ordinary-file/../debra-setup.service")
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
+            installer.enable(self.root)
+
+    def test_a_cyclic_link_is_refused(self):
+        # R8-01, the ELOOP half.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        (self.root / "etc/systemd/system/cycle").symlink_to("cycle")
+        link = wants / installer.UNIT_NAME
+        link.symlink_to("../cycle/../debra-setup.service")
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
+            installer.enable(self.root)
+
+    def test_a_relative_link_that_escapes_to_the_preparing_host_is_refused(self):
+        # R8-02. The absolute host-prefix refusal did not cover the relative
+        # spelling: `../` repeated out to the host's `/` and back into the card
+        # opened the host file and was accepted, while on the device the same
+        # text names a path that does not exist.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        depth = len(wants.parts) - 1
+        target = "../" * depth + str(self.unit).lstrip("/")
+        link.symlink_to(target)
+        self.assertEqual(Path(os.path.join(str(wants), target)).resolve(), self.unit.resolve(),
+                         "the fixture does not resolve to the host file")
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
+            installer.enable(self.root)
+        self.assertEqual(os.readlink(link), target)
 
     def test_an_absolute_target_that_names_the_preparing_host_is_refused(self):
         # An absolute target is a path on the device. A path that carries the

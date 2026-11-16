@@ -200,17 +200,24 @@ A tree prepared from a host for a card has no running systemd to ask, so
 `/etc/systemd/system/multi-user.target.wants/debra-setup.service`. That link is
 what makes the service start on the card's first boot, and nothing in this
 repository does it otherwise. It refuses a unit it did not write and refuses to
-replace anything already at that path. It accepts a link that **resolves** to
-the installed unit, whether the text is the relative
-`../debra-setup.service` or the absolute `/etc/systemd/system/debra-setup.service`
-that `systemctl enable` writes, so a tree systemd already enabled is left alone.
-"Resolves" is meant literally: the comparison follows symlinks, because the
-kernel does, and a link spelled through a symlinked directory (`../jump/../debra-setup.service`)
-is refused when it lands on a different file. An absolute target that carries
-the preparing host's mount point is also refused: it is a path on the device,
-and after boot it names nothing. On a running device, `systemctl enable` remains
-the right command: it also reloads the daemon. Neither route has been booted,
-and no real `systemctl enable` was run to confirm which link it writes.
+replace anything already at that path. It accepts **exactly two spellings** of that
+link and leaves the tree alone when one is already there: the relative
+`../debra-setup.service` this installer writes, and the absolute
+`/etc/systemd/system/debra-setup.service` that `systemctl enable` writes. Any
+other text is refused with the link untouched — an operator's link, a link that
+carries the preparing host's mount point, or a damaged one. Two things write
+this link and nothing else does, so there is no spelling worth guessing at.
+
+The accepted spelling must also actually **open**: it is resolved strictly, and a
+link through a missing directory, through a regular file or through a cycle is
+refused rather than reported as enabled. That check is the reason the comparison
+is on the text and not on the resolved destination: `realpath()` is not strict —
+it suppresses resolution errors and keeps normalizing — so comparing
+destinations accepted links the kernel could not open, and accepted a relative
+link that walked out to the preparing host's `/` and back into the card. On a
+running device, `systemctl enable` remains the right command: it also reloads
+the daemon. Neither route has been booted, and no real `systemctl enable` was run
+to confirm which link it writes.
 
 `setup.json` is migrated on read from schema 1, because a device that already
 ran an earlier prototype must not be left with a state file that stops the
@@ -414,6 +421,6 @@ Guards in this subsystem have been checked by breaking them and watching a test
 fail, but that is evidence about the guards that were broken, not a proof of the
 whole subsystem. Each round's transforms, the failing test for each, and any
 survivors are recorded in that round's verdict under `.local/reviews/`
-(`setup-r6-20261115/verdict.md` is the current one); a survivor is a test gap,
-not a harmless change. Earlier rounds found guards that no test covered at the
-time.
+(`setup-r8-20261115/verdict.md` is the current one; its findings are repaired in
+the working tree and awaiting `setup-r9`); a survivor is a test gap, not a
+harmless change. Earlier rounds found guards that no test covered at the time.

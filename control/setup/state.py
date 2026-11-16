@@ -188,12 +188,15 @@ def _migrate_1(data):
     object as small as `{"schema": 1}` used to be accepted that way. Damage is
     an error, which is what `read()` says it is.
 
-    Schema 1 stored no setup-network password. It may still describe a hotspot,
-    because the old code raised one and then wrote the note; after an upgrade
-    the access point is not running. Keeping that description would leave a
-    phase of `hotspot` with no password, which the page cannot use and which
-    `validate()` rightly refuses. The description is dropped instead, and the
-    next boot raises the access point again with a fresh password.
+    Schema 1 stored no setup-network password in the revisions this repository
+    shipped before schema 2 existed, but the later prototype revision `5c8fde4`
+    added one while still writing schema 1. That field is preserved when it is
+    there. A hotspot description with no password is dropped, because the old
+    code raised an access point and then wrote the note, so after an upgrade the
+    access point is not running. Keeping the description would leave a phase of
+    `hotspot` with no password, which the page cannot use and which `validate()`
+    rightly refuses. It is dropped instead, and the next boot raises the access
+    point again with a fresh password.
     """
     missing = [key for key in MANDATORY_1 if key not in data]
     if missing:

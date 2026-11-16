@@ -301,29 +301,42 @@ def enable(root, *, unit=UNIT, wants=WANTS):
     link = wants_dir / UNIT_NAME
     if link.is_symlink():
         target = os.readlink(link)
-        # `systemctl enable` writes an absolute target for a unit under
-        # /etc/systemd/system; the installer writes the relative one. Both name
-        # the same file in a prepared tree, so the destination is compared, not
-        # the text.
+        # Exactly two spellings are accepted, and they are compared as text.
         #
-        # The comparison follows symlinks, because the kernel does. `normpath`
-        # alone removes `jump/..` without looking at `jump`, so a link spelled
-        # `../jump/../debra-setup.service` was accepted while `jump` pointed at
-        # another directory and the link actually resolved to a foreign unit.
-        if os.path.isabs(target):
-            # An absolute target names a path on the device, which this tree is
-            # rooted at. A path that already carries the preparing host's mount
-            # point is refused: it names this unit only on the host, and nothing
-            # at all after boot.
-            if os.path.normpath(target) != "/" + os.path.normpath(unit):
-                raise ValueError(f"{link} names {target}, which is not this unit on the "
-                                 "device; left unchanged")
-            destination = os.path.realpath(str(root / target.lstrip("/")))
+        # Comparing *destinations* instead was the wrong tool twice over.
+        # `realpath()` is not strict: it suppresses resolution errors and keeps
+        # normalizing, so a link through a missing directory, through a regular
+        # file or through a cycle was accepted although the kernel cannot open
+        # it, and the tree was left with a link that names nothing. And a
+        # relative link that walks out to the preparing host's `/` and back into
+        # the card opened a host file and was accepted, while on the device the
+        # same text names nothing at all.
+        #
+        # Only two things write this link: this installer (`../<unit name>`) and
+        # `systemctl enable` (`/<unit path>`). Anything else is an operator's
+        # link or a damaged one, and is left exactly as it is.
+        relative = os.path.join("..", UNIT_NAME)
+        absolute = "/" + Path(unit).as_posix()
+        if target == relative:
+            spelled = wants_dir / target
+        elif target == absolute:
+            spelled = root / absolute.lstrip("/")
         else:
-            destination = os.path.realpath(os.path.join(str(wants_dir), target))
-        if destination == os.path.realpath(str(unit_path)):
-            return str(link)
-        raise ValueError(f"{link} is a different link; left unchanged")
+            raise ValueError(f"{link} names {target}, which is not this unit on the "
+                             "device; left unchanged")
+        # The spelling is one of the two an enablement writes, and every
+        # directory between the wants link and the unit was refused above if it
+        # is a link, so the link lands on the unit by construction. That is
+        # asserted rather than assumed, and `samefile` is the kernel's own
+        # answer: it stats both paths, so a broken component raises instead of
+        # comparing two normalized strings.
+        try:
+            same = os.path.samefile(spelled, unit_path)
+        except OSError as exc:
+            raise ValueError(f"{link} does not open ({exc}); left unchanged") from exc
+        if not same:
+            raise ValueError(f"{link} is a different link; left unchanged")
+        return str(link)
     if link.exists():
         raise ValueError(f"{link} exists and is not a link; left unchanged")
     directory(root, wants, private=False)
