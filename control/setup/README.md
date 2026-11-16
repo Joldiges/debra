@@ -1,9 +1,13 @@
 # First-boot setup service
 
 Runs `control/setup/` at boot: the device name, the Wi-Fi onboarding page and
-the first baseline. The installer prepares files only; **nothing here has been
-run on a device.** No unit has been enabled, no radio has been raised by it, and
-no `nmcli`, `hostnamectl` or `raspi-config` call has been made by Debra. Read
+the first baseline. The installer prepares files only. One device run has
+happened on another line's tree: the Zero 2 W installed it, ran it, and rebooted
+with the unit enabled, which covered the online path, the rename, the baseline
+and the boot, and found two defects it did not repair
+([result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)).
+**The setup access point has never been raised and no phone has ever seen the
+page.** This tree's own code has not run at all. Read
 [what is still unproven](#what-is-still-unproven) before trusting a step.
 
 The journey itself is described in [first boot](../../docs/design/first-boot.md);
@@ -379,8 +383,9 @@ Ordered by how likely it is to bite on a real first boot.
    point lands on a different subnet.
 3. **The 30-second uplink wait is a guess.** If NetworkManager takes longer than
    that to autoconnect on a slow card, a configured device raises a setup access
-   point, and the household connection may not come up until the next boot. No
-   boot has been timed.
+   point, and the household connection may not come up until the next boot. The
+   boot that was timed was already online, so the wait itself has never been
+   reached, on a fast card or a slow one.
 4. **Only Wi-Fi uplinks count.** `nmcli`-based `active()` looks at Wi-Fi devices,
    so a device with working Ethernet and no Wi-Fi still raises the setup access
    point.

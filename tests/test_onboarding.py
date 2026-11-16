@@ -530,11 +530,21 @@ class StateTests(Temp):
                 state_module.validate(broken)
 
     def test_a_bool_is_not_a_schema_version(self):
-        # JSON `true` is 1 in Python, so a bare equality check accepted it.
-        data = state_module.blank("debra-demo1")
-        data["schema"] = True
-        with self.assertRaises(ValueError):
-            state_module.validate(data)
+        # JSON `true` is 1 in Python, so a bare equality check accepted it. This
+        # goes through `read`, because `migrate` has its own guard: without that
+        # one, a hand-written `{"schema": true, ...}` is 1 to `migrate`'s
+        # comparison and gets upgraded to a well-formed record - the silent
+        # reset `read` promises never to do - even though `validate` refuses the
+        # result. Testing `validate` alone would not see it.
+        for schema in (True, False, 1.5):
+            broken = dict(state_module.blank("debra-demo1"), schema=schema)
+            raw = json.dumps(broken)
+            self.state_path.write_text(raw, encoding="utf-8")
+            with self.subTest(schema=repr(schema)):
+                with self.assertRaises(ValueError):
+                    state_module.read(self.state_path)
+                self.assertEqual(self.state_path.read_text(encoding="utf-8"), raw,
+                                 "a record with a bad schema version was rewritten")
 
     def test_a_passphrase_can_never_be_stored(self):
         # The schema is closed, so a keyfile-shaped extra key is rejected rather

@@ -60,9 +60,13 @@ class DispatcherTests(unittest.TestCase):
         text = roadmap.read_text()
         for packet in ("R01", "R02"):
             # Set the state whatever it currently is, so accepting a packet in
-            # the live roadmap cannot silently unpin the fixture.
-            text = re.sub(rf"^\| {packet} / \w+ \|", f"| {packet} / ready |",
-                          text, count=1, flags=re.MULTILINE)
+            # the live roadmap cannot silently unpin the fixture. The match is
+            # asserted: an unpinned R02 would leave `--chain any` passing only
+            # because some unrelated chain happened to be ready, which is the
+            # accident this pin exists to remove.
+            text, count = re.subn(rf"^\| {packet} / \w+ \|", f"| {packet} / ready |",
+                                  text, count=1, flags=re.MULTILINE)
+            self.assertEqual(count, 1, f"the roadmap has no {packet} row to pin")
         roadmap.write_text(text)
         pilot = self.repo / "docs/testing/pilot-fixture.md"
         pilot.parent.mkdir(parents=True)

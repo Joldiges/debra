@@ -1,6 +1,7 @@
 # First boot: from a flashed card to a working device
 
-**Status: partly implemented, 2026-11-15. Nothing here has run on a device.**
+**Status: partly implemented, 2026-11-15. This tree has not run on a device; one
+run of the other line's tree is recorded below.**
 
 The phase machine, the setup page and the first baseline exist as code under
 `control/setup/` and pass offline tests against a recorded fake NetworkManager.
@@ -10,8 +11,9 @@ the online path, the hardware-derived rename, a baseline over a real root, a
 manual start and then a boot with the unit enabled all worked. The run showed the
 service leaving `/etc/hosts` and `avahi-daemon` on the old name until the next
 boot, which repaired both. The setup access point was never raised on that
-device. This branch's own tree has not run on a device at all. Its system unit and installer
-are tested offline — see [the setup service](../../control/setup/README.md). Read
+device, and none of this tree's own code has run at all. Its system unit and
+installer are tested offline — see
+[the setup service](../../control/setup/README.md). Read
 [implemented today versus planned](#implemented-today-versus-planned)
 before relying on a step.
 
@@ -110,9 +112,9 @@ the operating system is at most `partial`.
 | Step | What it is | Status | What is missing |
 | --- | --- | --- | --- |
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
-| Applying the name | `hostnamectl set-hostname`, so the running system answers to the recorded name | partial | The call now exists and a name that would not resolve is refused before it runs. No boot has applied one on a device, and a failure is logged rather than retried |
+| Applying the name | `hostnamectl set-hostname`, so the running system answers to the recorded name | partial | The call exists, a name that would not resolve is refused before it runs, and a boot on the device run's tree applied the recorded name (that is why `/etc/hosts` and avahi were left behind). What no device has done is *choose* a name on its first boot. A failure is logged rather than retried |
 | State across reboots | Versioned JSON schema (`SCHEMA = 3`), atomic owner-only writes, refuses unknown keys and phases; a schema-1 or schema-2 record is migrated on read | implemented | Nothing on the schema. A record from an earlier schema is dropped of retired keys, has the few fields an earlier build could lack filled from a blank record, and is written back; a combination the current rules refuse (`connecting` with no token, `hotspot` with no described network, `online` with one) is resolved the way the next boot resolves it. Schema 2's `hotspot_password` is moved into `setup-secret` and `wpa` into `setup-security` before the record is read, so the first boot after an upgrade cannot open a network that was protected; only then is the key dropped. If the mode file itself cannot be written the boot is still protected and the next one falls back to the installer's flag. A record from a *newer* schema, one whose version never existed, or one missing a core key such as `phase`, is still refused, so a corrupt file is an error and not a silent reset. 1→3 and 2→3 are tested offline; no device has carried a record across an upgrade |
-| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist and are tested offline. Neither has been enabled or started on a device, and there is no image |
+| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist. The unit has been enabled, started and booted on the device run's tree, where it decided "online" and did nothing. The other branch, raising the setup network, has never run, and there is no image |
 | Raising the setup network | An explicit NetworkManager profile this code writes (`wifi.mode=ap`, `ipv4.method=shared`, `wifi-sec.key-mgmt` of `wpa-psk` or `none`), reloaded and activated | partial | Never executed on a radio. `nmcli device wifi hotspot` was the first mechanism and is **unusable**: its manual says a password is *generated* when none is given, so it cannot express an open setup network at all, and a password-less call would have raised a WPA2 network nobody could join. The password now lives in the profile file (`0600`), never in argv; the address the profile got is what the page is bound to. The mode is read back after activation and a mismatch removes the profile. `none` is the **current default** (`DEFAULT_SETUP_SECURITY`), and the page can switch modes without a reinstall. No idle timeout, no pinned channel |
 | Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. The operating systems' captive-portal probe paths are answered with a redirect to the page, built from the bound address rather than the request's `Host`, but whether a phone's probe reaches the access point at all depends on the setup network's DNS, which Debra does not configure; that is unverified, and the card-note address remains the fallback. No phone has been tried. Nearby networks are scanned once, before the access point is raised, and offered in a picker; typing the name still works and is the fallback when the scan finds nothing |
 | Country | The country already on the device is read with `iw reg get`; the page asks only when there is none; `raspi-config nonint do_wifi_country` sets it | partial | The read is untested on a device. On a dual-band board with no country the radio is off, so the setup network cannot start at all, and asking inside the portal is still the wrong place to ask |
@@ -332,10 +334,11 @@ was written; the rest are still open, so the coordinator can decide them.
 - What is the right check for "this network works"? A routable address is
   necessary and not sufficient; a LAN-only household with no internet is a valid
   outcome the current check cannot distinguish.
-- Does the hostname actually get applied on a device? The adapter has a
-  `set_hostname` and the service applies it on every boot, but no boot has run
-  it. And does the DHCP client then announce it, so the router's client list
-  shows it?
+- Does the hostname actually get applied on a device? The device run says yes
+  for the apply: `hostnamectl --static` reported the new name. What it also
+  showed is that the apply is only half the job - `/etc/hosts` and avahi kept the
+  old name until the next boot. Still open: does the DHCP client announce it, so
+  the router's client list shows it?
 - What does `resume()` do on a device that is deliberately offline, and should a
   device with a working Ethernet uplink stay quiet instead of raising a hotspot?
 - Which parts of the baseline can actually be restored, and what does a restore

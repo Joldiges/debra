@@ -2,9 +2,10 @@
 
 Debra is working toward an affordable Home Assistant voice and music device a
 beginner can set up from a browser. One working lab device, a tested browser-control
-prototype, offline-tested setup code, CAD models and research exist; no appliance
-image, no onboarding that has ever run on a device, no updates
-screen and no recovery do. Unchecked claims say unknown, per the [evidence labels](../evidence.md),
+prototype, offline-tested setup code that has run on a device for the online
+path only, CAD models and research exist; no appliance image, no onboarding that
+has ever raised its network or been completed by a phone, no updates screen and
+no recovery do. Unchecked claims say unknown, per the [evidence labels](../evidence.md),
 as of 2026-11-15. SendSpin is the initial music path, Snapcast the alternative, and
 full original Pi Zero W support is still an unproven goal.
 

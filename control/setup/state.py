@@ -43,11 +43,12 @@ PHASES = ("unconfigured", "hotspot", "connecting", "online", "failed")
 # refused - a device that already ran an earlier build must not be left with a
 # state file that stops the service and leaves it with no access point.
 #
-# The migration fills every field the record never wrote, because the prototype
-# revisions did not all carry the same keys: filling only the fields one earlier
-# schema added left three of the five records this repository wrote missing
-# `attempt_token`, `baseline_error` or `last_attempt`, and the validator refused
-# them before the service could even report why.
+# The migration fills the fields a later revision added (`state.FILLED`), because
+# the prototype revisions did not all carry the same keys: filling none of them
+# left three of the five records this repository wrote missing `attempt_token`,
+# `baseline_error` or `last_attempt`, and the validator refused them before the
+# service could even report why. It does not fill the record's shape: a record
+# missing a core key is damage, and `MANDATORY_1` refuses it.
 SCHEMA = 3
 
 # Keys an earlier schema kept and this one does not. Dropped on read: `validate`
