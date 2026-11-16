@@ -207,11 +207,19 @@ def setup_secret(secret_path):
     save. `Onboarder.hotspot_password` remembers that one for the life of the
     process, which is what keeps the reply, the access point and the note on the
     same value; calling this function twice on an unwritable device does not.
+
+    A value that is present but not a usable passphrase is replaced rather than
+    served: the profile writer refuses anything shorter than eight characters,
+    so keeping a truncated file would mean telling the person a password the
+    access point then declines to use.
     """
     path = Path(secret_path)
     saved = _read_secret(path)
-    if saved:
+    if saved and nm_module.valid_psk(saved):
         return saved
+    if saved:
+        LOGGER.warning("The kept setup password is not a usable passphrase; "
+                       "drawing a new one")
     secret = _new_secret()
     if _store_secret(path, secret):
         return secret
@@ -656,8 +664,15 @@ class Onboarder:
                     "last_error": "The setup state could not be read"}
 
     def has_stored_security(self):
-        """True when the device carries a mode somebody chose on the page."""
-        return self.security_path.exists()
+        """True when the device carries a mode somebody chose on the page.
+
+        Not `exists()`: a corrupt or unreadable file reads as "no choice" in
+        `_stored_security`, and the revert path uses this answer to decide
+        whether writing the mode back would create a choice nobody made. Counting
+        a junk file as a choice turns it into one, and a stored file then
+        outranks the installer's flag for ever.
+        """
+        return self._stored_security() is not None
 
     def restore_security(self, mode, generation, had_choice=True):
         """Put the previous mode back, unless a later change has replaced it.
@@ -1100,6 +1115,21 @@ class Portal(ThreadingHTTPServer):
         super().__init__(address, PortalHandler)
 
 
+def put_mode_back(onboarder, previous, generation, had_choice):
+    """Revert the stored mode, unless a later change has replaced it.
+
+    Returns True when the revert ran, whether or not it succeeded, so a caller
+    does not attempt it twice on the undelivered-reply path. A failure here is
+    logged and not raised: the request is already answered, and the mode the
+    device will use on its next start is the stored one either way.
+    """
+    try:
+        onboarder.restore_security(previous, generation, had_choice)
+    except (ValueError, OSError):
+        LOGGER.warning("The previous setup network mode could not be restored")
+    return True
+
+
 class PortalHandler(BaseHTTPRequestHandler):
     server_version = "DebraSetup/1"
     sys_version = ""
@@ -1323,9 +1353,20 @@ class PortalHandler(BaseHTTPRequestHandler):
         # a later `--setup-security` silently ineffective.
         had_choice = onboarder.has_stored_security()
         started = False
+        stored = False
+        reverted = False
         try:
             try:
-                onboarder.set_security(mode)
+                if mode != onboarder.security:
+                    # Only a real change is recorded. Re-posting the mode that is
+                    # already in force - a stale page, or somebody asking to see
+                    # the password again - still re-raises the access point
+                    # below, which is also how a failed raise is retried, but it
+                    # must not write a stored choice. A stored file outranks the
+                    # installer's flag for ever after, and this would create one
+                    # nobody made.
+                    onboarder.set_security(mode)
+                    stored = True
             except ValueError:
                 self._reply(400, {"error": "Mode must be wpa or none"})
                 return
@@ -1350,10 +1391,8 @@ class PortalHandler(BaseHTTPRequestHandler):
                 # reason.
                 LOGGER.warning("The change of the setup network was not delivered; "
                                "keeping the previous mode")
-                try:
-                    onboarder.restore_security(previous, generation, had_choice)
-                except (ValueError, OSError):
-                    LOGGER.warning("The previous setup network mode could not be restored")
+                reverted = put_mode_back(onboarder, previous, generation,
+                                         had_choice)
                 return
             # Not a daemon: the access point is between two states, and exiting
             # in the middle of that leaves the setup network down with no page.
@@ -1367,10 +1406,17 @@ class PortalHandler(BaseHTTPRequestHandler):
             started = True
         finally:
             if not started:
-                # Any other way out - an unreadable state file while building
-                # the reply, or a thread that could not be started - must give
-                # the radio back. `_changing` left set refuses every join and
-                # every later change for the life of the process.
+                # Giving the radio back is not enough. By here the mode may
+                # already be stored while the access point is still running the
+                # old one - the page has been told to reconnect with a password
+                # no network is asking for. That is a lockout, not a stale
+                # setting, so the mode goes back too.
+                if stored and not reverted:
+                    LOGGER.warning("The setup network change could not be started; "
+                                   "putting the mode back")
+                    put_mode_back(onboarder, previous, generation, had_choice)
+                # `_changing` left set refuses every join and every later change
+                # for the life of the process.
                 onboarder.abandon_security_change()
 
 

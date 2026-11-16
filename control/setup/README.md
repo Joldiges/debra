@@ -80,21 +80,26 @@ none of them make it a secure portal:
   arrived from, and there is no firewall rule here. What actually keeps the page
   off the household network is that the address exists only while the access
   point does.
-- The access point is `wpa-psk` with a random per-device password that is
-  written only to the boot-partition note. It is kept in
-  `/var/lib/debra/setup/setup-secret` (`0600`) so the note stays true when the
-  access point is raised again, and it is deliberately absent from the status
-  API, which anything that has joined can read. Anyone who can join the setup
-  network can also submit the form; the password protects the setup window, not
-  the household. The access point is raised from a profile this repository
-  writes into NetworkManager's own store, so its key management is the one that
-  was asked for and the password never appears in a command line. The profile's
-  key management and the device's active connection are both read back after
-  activation, and a mismatch takes the access point down. `nmcli device wifi
-  hotspot` cannot be used for this at all, because with no password it generates
-  one that nobody is shown, which is not an open network. `wpa-psk` is the
-  setting; WPA2 is what NetworkManager's default `proto` makes of it, which this
-  code does not pin - and all of it is unproven on a radio.
+- The access point is `wpa-psk` with a random per-device password. The password
+  is written to the boot-partition note, which is how its owner learns it, and
+  kept in `/var/lib/debra/setup/setup-secret` (`0600`) so the note stays true
+  when the access point is raised again. While the access point is up it is also
+  in that profile as `psk=` (see the file table below), and the join deletes the
+  profile. It is deliberately absent from the status API, which anything that
+  has joined can read; the one place it is served is the reply that turns it on,
+  and that reply goes over cleartext HTTP to whoever has joined - while the
+  network is open, to anyone in range. Anyone who can join the setup network can
+  also submit the form; the password protects the setup window, not the
+  household, and turning it on from an open network protects what comes after,
+  not the moment of the change. The access point is raised from a profile this
+  repository writes into NetworkManager's own store, so its key management is
+  the one that was asked for and the password never appears in a command line.
+  The profile's key management and the device's active connection are both read
+  back after activation, and a mismatch takes the access point down. `nmcli
+  device wifi hotspot` cannot be used for this at all, because with no password
+  it generates one that nobody is shown, which is not an open network. `wpa-psk`
+  is the setting; WPA2 is what NetworkManager's default `proto` makes of it,
+  which this code does not pin - and all of it is unproven on a radio.
 - The mode is a choice the page owns, not only the installer. It is kept in
   `/var/lib/debra/setup/setup-security` (`0600`) beside the password, deliberately
   not in `setup.json` whose schema is closed, and it wins over the installed flag

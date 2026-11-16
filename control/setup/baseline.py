@@ -79,8 +79,15 @@ class _Collector:
             return
         for private in NEVER_CAPTURE:
             if relative == private or private in relative.parents:
-                self.skipped.append({"path": str(relative),
-                                     "reason": "the setup service's own directory"})
+                # Named so a manifest somebody inspects says which credential
+                # was held back, not just that something was: one entry is a
+                # directory and the other is a single file.
+                self.skipped.append({
+                    "path": str(relative),
+                    "reason": ("the setup network's own profile"
+                               if relative.suffix == ".nmconnection"
+                               else "the setup service's own state directory"),
+                })
                 return
         if self.exclude is not None:
             try:

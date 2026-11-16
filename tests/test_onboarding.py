@@ -189,11 +189,63 @@ class StateTests(Temp):
 
     def test_unknown_keys_bad_phases_and_bad_values_are_refused(self):
         base = state_module.blank("debra-345678")
+        # `schema = SCHEMA + 1` rather than a literal: 2 is the current schema
+        # now, and the point of the case is a *newer* record being refused.
         for broken in (dict(base, extra=1), dict(base, phase="sleeping"),
-                       dict(base, schema=2), dict(base, attempts=-1),
+                       dict(base, schema=state_module.SCHEMA + 1),
+                       dict(base, attempts=-1),
                        dict(base, country="GBR"), dict(base, hotspot={"ssid": "x"})):
             with self.assertRaises(ValueError, msg=str(broken)[:60]):
                 state_module.validate(broken)
+
+    def test_a_record_from_the_previous_schema_is_read_rather_than_refused(self):
+        # The previous release kept the setup password inside this record. This
+        # one keeps it in its own file, and `validate` refuses keys it did not
+        # write - so without a migration an upgraded device raises on its first
+        # boot, the unit fails, and there is no setup network at all.
+        legacy = dict(state_module.blank("debra-345678"), schema=1,
+                      phase="hotspot",
+                      hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"},
+                      hotspot_password="s3cretvalue")
+        legacy.pop("attempt_token", None)
+        legacy.pop("attempt_claimed", None)
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["schema"], state_module.SCHEMA)
+        self.assertEqual(data["phase"], "hotspot")
+        self.assertEqual(data["hostname"], "debra-345678")
+        self.assertNotIn("hotspot_password", data)
+        self.assertFalse(data["attempt_claimed"])
+        # And the password did not survive into the record the status reports.
+        self.assertNotIn("s3cretvalue", self.state_path.read_text(encoding="utf-8")
+                         + json.dumps(data))
+
+    def test_a_read_only_state_directory_does_not_log_on_every_read(self):
+        # `read` is on the status path, which the page polls. A migration that
+        # cannot be written back must say so once, not every fifteen seconds.
+        legacy = dict(state_module.blank("debra-345678"), schema=1)
+        legacy["hotspot_password"] = "s3cretvalue"
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        state_module._WRITE_BACK_FAILED.discard(str(self.state_path))
+        with patch.object(state_module, "write",
+                          side_effect=OSError(30, "Read-only file system")):
+            with self.assertLogs(state_module.LOGGER, level="WARNING") as logs:
+                for _ in range(5):
+                    self.assertEqual(
+                        state_module.read(self.state_path)["schema"],
+                        state_module.SCHEMA)
+        self.assertEqual(len(logs.output), 1,
+                         "the read-only warning repeated on every read")
+        state_module._WRITE_BACK_FAILED.discard(str(self.state_path))
+
+    def test_a_record_from_a_newer_schema_is_still_refused(self):
+        # The other direction: a downgraded service must not silently drop a
+        # field it does not understand.
+        newer = dict(state_module.blank("debra-345678"),
+                     schema=state_module.SCHEMA + 1)
+        self.state_path.write_text(json.dumps(newer), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            state_module.read(self.state_path)
 
     def test_a_record_missing_a_key_is_refused_not_crashed_on(self):
         # A record that validates and then raises KeyError in status() is worse
@@ -921,6 +973,78 @@ class SecurityEndpointTests(Temp):
                          "the radio was changed although no worker could run")
         admitted, reason = self.onboarder.admit("HomeWiFi")
         self.assertTrue(admitted, f"the radio was never given back: {reason}")
+        # And the mode goes back with it. The page was told to reconnect with a
+        # password, so leaving `wpa` stored while the access point is still open
+        # is a lockout: the next status poll says the network is protected and
+        # the phone presents a key the radio never asks for.
+        self.assertEqual(self.onboarder.security, "none",
+                         "the stored mode was changed although nothing was raised")
+        self.assertFalse(self.state_path.with_name("setup-security").exists(),
+                         "the failed change froze its mode into a stored choice")
+
+    def test_the_mode_goes_back_when_the_status_cannot_be_read_for_the_reply(self):
+        # The other path into the same `finally`: the change is stored, and then
+        # building the reply cannot read the state. The page is never answered,
+        # so nothing must be left claiming a change is under way.
+        replies = []
+
+        class Handler:
+            def __init__(self, onboarder):
+                self.server = type("Server", (), {"onboarder": onboarder})()
+
+            def _reply(self, code, body, content_type="application/json"):
+                replies.append(code)
+
+        real_status = onboarding.Onboarder.status
+
+        def status(onboarder):
+            raise OSError(5, "Input/output error")
+
+        with patch.object(onboarding.Onboarder, "status", status):
+            with self.assertRaises(OSError):
+                onboarding.PortalHandler._security(Handler(self.onboarder),
+                                                  {"mode": "wpa"})
+        self.assertEqual(replies, [], "a reply was sent for a change that did not happen")
+        self.assertEqual(self.onboarder.security, "none")
+        self.assertFalse(self.state_path.with_name("setup-security").exists())
+        admitted, reason = self.onboarder.admit("HomeWiFi")
+        self.assertTrue(admitted, f"the radio was never given back: {reason}")
+
+    def test_reposting_the_mode_in_force_does_not_freeze_a_choice(self):
+        # A stale page posts the opposite of the mode it last polled, and that
+        # mode may be the one already in force. It still re-raises the access
+        # point - that is also how a raise that failed is retried, and how
+        # somebody asks to see the password again - but it must not write a
+        # stored choice. A stored file outranks the installer's flag for ever
+        # after, so this would silently disable a later --setup-security.
+        self.assertEqual(self.onboarder.security, "none")
+        before = len(self.network.calls)
+        code, body = self.request("/api/security", {"mode": "none"})
+        self.assertEqual(code, 202)
+        self.assertNotIn("password", json.loads(body))
+        self.settle(before)
+        self.assertFalse(self.state_path.with_name("setup-security").exists(),
+                         "a change that changed nothing created a stored choice")
+        self.assertGreater(len(self.network.calls), before,
+                           "the access point was not re-raised, so a failed raise "
+                           "could never be retried")
+
+    def test_reposting_wpa_serves_the_same_password_again(self):
+        # The other half, and a real use: the person lost the note and wants the
+        # password the device is actually using. It must be the same one, not a
+        # new one that strands every phone that already has the old.
+        before = len(self.network.calls)
+        code, body = self.request("/api/security", {"mode": "wpa"})
+        self.assertEqual(code, 202)
+        first = json.loads(body)["password"]
+        self.settle(before)
+        # Step past the interval a real person waiting for the page would, so
+        # this measures the password and not the throttle.
+        self.onboarder._last_security_change = float("-inf")
+        code, body = self.request("/api/security", {"mode": "wpa"})
+        self.assertEqual(code, 202)
+        self.assertEqual(json.loads(body)["password"], first,
+                         "a repeated request drew a different password")
 
     def test_a_foreign_origin_is_refused_like_the_join_handler(self):
         before = len(self.network.calls)
@@ -977,6 +1101,19 @@ class SetupPasswordTests(Temp):
         self.assertEqual(path.read_text(encoding="utf-8").strip(), first,
                          "the empty file was never repaired")
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_a_truncated_secret_is_replaced_rather_than_served(self):
+        # A file damaged to a few characters still reads as non-empty. The
+        # profile writer refuses anything under eight characters, so serving it
+        # would tell the person a password the access point then declines to use.
+        path = self.dir / "secret"
+        path.write_text("abc\n", encoding="utf-8")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            secret = onboarding.setup_secret(path)
+        self.assertGreaterEqual(len(secret), 8)
+        self.assertTrue(nm_module.valid_psk(secret))
+        self.assertEqual(path.read_text(encoding="utf-8").strip(), secret,
+                         "the damaged file was not repaired")
 
     def test_the_password_is_kept_so_a_second_raise_agrees_with_the_note(self):
         # The access point is raised again after a failed join. A fresh
@@ -1126,6 +1263,21 @@ class SetupSecuritySwitchTests(Temp):
             onboarder.set_security("open")
         self.assertFalse(stored.exists(), "a refused mode left a file behind")
         self.assertEqual(onboarder.status()["security"], "wpa")
+
+    def test_a_corrupt_mode_file_is_not_a_choice_somebody_made(self):
+        # `has_stored_security` decides whether a revert may write the mode back.
+        # `exists()` would answer yes for a hand-edited junk file, and the revert
+        # would then turn the junk into a stored choice that outranks the
+        # installer's flag for ever - the exact outcome the `had_choice` guard
+        # exists to prevent, arriving from a different input.
+        stored = self.state_path.with_name("setup-security")
+        stored.write_text("wpaa\n", encoding="utf-8")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(security="none")
+        self.assertFalse(onboarder.has_stored_security(),
+                         "a corrupt mode file was counted as a choice")
+        stored.write_text("wpa\n", encoding="utf-8")
+        self.assertTrue(onboarder.has_stored_security())
 
     def test_a_stored_mode_that_is_not_one_falls_back_to_the_installed_default(self):
         # Installed `none` and a stored value that is not a mode: the installed

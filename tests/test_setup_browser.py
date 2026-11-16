@@ -968,14 +968,21 @@ class SetupBrowserTests(unittest.TestCase):
         self.assert_driven("lost-reply")
 
     def test_a_lost_change_reply_does_not_claim_the_password_was_turned_on(self):
-        # The discriminating assertions live in the browser case (`security-lost`):
-        # the uncertain card must be shown, the handover must not, and the next
-        # status answer must still report the mode the device is really in. This
-        # wrapper only runs that case and checks the device was left alone.
-        state = self.assert_driven("security-lost")
+        # The discriminating page assertions live in the browser case
+        # (`security-lost`): the uncertain card must be shown, the handover must
+        # not, and the next status answer must still report the mode the device
+        # is really in. This wrapper checks the other half - that the device was
+        # left alone.
+        #
+        # `setup-security` is the file that records a page-made mode. It is not
+        # a key in `setup.json`, so reading the state here (as an earlier version
+        # of this test did) could never fail: the mode lives in its own file.
+        state, files = self.assert_driven_with_files("security-lost")
         self.assertIsNone(state.get("last_error"))
-        self.assertNotEqual(state.get("security"), "wpa",
-                            "a reply that never arrived changed the stored mode")
+        self.assertNotIn("setup-security", files,
+                         "a reply that never arrived recorded a mode choice")
+        self.assertNotIn("setup-secret", files,
+                         "a reply that never arrived drew and stored a password")
 
     def test_a_status_answer_from_before_the_submission_is_ignored(self):
         self.assert_driven("stale-poll")

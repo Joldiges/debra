@@ -16,10 +16,13 @@ boot-partition note, which is how the owner learns it.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+LOGGER = logging.getLogger(__name__)
 
 # unconfigured: nothing joined yet, nothing running.
 # hotspot:      the setup access point is up and the portal is serving.
@@ -28,7 +31,20 @@ from pathlib import Path
 # failed:       an attempt failed; the access point is coming back with a reason.
 PHASES = ("unconfigured", "hotspot", "connecting", "online", "failed")
 
-SCHEMA = 1
+SCHEMA = 2
+
+# Keys an earlier schema kept and this one does not. `hotspot_password` held the
+# setup network's password inside the record the status API reports; it now
+# lives in its own owner-only file. Such a key is dropped on read rather than
+# refused: `validate` rejects anything it did not write, so refusing an older
+# record would leave an upgraded device with no setup network at all, and the
+# journal would say only "ValueError".
+DROPPED = ("hotspot_password",)
+
+# Paths whose migrated record could not be written back. `read` is on the status
+# path, so a read-only state directory would otherwise log the same warning on
+# every poll; one line is enough for anyone to notice the filesystem.
+_WRITE_BACK_FAILED = set()
 
 
 def now():
@@ -63,6 +79,29 @@ def blank(hostname=""):
         "baseline_error": None,
         "updated": now(),
     }
+
+
+def migrate(data):
+    """Bring an older record up to the current schema, or return it unchanged.
+
+    Only a *lower* schema is touched. A record from a newer one is left alone so
+    that `validate` refuses it: a downgraded service must not silently discard a
+    field it does not understand. Migration fills keys the older schema did not
+    have from `blank()`, which is what makes an upgrade a restart rather than a
+    failed unit.
+    """
+    if not isinstance(data, dict):
+        return data
+    schema = data.get("schema")
+    if isinstance(schema, bool) or not isinstance(schema, int):
+        return data
+    if schema >= SCHEMA:
+        return data
+    migrated = {key: value for key, value in data.items() if key not in DROPPED}
+    for key, value in blank().items():
+        migrated.setdefault(key, value)
+    migrated["schema"] = SCHEMA
+    return migrated
 
 
 def validate(data):
@@ -128,7 +167,24 @@ def read(path):
     except FileNotFoundError:
         return blank()
     data = json.loads(raw)
-    return validate(data)
+    migrated = validate(migrate(data))
+    if isinstance(data, dict) and migrated["schema"] != data.get("schema"):
+        # Write the migrated record back, best effort. The whole point of
+        # dropping `hotspot_password` is that the credential stops living in
+        # this file; leaving it there until something else happens to write
+        # would keep it on disk for an unbounded time. The attempt is repeated
+        # rather than given up on - the filesystem may only be read-only for a
+        # while - but the warning is logged once per path, because this is on
+        # the status path and a poll must not repeat it every fifteen seconds.
+        try:
+            migrated = write(path, migrated)
+            _WRITE_BACK_FAILED.discard(str(path))
+        except (OSError, ValueError):
+            if str(path) not in _WRITE_BACK_FAILED:
+                _WRITE_BACK_FAILED.add(str(path))
+                LOGGER.warning("The migrated setup state could not be written back; "
+                               "the retired key stays on disk until it can be")
+    return migrated
 
 
 def write(path, data):

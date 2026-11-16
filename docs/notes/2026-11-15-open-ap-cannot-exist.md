@@ -31,10 +31,16 @@ that a later reviewer found still wrong:
   `none` stays open until it is reinstalled, by design"). It is not: the page
   stores the choice in `setup-security` and it survives reboots, which is what
   `POST /api/security` exists for.
-- **Its line 93 says the review's other findings are not addressed.** All
-  fourteen are addressed in this branch.
+- **Its line 93 says the review's other findings are not addressed.** Each of
+  the fourteen has a repair in this branch, and each repair is paired with a
+  mutation that fails without it (tabulated below). That is a claim about this
+  branch's diff, not a claim that the work is finished or reviewed.
 - **Its "Evidence" counts (415 tests, 9 browser cases) are stale.** The figures
   at the end of this note are the ones this work was checked against.
+- **Its lines 76-80 attribute a `tests/test_docs.py` fix to "the same
+  worktree".** That file is not part of this branch's diff: the `.local`-path fix
+  arrived on `main` and a rebase took it. The note is right that the check was
+  broken; it is wrong about whose change fixed it.
 
 Its claims about the mechanism were also wrong, which is the section below.
 
@@ -102,11 +108,13 @@ nowhere else: not in `/api/status`, not in the state, not in the journal. A repl
 that cannot be delivered reverts the stored mode, because raising a network that
 demands a password nobody was told is worse than not changing it.
 
-## What the second review changed
+## What the reviews changed
 
-The first independent review of this work returned fourteen findings. Answering
-them produced five more that only appeared in the repair, and the worst of those
-was a lockout:
+Three independent reviews have run against this work. The first returned fourteen
+findings; answering those produced five more, and the second review's repair
+produced the upgrade break below. The pattern worth remembering is that a
+plausible-looking fix moved each problem rather than closing it, which is why
+every repair from here on is paired with a mutation that fails without it.
 
 - **One password, and it is the one the radio uses.** Making
   `hotspot_password()` the single reader was not enough while `setup_secret`
@@ -135,12 +143,38 @@ was a lockout:
   take down the only setup network the device has. Only the open mode accepts
   it; a password still demands `wpa-psk`.
 
+- **An upgrade does not brick the setup network.** Removing
+  `hotspot_password` from `setup.json` would have been refused by `validate`,
+  which rejects keys it did not write - so the first boot after an upgrade would
+  have raised, the unit would have failed, and there would be no access point and
+  no page. `state.py` is now schema 2 and `read()` migrates an older record by
+  dropping the retired key and filling anything the older schema lacked, then
+  writes it back best effort. A record from a *newer* schema is still refused: a
+  downgraded service must not silently discard a field it does not understand.
+- **Nothing left claiming a change after the reply.** The lost-reply revert only
+  covered the undelivered 202. A change that stored the mode and then failed to
+  start its worker - an unreadable state file, a thread that could not be created
+  - left the mode stored while the access point still ran the old one, which is
+  the same lockout by a different road. The mode now goes back on every path that
+  does not hand the claim to a worker.
+- **A corrupt mode file is not a choice.** `has_stored_security()` was `exists()`,
+  so a hand-edited junk file counted as a page-made choice and a revert would
+  promote it into one that outranks the installer for ever. It now reads the
+  value.
+- **Re-posting the mode in force changes nothing but the radio.** A stale page
+  pressing the button for the mode the device is already in still re-raises the
+  access point (which is also how a failed raise is retried, and how somebody
+  sees the password again) but no longer writes a stored choice.
+- **A damaged secret is replaced, not served.** A non-empty file shorter than
+  eight characters read as valid while the profile writer refuses it, so the 202
+  could carry a password the access point would never use.
+
 ## Evidence
 
 Executed in the worktree, offline, on this machine:
 
 ```sh
-python3 -B -m unittest discover -s tests                                 # 607 tests, OK, 39 skipped
+python3 -B -m unittest discover -s tests                                 # 615 tests, OK, 39 skipped
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'  # 39 tests, OK
 ```
 
@@ -164,6 +198,12 @@ suite is known to catch:
 | Do not record a rearm that cannot run | 1 error (uncaught `OSError` in the worker) |
 | Accept only `none`, not an empty value, as open | 1 error (an open access point is torn down) |
 | Stop excluding the setup state from a baseline | 1 failure (the password reached the archive) |
+| Do not revert the stored mode when no worker could start | 2 failures (stored mode and radio disagree) |
+| Write a stored choice for a redundant change | 1 failure (a choice nobody made) |
+| Serve a truncated secret instead of replacing it | 1 failure (a password the radio refuses) |
+| Count a corrupt mode file as a stored choice | 1 failure (junk becomes a choice) |
+| Read a legacy state record without migrating it | 1 error (`ValueError` on first boot) |
+| Log a failed migration on every read | 1 failure (a warning every poll) |
 
 ## Known limits of the mode switch
 
