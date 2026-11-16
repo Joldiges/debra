@@ -53,14 +53,24 @@ class FakeCommands:
     def __init__(self):
         self.calls = []
         self.percent, self.muted, self.present = 36, False, True
+        self.default_source = "alsa_input.platform-soc_sound.stereo-fallback"
         self.failed = None
 
     def __call__(self, argv, *, timeout=web.COMMAND_TIMEOUT):
-        if not 0 < timeout <= web.COMMAND_TIMEOUT:
+        # Short commands stay short; the two deliberate tests are allowed their
+        # own budget, which still has to fit inside one request.
+        if not 0 < timeout <= web.TEST_TIMEOUT:
             raise AssertionError("Command timeout must fit the request budget")
         self.calls.append(argv)
         if self.failed and self.failed in argv:
             raise web.Unavailable("private raw command output")
+        if argv[:2] == ["pactl", "get-default-source"]:
+            return self.default_source + "\n" if self.default_source else "\n"
+        if argv[0] == "paplay":
+            # A real paplay reads the file it was given and exits.
+            if not Path(argv[-1]).exists():
+                raise AssertionError("paplay was given no tone file")
+            return ""
         if argv[:4] == ["pactl", "--format=json", "list", "sinks"]:
             return json.dumps([{
                 "name": SINK, "description": "<not markup>", "mute": self.muted,
@@ -83,6 +93,137 @@ class FakeCommands:
         if argv == ["vcgencmd", "pmic_read_adc"]:
             return "EXT5V_V volt(24)=5.08700000V\nVDD_CORE_V volt(15)=0.812V"
         raise AssertionError(f"Unexpected command: {argv}")
+
+
+class AudioTestTests(unittest.TestCase):
+    """The two deliberate checks: a tone out, and a level in."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="web-test-", dir="/tmp/opencode")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.commands = FakeCommands()
+        self.captured = []
+
+        def capture(argv, *, timeout):
+            if not 0 < timeout <= web.REQUEST_TIMEOUT:
+                raise AssertionError("Capture must fit the request budget")
+            self.captured.append(argv)
+            return self.samples
+
+        # A tone lasting a second of speaking, at about a quarter of full scale.
+        self.samples = b"".join(int(8000).to_bytes(2, "little", signed=True)
+                                for _ in range(web.CAPTURE_RATE))
+        self.backend = web.Backend(SINK, {}, self.commands, self.root, capture=capture)
+
+    def test_the_tone_is_quiet_and_bounded_and_changes_nothing(self):
+        result = self.backend.test_output()
+        self.assertEqual((result["played"], result["hertz"], result["seconds"]),
+                         (True, web.TONE_HERTZ, web.TONE_SECONDS))
+        played = [call for call in self.commands.calls if call[0] == "paplay"]
+        self.assertEqual(len(played), 1)
+        self.assertEqual(played[0][1], "--device=" + SINK)
+        # No volume, mute or device switch accompanies a test tone.
+        self.assertFalse([call for call in self.commands.calls
+                          if "set-sink" in " ".join(call) or call[0] == "pactl"
+                          and call[1:2] != ["--format=json"]])
+
+    def test_the_tone_file_does_not_outlive_the_test(self):
+        self.backend.test_output()
+        played = [call for call in self.commands.calls if call[0] == "paplay"][0]
+        self.assertFalse(Path(played[-1]).exists(), "the tone was left on the device")
+
+    def test_a_muted_output_is_refused_rather_than_played_silently(self):
+        self.commands.muted = True
+        result = self.backend.test_output()
+        self.assertFalse(result["played"])
+        self.assertIn("muted", result["reason"])
+        self.assertFalse([call for call in self.commands.calls if call[0] == "paplay"])
+
+    def test_no_tone_is_played_through_a_sink_that_is_not_there(self):
+        self.commands.present = False
+        with self.assertRaises(web.Unavailable):
+            self.backend.test_output()
+        self.assertFalse([call for call in self.commands.calls if call[0] == "paplay"])
+
+    def test_the_tone_wav_is_a_real_wav_of_the_stated_length(self):
+        data = web.tone_wav(seconds=0.1, rate=8000)
+        self.assertTrue(data.startswith(b"RIFF"))
+        self.assertEqual(data[8:16], b"WAVEfmt ")
+        # 16-bit mono at 8 kHz for a tenth of a second, plus the 44-byte header.
+        self.assertEqual(len(data), 44 + 800 * 2)
+        # It fades in and out rather than starting with a click.
+        self.assertEqual(web.peak_percent(data[44:46]), 0.0)
+        self.assertEqual(web.peak_percent(data[44 + 799 * 2:44 + 800 * 2]), 0.0)
+
+    def test_the_peak_is_a_share_of_full_scale(self):
+        self.assertEqual(web.peak_percent(b"\x00\x00\x00\x00"), 0.0)
+        self.assertEqual(web.peak_percent((16384).to_bytes(2, "little", signed=True)), 50.0)
+        self.assertEqual(web.peak_percent((-32768).to_bytes(2, "little", signed=True)), 100.0)
+        # A trailing odd byte is a truncated sample, not a level.
+        self.assertIsNone(web.peak_percent(b"\x01"))
+
+    def test_the_microphone_test_reports_a_level_and_keeps_nothing(self):
+        result = self.backend.test_input()
+        self.assertEqual(result["available"], True)
+        self.assertEqual(result["level"], "Audible")
+        self.assertEqual(result["peak_percent"], 24.4)
+        self.assertEqual(result["seconds"], 1.0)
+        # It listened to the device's own default input, for about a second.
+        self.assertEqual(self.captured[0][0], "parec")
+        self.assertIn("--device=" + self.source, self.captured[0])
+        # Nothing was written anywhere: the state directory is still empty.
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_silence_is_reported_as_silence_not_as_success(self):
+        self.samples = b"\x00\x00" * web.CAPTURE_RATE
+        result = self.backend.test_input()
+        self.assertEqual(result["level"], "Silence")
+        self.assertEqual(result["peak_percent"], 0.0)
+
+    def test_a_capture_with_no_samples_says_so(self):
+        self.samples = b""
+        result = self.backend.test_input()
+        self.assertFalse(result["available"])
+        self.assertIn("no samples", result["reason"])
+
+    def test_a_device_without_a_default_input_says_so(self):
+        self.commands.default_source = ""
+        result = self.backend.test_input()
+        self.assertFalse(result["available"])
+        self.assertIn("no usable default input", result["reason"])
+        self.assertEqual(self.captured, [], "a capture ran with no source to read")
+
+    def test_the_input_name_is_never_taken_from_the_request(self):
+        # The capture runs `parec` with an argument, so a name from outside this
+        # process would be a command-line injection. It comes from the device's
+        # own answer, validated first.
+        self.commands.default_source = "--device=/etc/passwd; rm -rf /"
+        result = self.backend.test_input()
+        self.assertFalse(result["available"])
+        self.assertEqual(self.captured, [])
+
+    def test_one_capture_at_a_time(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def slow_capture(argv, *, timeout):
+            entered.set()
+            release.wait(5)
+            return self.samples
+
+        self.backend.capture = slow_capture
+        first = threading.Thread(target=self.backend.test_input, daemon=True)
+        first.start()
+        self.assertTrue(entered.wait(5))
+        with self.assertRaises(web.RequestExpired):
+            self.backend.test_input(deadline=time.monotonic() + 0.2)
+        release.set()
+        first.join(5)
+
+    @property
+    def source(self):
+        return self.commands.default_source
 
 
 class BackendTests(unittest.TestCase):

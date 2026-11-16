@@ -37,6 +37,10 @@ window.testState = {
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
   holdSetup: false, releaseSetup: null, failSetup: false,
+  // The two deliberate audio tests, and a way to hold one so a check can press
+  // the other button while it is running.
+  holdTest: false, releaseTest: null, testOutputGone: false,
+  noInput: false, inputPeak: 24.4, inputLevel: "Audible",
   holdAllSetup: false, heldSetup: [],
   // Every request the page makes, recorded at the entry point it calls. This
   // fixture script runs before app.js, so startup attempts are included, not
@@ -182,6 +186,25 @@ window.fetch = async (path, options) => {
   if (options.method === "POST") {
     const body = JSON.parse(options.body);
     state.posts.push({path, body});
+    // The two deliberate audio tests. Their answers are the server's own shape,
+    // so a check reads what the page was given, not what it expected.
+    if (path === "/api/audio/test-output") {
+      if (state.holdTest) await new Promise(resolve => { state.releaseTest = resolve; });
+      if (state.testOutputGone) {
+        return {ok: false, status: 503, json: async () => ({error: "Audio control unavailable"})};
+      }
+      return {ok: true, status: 200, json: async () => state.muted
+        ? {played: false, muted: true,
+           reason: "The output is muted, so a tone would be silent. Unmute it and try again."}
+        : {played: true, hertz: 660, seconds: 0.5, muted: false}};
+    }
+    if (path === "/api/audio/test-input") {
+      if (state.holdTest) await new Promise(resolve => { state.releaseTest = resolve; });
+      return {ok: true, status: 200, json: async () => state.noInput
+        ? {available: false, reason: "This device has no usable default input."}
+        : {available: true, source: "alsa_input.probe", peak_percent: state.inputPeak,
+           level: state.inputLevel, seconds: 1.2}};
+    }
     if (state.reject) {
       return {ok: false, status: 400, json: async () => ({error: "fixture rejection"})};
     }
@@ -1730,6 +1753,112 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_AUDIO_TESTS = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  const say = () => document.getElementById("test-result").textContent;
+  try {
+    // The page checks whether the device wants a key before it offers the way
+    // in, so the welcome card is not ready at load.
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    const speaker = document.getElementById("test-output"), mic = document.getElementById("test-input");
+    assert(speaker && mic, "the two test buttons are not on the page");
+    assert(!speaker.disabled && !mic.disabled, "the tests are unusable with a working output");
+    // Nothing runs until a person asks for it.
+    assert(testState.posts.length === 0, "a test ran without being pressed");
+    // The privacy sentence is visible before the microphone button is pressed,
+    // not buried in a disclosure after the fact.
+    const note = document.getElementById("test-note");
+    assert(note && !note.closest("details"), "the test explanation is hidden behind a disclosure");
+    assert(/keeps nothing/.test(note.textContent), "the page does not say what the microphone test does");
+
+    speaker.click();
+    for (let i = 0; i < 80 && !/Played/.test(say()); i++) await wait();
+    assert(testState.posts.length === 1 && testState.posts[0].path === "/api/audio/test-output",
+           "the tone request is wrong: " + JSON.stringify(testState.posts));
+    assert(JSON.stringify(testState.posts[0].body) === "{}",
+           "a test sent more than an empty request: " + JSON.stringify(testState.posts[0].body));
+    assert(/660 Hz tone for 0.5 seconds/.test(say()), "the tone result is not reported: " + say());
+    assert(!/\bup\b|volume changed|now at/.test(say()), "a test claimed to change the volume");
+
+    // A muted output is refused by the device, and the page repeats its reason
+    // rather than saying a tone was played into silence.
+    testState.muted = true;
+    await refresh();
+    speaker.click();
+    for (let i = 0; i < 80 && !/muted/.test(say()); i++) await wait();
+    assert(/muted, so a tone would be silent/.test(say()),
+           "a refused tone is not explained in the device's own words: " + say());
+    testState.muted = false;
+    await refresh();
+
+    // One at a time: a second press while a test is in flight must not send it.
+    const before = testState.posts.length;
+    testState.holdTest = true;
+    speaker.click();
+    for (let i = 0; i < 40 && !testState.releaseTest; i++) await wait();
+    assert(testState.releaseTest, "the held test never reached the device");
+    assert(speaker.disabled && mic.disabled, "the tests stayed usable while one was running");
+    assert(/Playing a short tone/.test(say()), "the page does not say a test is running: " + say());
+    speaker.click();
+    await wait();
+    assert(testState.posts.length === before + 1, "a second test was sent while one was running");
+    testState.releaseTest();
+    testState.holdTest = false;
+    for (let i = 0; i < 80 && speaker.disabled; i++) await wait();
+    assert(!speaker.disabled, "the tests never became usable again");
+
+    // The microphone answer is a level, and the page must not turn it into a
+    // verdict: "Audible input" is what the source produced, not proof the
+    // microphone works.
+    mic.click();
+    for (let i = 0; i < 80 && !/peak/.test(say()); i++) await wait();
+    assert(/Audible input: peak 24\.4% of full scale over 1\.2 seconds/.test(say()),
+           "the microphone level is not reported: " + say());
+    assert(/Nothing was kept/.test(say()), "the page does not say the capture was discarded");
+    assert(!/microphone works|microphone is working|all good/i.test(say()),
+           "the page claims the microphone works: " + say());
+
+    // Silence is reported as silence, with what to do about it.
+    testState.inputPeak = 0; testState.inputLevel = "Silence";
+    mic.click();
+    for (let i = 0; i < 80 && !/Silence input/.test(say()); i++) await wait();
+    assert(/Silence input/.test(say()), "silence is not named as silence: " + say());
+    assert(/check the microphone is connected/.test(say()),
+           "silence gives a person nothing to act on: " + say());
+
+    // A device with no usable input says so instead of reporting a level.
+    testState.noInput = true;
+    mic.click();
+    for (let i = 0; i < 80 && !/no usable default input/.test(say()); i++) await wait();
+    assert(/no usable default input/.test(say()), "a missing input is not explained: " + say());
+    testState.noInput = false;
+
+    // A refused test says what failed and does not claim a result.
+    testState.testOutputGone = true;
+    speaker.click();
+    for (let i = 0; i < 80 && !/could not run/.test(say()); i++) await wait();
+    assert(/could not run/.test(say()), "a failed test is not reported: " + say());
+    testState.testOutputGone = false;
+
+    // Nothing above changed the volume or muted anything.
+    const writes = testState.posts.filter(post => /volume|mute/.test(post.path));
+    assert(writes.length === 0, "a test changed the audio settings: " + JSON.stringify(writes));
+    result.textContent = "PASS: the two audio tests run only when pressed, report what happened, change nothing and keep nothing";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_DISCONNECT_WRITE = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -2149,7 +2278,7 @@ class BrowserTests(unittest.TestCase):
                                    "/check-unverified-key.js", "/check-checking.js",
                                    "/check-stale.js", "/check-first-screen.js",
                                    "/check-nav.js", "/check-missing-readings.js",
-                                   "/check-output-gone.js"):
+                                   "/check-output-gone.js", "/check-audio-tests.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -2166,6 +2295,7 @@ class BrowserTests(unittest.TestCase):
                               "/check-setup-marker.js": CHECK_SETUP_MARKER,
                               "/check-setup-current.js": CHECK_SETUP_CURRENT,
                               "/check-disconnect-write.js": CHECK_DISCONNECT_WRITE,
+                              "/check-audio-tests.js": CHECK_AUDIO_TESTS,
                               "/check-refused-key.js": CHECK_REFUSED_KEY,
                               "/check-refused-keyless.js": CHECK_REFUSED_KEYLESS,
                               "/check-query-key.js": CHECK_QUERY_KEY,
@@ -2309,6 +2439,13 @@ class BrowserTests(unittest.TestCase):
         # repainted it unconditionally and threw a TypeError, which nothing
         # displays because the handler is an event listener.
         self.run_browser("?auth=none", "check-disconnect-write.js")
+
+    def test_the_two_audio_tests_run_only_when_pressed_and_change_nothing(self):
+        # "Is the speaker working?" and "can it hear me?" are the two questions a
+        # beginner asks, and no reading answers either. Both are deliberate
+        # presses that report what happened -- and neither may quietly alter the
+        # volume, or claim more than the level supports.
+        self.run_browser("?auth=none", "check-audio-tests.js", budget=20000)
 
     def test_browser_and_server_url_contract_and_literal_labels(self):
         for url, expected in URL_CASES.items():

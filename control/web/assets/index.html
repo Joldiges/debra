@@ -75,6 +75,16 @@
                for the slider to stop moving, then sends one change. -->
           <input id="volume" type="range" min="0" max="100" step="1" disabled>
           <div class="row"><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
+          <!-- The two questions no reading can answer: does the speaker make a
+               sound, and does the microphone hear one? Both are buttons rather
+               than readings because both make something happen, and neither is
+               a control a person can leave switched on. -->
+          <div class="row" role="group" aria-label="Check the audio">
+            <button id="test-output" class="secondary" type="button" disabled>Test speaker</button>
+            <button id="test-input" class="secondary" type="button" disabled>Test microphone</button>
+          </div>
+          <p id="test-result" class="action-notice" role="status" aria-live="polite"></p>
+          <p id="test-note" class="detail">Test speaker plays half a second of quiet tone through this output; it does not change the volume. Test microphone listens for about a second, reports how loud it was, and keeps nothing: no recording is saved or sent anywhere.</p>
         </div>
         <!-- The outcome of a write sits here, beside the control that caused it.
              The global #error is at the top of the page, far from this control,

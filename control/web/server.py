@@ -87,6 +87,16 @@ HAT_OPTIONS = (
 REQUEST_TIMEOUT = 15
 COMMAND_TIMEOUT = 2
 DISCOVERY_INTERVAL = 30
+# The two checks a person runs to answer "is this thing actually working?" are
+# bounded by these. Both are short on purpose: a tone long enough to locate the
+# speaker but not long enough to be a nuisance, and a capture long enough to say
+# whether anything arrived. Neither is stored anywhere after the answer.
+TONE_SECONDS = 0.5
+TONE_HERTZ = 660
+TONE_AMPLITUDE = 0.12        # ~ -18 dBFS: audible, quiet, never startling
+CAPTURE_SECONDS = 1.2
+CAPTURE_RATE = 48000
+TEST_TIMEOUT = 4
 
 
 def payload_digest(payload):
@@ -293,6 +303,66 @@ def run_command(argv, *, timeout=COMMAND_TIMEOUT):
     if result.returncode:
         raise Unavailable("Command did not succeed")
     return result.stdout
+
+
+def run_capture(argv, *, timeout):
+    """Run a command and keep its raw bytes, for a capture that ends by timeout.
+
+    `parec` records until it is stopped, so reaching the timeout is the expected
+    end of the capture rather than a failure: the samples gathered before it are
+    the answer, and `subprocess` hands them over on the exception.
+    """
+    try:
+        result = subprocess.run(argv, capture_output=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as expired:
+        return expired.stdout or b""
+    except OSError as exc:
+        raise Unavailable("Command unavailable") from exc
+    if result.returncode:
+        raise Unavailable("Capture command did not succeed")
+    return result.stdout
+
+
+def tone_wav(seconds=TONE_SECONDS, hertz=TONE_HERTZ, amplitude=TONE_AMPLITUDE,
+             rate=CAPTURE_RATE):
+    """A short quiet tone as WAV bytes, built in memory.
+
+    Nothing is fetched, decoded or read from disk, so the sound this page makes is
+    the same sound on every device and no asset can go missing.
+    """
+    frames = max(1, int(seconds * rate))
+    samples = bytearray()
+    for index in range(frames):
+        value = amplitude * math.sin(2 * math.pi * hertz * index / rate)
+        samples += int(value * 32767).to_bytes(2, "little", signed=True)
+    # A few milliseconds of fade keep the start and end from clicking, which
+    # sounds like a fault rather than a test.
+    fade = min(int(0.01 * rate), frames // 4)
+    for index in range(fade):
+        scale = index / fade
+        for offset in (index, frames - 1 - index):
+            value = int(int.from_bytes(samples[2 * offset:2 * offset + 2], "little",
+                                       signed=True) * scale)
+            samples[2 * offset:2 * offset + 2] = value.to_bytes(2, "little", signed=True)
+    header = (b"RIFF" + (36 + len(samples)).to_bytes(4, "little") + b"WAVE"
+              + b"fmt " + (16).to_bytes(4, "little")
+              + (1).to_bytes(2, "little") + (1).to_bytes(2, "little")
+              + rate.to_bytes(4, "little") + (rate * 2).to_bytes(4, "little")
+              + (2).to_bytes(2, "little") + (16).to_bytes(2, "little")
+              + b"data" + len(samples).to_bytes(4, "little"))
+    return header + bytes(samples)
+
+
+def peak_percent(data):
+    """Peak level of raw little-endian 16-bit mono samples, as a share of full scale."""
+    usable = len(data) - (len(data) % 2)
+    if usable <= 0:
+        return None
+    peak = 0
+    for index in range(0, usable, 2):
+        value = int.from_bytes(data[index:index + 2], "little", signed=True)
+        peak = max(peak, abs(value))
+    return round(100 * peak / 32768, 1)
 
 
 def read_text(root, name):
@@ -548,15 +618,21 @@ def metrics(root, previous=None, elapsed=None):
 
 
 class Backend:
-    def __init__(self, sink, metadata, runner=run_command, root=Path("/")):
+    def __init__(self, sink, metadata, runner=run_command, root=Path("/"),
+                 capture=run_capture):
         if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.:-]*", sink):
             raise ValueError("Use an explicit native sink name, not a default alias")
         self.sink, self.metadata, self.runner, self.root = sink, metadata, runner, root
+        self.capture = capture
         self.lock = threading.Lock()
         self.previous = self.sample_time = self.cache_time = self.cached = None
+        # A capture is one deliberate action at a time. Two tabs pressing Test
+        # microphone would otherwise both claim the source and split the answer
+        # between them.
+        self.capture_lock = threading.Lock()
 
-    def command(self, argv, deadline=None):
-        timeout = min(COMMAND_TIMEOUT, remaining(deadline)) if deadline is not None else COMMAND_TIMEOUT
+    def command(self, argv, deadline=None, timeout=COMMAND_TIMEOUT):
+        timeout = min(timeout, remaining(deadline)) if deadline is not None else timeout
         result = self.runner(argv, timeout=timeout)
         if deadline is not None:
             remaining(deadline)
@@ -607,6 +683,87 @@ class Backend:
             # expired queued Apply must never invoke the native mutator.
             self.command(argv, deadline)
             return self.audio(deadline)
+
+    def test_output(self, deadline=None):
+        """Play one short quiet tone through the selected sink.
+
+        This is the only thing this server does that makes a sound, and it exists
+        because "is the speaker working?" cannot be answered by any reading. It
+        is bounded, it is quiet, it plays at whatever level the sink is set to,
+        and it changes nothing: no volume, no mute, no device switch, no
+        fallback. A muted sink is refused rather than played silently, because a
+        person who presses the button and hears nothing learns the wrong thing.
+        """
+        deadline = time.monotonic() + REQUEST_TIMEOUT if deadline is None else deadline
+        with self.acquired(deadline):
+            state = self.audio(deadline)
+            if not state["available"]:
+                raise Unavailable("Selected output unavailable")
+            if state["muted"]:
+                return {"played": False, "reason": "The output is muted, so a tone would be "
+                                                   "silent. Unmute it and try again.",
+                        "muted": True}
+            tone = tone_wav()
+            # The tone lives in a private temporary directory for the length of
+            # the command and is removed with it: this is a sound, not a file a
+            # person can later find left on the device.
+            with tempfile.TemporaryDirectory(prefix="debra-tone-") as folder:
+                path = Path(folder) / "tone.wav"
+                # Created owner-only from the instant it exists, so no other
+                # local user can read even this short, harmless sound.
+                handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(handle, "wb") as stream:
+                    stream.write(tone)
+                self.command(["paplay", "--device=" + self.sink, str(path)], deadline,
+                             timeout=TEST_TIMEOUT)
+            return {"played": True, "hertz": TONE_HERTZ, "seconds": TONE_SECONDS,
+                    "muted": False}
+
+    def test_input(self, deadline=None):
+        """Listen to the default source for one moment and report its peak level.
+
+        The samples are held in memory, reduced to one number and dropped. They
+        are not written to the state directory, not logged, and not sent anywhere
+        but back to the browser that asked, as a percentage. That is the whole
+        privacy story, and the page says so before the button is pressed.
+
+        A level is what the source produced, which is not the same as "the
+        microphone works": a source can return silence with the microphone
+        unplugged, and noise with nothing speaking. The wording keeps that
+        difference rather than declaring success.
+        """
+        deadline = time.monotonic() + REQUEST_TIMEOUT if deadline is None else deadline
+        if not self.capture_lock.acquire(timeout=remaining(deadline)):
+            raise RequestExpired("Another microphone test is running")
+        try:
+            try:
+                source = self.command(["pactl", "get-default-source"]).strip()
+            except Unavailable:
+                return {"available": False,
+                        "reason": "This device did not name a default input."}
+            if not source or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.:-]*", source):
+                return {"available": False,
+                        "reason": "This device has no usable default input."}
+            argv = ["parec", "--raw", "--format=s16le", f"--rate={CAPTURE_RATE}",
+                    "--channels=1", "--latency-msec=20", "--device=" + source]
+            data = self.capture(argv, timeout=min(CAPTURE_SECONDS + 1.5,
+                                                  remaining(deadline)))
+            peak = peak_percent(data or b"")
+            if peak is None:
+                return {"available": False, "source": source,
+                        "reason": "The input produced no samples to measure."}
+            if peak >= 99.0:
+                level = "Clipping"
+            elif peak < 1.0:
+                level = "Silence"
+            elif peak < 3.0:
+                level = "Very quiet"
+            else:
+                level = "Audible"
+            return {"available": True, "source": source, "peak_percent": peak,
+                    "level": level, "seconds": round(len(data) / 2 / CAPTURE_RATE, 2)}
+        finally:
+            self.capture_lock.release()
 
     def components(self, deadline=None):
         probes = {}
@@ -1043,7 +1200,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self.permitted(write=True):
             return
-        if self.path not in ("/api/audio/volume", "/api/audio/mute"):
+        if self.path not in ("/api/audio/volume", "/api/audio/mute",
+                             "/api/audio/test-output", "/api/audio/test-input"):
             self.reply(404, {"error": "Not found"})
             return
         try:
@@ -1062,8 +1220,14 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw)
             if not isinstance(payload, dict):
                 raise ValueError("JSON object required")
-            result = self.server.backend.change_audio(
-                self.path.rsplit("/", 1)[1], payload, deadline=self.deadline)
+            route = self.path.rsplit("/", 1)[1]
+            if route == "test-output":
+                result = self.server.backend.test_output(deadline=self.deadline)
+            elif route == "test-input":
+                result = self.server.backend.test_input(deadline=self.deadline)
+            else:
+                result = self.server.backend.change_audio(route, payload,
+                                                          deadline=self.deadline)
             self.reply(200, result)
         except (ValueError, UnicodeError):
             self.reply(400, {"error": "Invalid audio request"})

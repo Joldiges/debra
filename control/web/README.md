@@ -59,6 +59,18 @@ an observation time.
   and only while there is something to retry. A level that could not be sent (no
   usable output, a device that is not answering, a disconnected tab) is labelled
   as not applied rather than left looking as if it were sent.
+- **Two deliberate checks, and no reading can replace them.** *Test speaker*
+  plays half a second of 660 Hz tone at about −18 dBFS through the selected
+  sink, built in memory as a WAV, written to a private temporary file for the
+  length of the command and removed with it. It never changes volume, mute or
+  device, never falls back, and is refused with a reason when the output is
+  muted rather than played into silence. *Test microphone* records about a
+  second from the device's own default input with `parec`, reduces it to one
+  peak figure and drops the samples: nothing is written to the state directory,
+  logged or sent anywhere but back to the browser that asked. Silence is
+  reported as silence; the page never turns a level into "the microphone
+  works". One of each runs at a time. `POST /api/audio/test-output` and
+  `POST /api/audio/test-input` take an empty JSON object (`{}`).
 - The outcome of a write is reported beside the control that caused it, under
   the slider and mute: a rejection or an unanswered change explains itself
   where the person is looking. The page-level error region carries read
@@ -76,7 +88,9 @@ an observation time.
   including when the device does not answer or answers with an error. Older
   browsers without `AbortSignal.timeout` use a fallback.
 - Starting, installing, polling, reconnecting and stopping never restore or set
-  volume. No sound, microphone recording or test tone is generated.
+  volume, and generate no sound. The only sound and the only microphone capture
+  in this code happen when a person presses **Test speaker** or **Test
+  microphone**, one press at a time, and neither outlives the press.
 - Most status is cached for two seconds; the selected sink's audio state is
   re-read on every status request, including cache hits.
 - No fallback sink, package installation, sudo, component restart, Wi-Fi change,

@@ -34,6 +34,9 @@ let muteOp = null;
 // queued level, so dragging across forty values sends one command rather than
 // forty, and the newest value is always the one that is sent.
 let queuedVolume = null;
+// One audio test at a time: a tone still playing or a capture still running is
+// not something to start again, and pressing twice must not stack up either.
+let testing = false;
 let volumeTimer = 0;
 // Long enough that a drag is one command, short enough that a person who let go
 // does not wonder whether it took.
@@ -329,6 +332,9 @@ function audio(data) {
   // rather than that the device is refusing input.
   el("audio-controls").setAttribute("aria-busy", busy ? "true" : "false");
   for (const id of ["volume", "mute"]) el(id).disabled = !data.available || busy;
+  // A test needs a failure worth running, not more: enabling these with no
+  // usable output would only repeat a reason the card already shows.
+  for (const id of ["test-output", "test-input"]) el(id).disabled = busy || testing;
   if (data.available) {
     el("output").textContent = data.description ? `${data.description} (${data.sink})` : data.sink;
     el("audio-status").textContent = data.muted ? "Muted" : "Output unmuted";
@@ -741,7 +747,7 @@ async function refresh() {
       ? `The device is not answering. These are the last readings it sent — this page received them at ${
           new Date(lastReadAt).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} and the device does not report when it measured them.`
       : "";
-    for (const id of ["volume", "mute"]) el(id).disabled = true;
+    for (const id of ["volume", "mute", "test-output", "test-input"]) el(id).disabled = true;
     return false;
   } finally {
     refreshing = false;
@@ -801,7 +807,7 @@ async function change(path, body) {
     // TypeError on a legitimate Disconnect during an unanswered write.
     if (currentAudio) audio(currentAudio);
     if (!token && !bypass) {
-      for (const id of ["volume", "mute"]) el(id).disabled = true;
+      for (const id of ["volume", "mute", "test-output", "test-input"]) el(id).disabled = true;
     }
     showNotices();
     await refresh();
@@ -955,6 +961,46 @@ el("retry-volume").addEventListener("click", () => {
   scheduleVolume(0);
 });
 el("mute").addEventListener("click", () => change("/api/audio/mute", {muted: !currentAudio.muted}));
+el("test-output").addEventListener("click", () => runTest("test-output"));
+el("test-input").addEventListener("click", () => runTest("test-input"));
+// "Did the speaker work?" and "did the microphone hear me?" are the two questions
+// a beginner actually asks, and no reading answers either. Each is one deliberate
+// press, bounded by the device, and it reports in the same place every other
+// audio outcome is reported.
+async function runTest(route) {
+  if (testing || busy || (!token && !bypass)) return;
+  const isOutput = route === "test-output";
+  testing = true;
+  el("test-result").textContent = isOutput ? "Playing a short tone…"
+                                           : "Listening for about a second…";
+  if (currentAudio) audio(currentAudio);
+  try {
+    const result = await api(`/api/audio/${route}`, {});
+    if (isOutput) {
+      el("test-result").textContent = result.played
+        ? `Played a ${result.hertz} Hz tone for ${result.seconds} seconds. If you did not hear it, check the volume and that the speaker is connected.`
+        : String(result.reason || "The tone could not be played.");
+    } else if (!result.available) {
+      el("test-result").textContent = String(result.reason || "The microphone could not be read.");
+    } else {
+      // The level is what the source produced. Saying "the microphone works"
+      // would claim more: a source returns silence with the microphone unplugged
+      // and noise with a fan nearby, and neither is a working microphone.
+      el("test-result").textContent =
+        `${result.level} input: peak ${result.peak_percent}% of full scale over ${result.seconds} seconds.`
+        + (result.level === "Silence"
+           ? " Speak while pressing the button, and check the microphone is connected."
+           : " Nothing was kept: no recording was saved or sent.");
+    }
+  } catch (error) {
+    el("test-result").textContent = error.status === 401
+      ? "The device refused this tab's access. Enter its key again."
+      : `The test could not run: ${error.message}.`;
+  } finally {
+    testing = false;
+    if (currentAudio) audio(currentAudio);
+  }
+}
 
 function canonicalDeviceUrl(url) {
   if (typeof url !== "string" || url.length > 200) return null;
