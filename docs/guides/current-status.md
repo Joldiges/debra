@@ -35,9 +35,10 @@ These run on a Fedora development computer, not on the Pi.
 
 - The browser slice in `control/web/` is a standard-library service and local page
   for status, selected-sink volume and mute ([README](../../control/web/README.md)):
-  118 tests in `tests/test_web.py` on 2026-11-15; the Chromium scenarios are opt-in
-  and skip in an ordinary run (22 in `test_web_browser.py` and 21 in
-  `test_setup_browser.py`, 43 skipped in total).
+  124 tests in `tests/test_web.py` plus 19 installed-artifact tests in
+  `tests/test_install.py` on 2026-11-15; the Chromium scenarios are opt-in and
+  skip in an ordinary run (23 in `test_web_browser.py` and 21 in
+  `test_setup_browser.py`, 44 skipped in total).
 - Its installer, `control/web/install.py`, prepares files only: five runtime files
   in a content-addressed release, an owner-only key and a systemd user unit, with
   previous units kept for rollback. No packages, sudo, audio writes or service starts.
@@ -55,12 +56,14 @@ These run on a Fedora development computer, not on the Pi.
   mistake is one keystroke to undo. Marks live in `.local/status/notices.json`,
   are owner-only, and are dropped when the notice itself goes away.
 
-**Honest label:** the roadmap files this as WEB01 `/ prototype`. An independent
-review of `code-r5` returned *changes requested*; the fix round `code-r6` then
-returned **one low finding** (a port-80 link no browser could have followed) with
-all seven earlier findings corrected, and that finding is now fixed and awaiting
-the reviewer's re-check. The candidate is **not approved** until that lands, and
-the release deployed to the lab device predates it ([roadmap](../roadmap.md#browser-first-device-control), [updates log](../updates/2026-11-15.md)).
+**Honest label:** the roadmap files this as WEB01 `/ prototype`. It has been
+through ten independent review rounds; the last one (`code-r10`) returned
+*changes requested* with five reproduced findings — most seriously, a restore
+command that named no release at all was accepted because the check skipped every
+argument that did not start with `/`. Those are repaired and `code-r11` is
+reviewing the repair. The candidate is **not approved** until that lands, and the
+release deployed to the lab device predates all of it
+([roadmap](../roadmap.md#browser-first-device-control), [updates log](../updates/2026-11-15.md)).
 
 ## Design and models
 `models/` holds parametric SolidCraft sources with renders: component envelopes
@@ -82,13 +85,26 @@ usable as written; revision 2 answers those and is itself unreviewed, and the
 comparison tables inherit the findings and declare themselves not buying guidance
 ([review](../notes/2026-11-15-research-notes-review.md), [roadmap](../roadmap.md)). Prices are dated observations, not quotes.
 
+Two documents have since come through independent review: the ARMv6
+reconnaissance was **approved** after five rounds as research and
+experiment-design evidence ([Z01](../research/Z01-armv6.md)) — it proves no
+ARMv6 runtime, and the retained historical binary's build lineage and prior
+execution are still unknown — and the acceptance matrix was **accepted** after
+four rounds as test design ([acceptance](../testing/acceptance.md)), which
+approves no threshold and runs no test: every physical and privileged case in it
+is still `not-run`.
+
 ## What does not exist
 - No appliance image or image build: nothing here turns a blank card into a
   working Debra device.
 - No onboarding that has run on a device: the setup portal, the hardware-derived
   `debra-<id>` name and the first baseline exist as offline-tested code, but no
   radio has been raised, no network joined and no name applied by them. There is
-  no captive portal and no browser enrollment or access revocation.
+  no captive portal. Browser enrollment is **decided but not built**: the device
+  password is to be chosen during setup, with development-only provisions (a
+  bypass, an uncontested reset and `debra`) that production mode must refuse
+  ([decision](../design/browser-enrollment.md)); today the page's access key is
+  only obtainable from a terminal, and there is no revocation.
 - No updates screen and no per-component update policy.
 - No recovery implementation: no on-target capture/restore tool and no verified
   device restore; web rollback is fixture-tested only, imaging deferred
