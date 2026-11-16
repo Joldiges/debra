@@ -39,7 +39,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
 | Acceptance review `setup-r6` | — | `.local/reviews/setup-r6-20261115/` | independent, `gpt-6.1-sol`; frozen on `f9c5e7b`, running the full 38-row r5 sweep and judging the five r5 findings |
-| Acceptance review `code-r9` | — | `.local/reviews/code-r9-20261115/` | independent, `gpt-6.1-sol`; frozen on `f974f7f`, judging whether R8-01…R8-07 are closed and what the repairs broke |
+| Acceptance review `code-r9` | — | `.local/reviews/code-r9-20261115/` | independent, `gpt-6.1-sol`; frozen on `e170448` (the `f974f7f` repair plus a setup-test flake fix), judging whether R8-01…R8-07 are closed and what the repairs broke |
 
 ## Done this round
 
