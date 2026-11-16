@@ -26,12 +26,16 @@
       <!-- A person with more than one Debra needs to know which one they are
            looking at before typing a key into it. -->
       <p id="pair-address" class="detail"></p>
-      <p>Enter this device’s access key. It stays in this browser tab. Use this prototype only on a trusted local network.</p>
+      <p id="pair-intro">Enter this device’s access key. It stays in this browser tab. Use this prototype only on a trusted local network.</p>
       <form id="pair-form" method="post"><label for="key">Device access key</label><div class="row"><input id="key" type="password" autocomplete="off" required><button>Connect</button></div></form>
       <!-- What the page is doing before it knows whether a key is wanted. A
            keyless device is common here, and the card used to ask for a key
            while it was still finding out. -->
       <p id="pair-check" class="detail" role="status"></p>
+      <!-- A device with its access key switched off has nothing to ask for.
+           Leaving the key box there made a person type into a device that
+           accepts anything, which is a worse first minute than saying so. -->
+      <p id="keyless-lead" class="detail" hidden>This device does not ask for a key, so there is nothing to type. Continue below.</p>
       <p id="pair-status" class="bad" role="alert"></p>
       <noscript><p class="bad">This page needs JavaScript. Without it the device page cannot read status or change volume, and a key submitted here is not checked — it is posted rather than put in the address, and nothing is stored. Turn JavaScript on and enter it again.</p></noscript>
       <p id="key-source" class="detail">The key was created when this device was installed and is kept on the device; this page never shows it. Handing it to you from a setup screen is planned, not built.</p>

@@ -966,11 +966,18 @@ window.addEventListener("load", async () => {
            + (address && address.textContent));
     assert(/cannot verify/.test(address.textContent),
            "the welcome card implies the address was verified: " + address.textContent);
-    const hint = document.getElementById("key-source");
-    assert(hint && !hint.hidden, "no hint about where the access key comes from");
-    assert(/never shows it/.test(hint.textContent), "the hint does not say the page cannot show the key");
-    assert(/planned, not built/.test(hint.textContent),
-           "the hint promises a setup screen that does not exist");
+    // This device does not ask for a key, so it must not ask for one. A field
+    // that cannot change the outcome teaches a person that the page is broken.
+    assert(document.getElementById("pair-form").hidden,
+           "a key field is offered by a device that does not ask for a key");
+    assert(document.getElementById("key-source").hidden,
+           "the page explains where to find a key this device never asks for");
+    assert(document.getElementById("pair-intro").hidden,
+           "the card still tells a person to enter a key this device never asks for");
+    const lead = document.getElementById("keyless-lead");
+    assert(lead && !lead.hidden, "the page does not say this device needs no key");
+    assert(/nothing to type/.test(lead.textContent),
+           "the keyless lead does not say there is nothing to type: " + lead.textContent);
     assert(document.getElementById("device-links").children.length === 1, "device link not rendered");
     const first = document.getElementById("device-links").children[0];
     assert(first.querySelector("a.switch")?.href === "http://debra-3c6b3f.local:8787/",
@@ -1062,7 +1069,22 @@ window.addEventListener("load", async () => {
            "startup sent a request that is not a read: " + JSON.stringify(startupWrites));
     assert(testState.requests.some(request => request.path === "/api/status"),
            "the recorder saw no status read, so its silence proves nothing");
-    result.textContent = "PASS: key mode offers no bypass and writes nothing at startup";
+    // A beginner is asked for a key with no statement of where it comes from.
+    // The hint must say the page cannot show it, and must not claim a setup
+    // screen hands it over yet.
+    const hint = document.getElementById("key-source");
+    assert(hint && !hint.hidden, "no hint about where the access key comes from");
+    assert(/never shows it/.test(hint.textContent),
+           "the hint does not say the page cannot show the key");
+    assert(/planned, not built/.test(hint.textContent),
+           "the hint promises a setup screen that does not exist");
+    assert(!document.getElementById("pair-form").hidden,
+           "a device that wants a key offers no field to type it in");
+    assert(!document.getElementById("pair-intro").hidden,
+           "a device that wants a key does not say where it belongs");
+    assert(document.getElementById("keyless-lead").hidden,
+           "a device that wants a key says there is nothing to type");
+    result.textContent = "PASS: key mode offers no bypass, asks for the key, and writes nothing at startup";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -1716,13 +1738,18 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("pair").hidden === false, "the pairing card did not return");
     assert(document.getElementById("volume").disabled,
            "the volume control is still live after disconnect");
-    // Disconnecting leaves the person on a page that wants a key, so that is
-    // where focus belongs rather than nowhere.
-    assert(document.activeElement === document.getElementById("key"),
-           "focus did not move to the key field after disconnect: "
+    // Disconnecting leaves the person on the welcome card, so focus belongs on
+    // whatever that card now offers rather than nowhere. On this keyless device
+    // that is the continue button; a hidden key field cannot take focus, and
+    // asking for it is what made this check pass on the wrong element.
+    const offered = document.getElementById("pair-form").hidden
+      ? document.getElementById("bypass") : document.getElementById("key");
+    assert(!offered.hidden, "the welcome card offers nothing focusable");
+    assert(document.activeElement === offered,
+           "focus did not move to the card's action after disconnect: "
            + (document.activeElement.id || document.activeElement.tagName));
     result.textContent = "PASS: an audio write settling after Disconnect raises nothing, "
-      + "stays disconnected, and puts focus on the key field";
+      + "stays disconnected, and puts focus on the card's action";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }

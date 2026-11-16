@@ -177,6 +177,22 @@ function setBypassAvailable(available) {
   bypassAvailable = available;
   el("bypass").hidden = !available;
   el("bypass-note").hidden = !available;
+  el("keyless-lead").hidden = !available;
+  // A field that cannot change the outcome is worse than no field: with the
+  // key switched off, any key is accepted and none is needed. The form and the
+  // explanation of where a key comes from belong to key mode.
+  el("pair-form").hidden = available;
+  el("key-source").hidden = available;
+  // The line above the form says to enter a key. Left in place beside "there is
+  // nothing to type", the card contradicted itself in its own first screen.
+  el("pair-intro").hidden = available;
+}
+function focusCard() {
+  // Whichever control the welcome card is actually offering. Focusing a hidden
+  // field silently does nothing, which left focus on the device name after a
+  // disconnect on a keyless device. #bypass is the visible action there.
+  const target = el("pair-form").hidden ? el("bypass") : el("key");
+  if (target && !target.hidden) target.focus({preventScroll: true});
 }
 function showPairStatus(message) {
   // Pairing failures belong next to the key box, inside the welcome card. The
@@ -746,8 +762,10 @@ el("disconnect").addEventListener("click", () => {
   el("dashboard").hidden = true;
   el("pair").hidden = false;
   el("connection").textContent = "Disconnected";
-  // The key field is what they need next.
-  el("key").focus({preventScroll: true});
+  // What the card offers next: the key field when the device wants a key, the
+  // continue button when it does not. Focusing a hidden field left focus on the
+  // device name, because focusing something that is not rendered does nothing.
+  focusCard();
 });
 el("retry").addEventListener("click", async () => {
   // A read, and only a read: a write whose outcome was uncertain is never
