@@ -58,6 +58,11 @@ button { border: 1px solid transparent; background: var(--accent); color: #10251
 button.secondary { background: transparent; border-color: #49615c; color: #d5e4e0; }
 button:disabled { opacity: .4; cursor: default; }
 button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid #eac88a; outline-offset: 4px; }
+/* The device name and main are focused programmatically so a screen reader
+   starts in the right place. They are not controls, and the browser's default
+   ring around a heading reads as a selection box drawn on the page. A keyboard
+   user still gets a ring on everything they can actually operate. */
+#hostname:focus, main:focus { outline: none; }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 dl { margin-bottom: 0; }
 dl div { display: flex; justify-content: space-between; gap: 20px; padding: 11px 0; border-bottom: 1px solid #2b3a3e; font-size: 14px; }
