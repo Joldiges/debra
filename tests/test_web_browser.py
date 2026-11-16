@@ -732,6 +732,11 @@ window.addEventListener("load", async () => {
     assert(/access key switched off/i.test(warning.textContent),
            "the dashboard warning does not say the key is off");
     assert(warning.closest("#dashboard"), "the warning is not inside the dashboard");
+    // Present but styled as body text is not a warning: it must be visibly
+    // separate from the paragraphs around it.
+    const style = getComputedStyle(warning);
+    assert(style.backgroundColor !== "rgba(0, 0, 0, 0)", "the warning has no band");
+    assert(style.borderTopWidth !== "0px", "the warning has no border");
     assert(testState.posts.length === 0, "opening the dashboard wrote something");
     result.textContent = "PASS: a keyless dashboard keeps its warning visible";
   } catch (error) {

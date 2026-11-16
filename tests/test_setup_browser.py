@@ -33,6 +33,82 @@ ROOT = Path(__file__).resolve().parent.parent
 DEVSERVER = ROOT / "control" / "setup" / "devserver.py"
 CHROMIUM = shutil.which("chromium-browser") or shutil.which("chromium")
 
+# The setup page is the first thing a person sees, on a phone, and headless
+# Chromium here cannot make a 390 px viewport (it floors the window at 500 CSS
+# px). The page is framed at exactly 390 px instead. The portal sends no CSP, so
+# nothing has to be relaxed for this; the frame is the real page, served by the
+# proxy from the real portal.
+PHONE_WRAPPER = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>phone</title>
+<link rel="stylesheet" href="/phone.css">
+<script src="/phone.js" defer></script></head>
+<body>
+<iframe id="phone" src="/frame"></iframe>
+<pre id="browser-test-result"></pre>
+</body></html>
+"""
+
+PHONE_CSS = """
+html, body { margin: 0; }
+#phone { width: 390px; height: 900px; border: 0; }
+"""
+
+PHONE_SCRIPT = """
+const frame = document.getElementById("phone");
+const copy = () => {
+  try {
+    const inner = frame.contentDocument
+      && frame.contentDocument.getElementById("browser-test-result");
+    if (inner && inner.textContent) {
+      document.getElementById("browser-test-result").textContent = inner.textContent;
+    }
+  } catch (error) {
+    document.getElementById("browser-test-result").textContent = "FAIL: " + error.message;
+  }
+};
+setInterval(copy, 50);
+frame.addEventListener("load", copy);
+"""
+
+CHECK_PHONE = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 40));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    for (let i = 0; i < 60 && document.getElementById("loading").classList.contains("hidden"); i++) {
+      await wait();
+    }
+    await wait(120);
+    const width = document.documentElement.clientWidth;
+    assert(width === 390, "the frame is not a 390 px phone: " + width);
+    const wide = [];
+    for (const node of document.querySelectorAll("main *, header *, footer *")) {
+      const box = node.getBoundingClientRect();
+      if (box.width === 0 && box.height === 0) continue;
+      if (box.right > width + 0.5 || box.left < -0.5) {
+        wide.push((node.id || node.className || node.tagName) + " right=" + Math.round(box.right));
+      }
+    }
+    assert(wide.length === 0, "content is wider than the 390 px screen: " + wide.slice(0, 4).join(", "));
+    assert(document.documentElement.scrollWidth <= width,
+           "the setup page scrolls sideways: " + document.documentElement.scrollWidth);
+    // The three things a person must reach are all inside the screen.
+    for (const id of ["country", "ssid", "psk", "join"]) {
+      const box = document.getElementById(id).getBoundingClientRect();
+      assert(box.width > 0, id + " is not visible on the phone");
+      assert(box.right <= width + 0.5 && box.left >= -0.5, id + " is off the screen");
+    }
+    result.textContent = "PASS: the setup page fits a 390 px phone";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK = r"""
 "use strict";
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -569,6 +645,26 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if path == "/check.js":
             self._reply(200, self.server.script.encode(), "text/javascript; charset=utf-8")
             return
+        if path == "/phone":
+            self._reply(200, PHONE_WRAPPER.encode(), "text/html; charset=utf-8")
+            return
+        if path == "/phone.css":
+            self._reply(200, PHONE_CSS.encode(), "text/css; charset=utf-8")
+            return
+        if path == "/phone.js":
+            self._reply(200, PHONE_SCRIPT.encode(), "text/javascript; charset=utf-8")
+            return
+        if path == "/frame":
+            # The page itself, framed, with the same check script the other
+            # cases get. Its own relative requests still go through this proxy.
+            status, _, payload = self._portal("GET", "/")
+            if status != 200:
+                self._reply(status, payload, "application/json")
+                return
+            page = payload if self.server.page is None else self.server.page
+            page = page.replace(b"</body>", b'<script src="/check.js"></script></body>')
+            self._reply(200, page, "text/html; charset=utf-8")
+            return
         if path in ("/setup.js", "/api/status"):
             status, content_type, payload = self._portal("GET", self.path)
             self._reply(status, payload, content_type)
@@ -603,6 +699,9 @@ class SetupBrowserTests(unittest.TestCase):
                 CHROMIUM, "--headless", "--disable-gpu", "--no-first-run",
                 "--disable-background-networking", "--disable-component-update",
                 "--no-default-browser-check", "--user-data-dir=" + profile,
+                # A visible scrollbar inside the frame takes 15 px off the
+                # viewport, so a 390 px frame would lay out at 375.
+                "--hide-scrollbars",
                 "--dump-dom", "--virtual-time-budget=8000",
                 "http://" + host + "/" + query
             ], capture_output=True, text=True, timeout=60)
@@ -612,8 +711,12 @@ class SetupBrowserTests(unittest.TestCase):
                 time.sleep(0.5 * attempt)
         return result
 
-    def drive(self, case, *arguments, cut=False, page=None, script=CHECK):
-        """Click through one case and return Chromium's output and the device state."""
+    def drive(self, case, *arguments, cut=False, page=None, script=CHECK, phone=False):
+        """Click through one case and return Chromium's output and the device state.
+
+        `phone=True` opens the wrapper that holds the real page in a 390 px frame
+        instead of the page at the browser's own width.
+        """
         with DevServer(*arguments) as portal:
             proxy = PortalProxy(("127.0.0.1", 0), portal.host, page=page,
                                 script=script, cut_after_join=cut)
@@ -623,7 +726,7 @@ class SetupBrowserTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory(prefix="setup-chromium-",
                                                  dir="/tmp/opencode") as profile:
                     result = self.dump_dom(profile, "127.0.0.1:%d" % proxy.server_port,
-                                           "?case=" + case)
+                                           "phone" if phone else "?case=" + case)
             finally:
                 proxy.shutdown()
                 proxy.server_close()
@@ -712,6 +815,12 @@ class SetupBrowserTests(unittest.TestCase):
 
     def test_bad_input_is_refused_in_the_page_without_a_request(self):
         self.assert_driven("validation")
+
+    def test_a_phone_width_setup_page_fits(self):
+        # This page is read on a phone, at the moment the household Wi-Fi is
+        # being set up. Nothing about it was measured at a phone width.
+        html = self.drive("phone", script=CHECK_PHONE, phone=True)[0].stdout
+        self.assertIn("PASS:", self.verdict(html), self.verdict(html))
 
     def test_an_online_device_shows_its_address_and_baseline(self):
         state = self.assert_driven("online", "--phase", "online", "--ssid", "HomeWiFi")

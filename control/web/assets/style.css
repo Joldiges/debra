@@ -52,6 +52,12 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
    long one widened the phone layout instead of wrapping. */
 #output, #error { overflow-wrap: anywhere; }
 #error { color: #ffc8b8; }
+/* The keyless warning is a security statement, not a caption. It is read
+   before the controls it describes, so it gets its own band. */
+#auth-mode-warning {
+  margin: 0 0 20px; padding: 12px 16px; border: 1px solid #7a4a3c;
+  border-radius: 11px; background: #2a1c18; color: #ffc8b8; font-size: 13px;
+}
 footer { padding: 6px 4px; }
 [hidden] { display: none !important; }
 /* The Setup card. A disabled control keeps full-strength text around it: the
