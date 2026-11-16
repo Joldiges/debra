@@ -35,7 +35,7 @@ These run on a Fedora development computer, not on the Pi.
 
 - The browser slice in `control/web/` is a standard-library service and local page
   for status, selected-sink volume and mute ([README](../../control/web/README.md)):
-  117 tests in `tests/test_web.py` on 2026-11-15; the Chromium scenarios are opt-in
+  118 tests in `tests/test_web.py` on 2026-11-15; the Chromium scenarios are opt-in
   and skip in an ordinary run (22 in `test_web_browser.py` and 21 in
   `test_setup_browser.py`, 43 skipped in total).
 - Its installer, `control/web/install.py`, prepares files only: five runtime files
