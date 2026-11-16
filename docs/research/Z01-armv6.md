@@ -7,13 +7,23 @@ assigned by the coordinator. Nothing was installed, downloaded as a wheel, built
 or run, and no device was contacted: every runtime, performance and
 combined-operation row is **`not-run`**.
 
-Reviewed by `openrouter/openai/gpt-6.1-sol#flex-high` (docs-r1, 2026-11-15):
-**changes required**, nine findings — the leading blocker generalized a broken
-piwheels artifact to all 32-bit ARM, the experiments could not produce their
-promised evidence, and the historical build leads had no disposition. All nine
-are repaired here; the review record is
-`.local/reviews/docs-r1-20261115/verdict.md` (not in Git). The repairs are the
-coordinator's, so this document is still awaiting independent re-review.
+Reviewed twice by `openrouter/openai/gpt-6.1-sol#flex-high`, 2026-11-15:
+**changes required** both times. docs-r1 raised seven findings against this
+document: the leading blocker generalized a broken piwheels artifact to all
+32-bit ARM, the experiments could not produce their promised evidence, and the
+historical build leads had no disposition. The repairs below **address** those
+seven findings and are pending re-review; docs-r2, which re-read them, accepted
+the High finding and four of the Low/Medium ones, and rejected the repairs to E1,
+E3 and E0 plus the wording of the historical section. Those four rejections are
+addressed in this revision as well. Review records:
+`.local/reviews/docs-r1-20261115/verdict.md` and
+`.local/reviews/docs-r2-20261115/verdict.md` (not in Git). The repairs are the
+coordinator's, so nothing here is reviewed evidence yet.
+
+The reader should also know that the repair round added one piece of first-hand
+evidence: the historical ARMv6 TensorFlow Lite artifact in this repository's Git
+history was extracted and inspected with `readelf` (section 3). It was never
+executed, and no device was contacted.
 
 **Scope.** Read the Z01 card, the [project brief](../project-brief.md) ARMv6
 goal, [legacy findings](../legacy-findings.md) and the three existing notes
@@ -80,12 +90,31 @@ site-packages or an LVA patch, not a configuration option.
      built for ARMv7-A with NEON/VFPv4. ARM1176 has neither NEON nor VFPv4, so
      this artifact does not run on the target board;
    - **no ARMv6 build is published by anyone inspected**, and the only prebuilt
-     provider reached (`tphakala/tflite_c`) ships no 32-bit ARM at all.
+     provider reached (`tphakala/tflite_c`) ships no 32-bit ARM at all;
+   - the **one ARMv6 build this project has** is a historical local artifact in
+     its own Git history (`90a4c19:legacy/raspi0/libtensorflowlite_c.so`), buffer
+     attributes verified as `Tag_CPU_arch: v6`, `Tag_FP_arch: VFPv2` (section 3).
+     It is a v2.14.0 build with no source hash or toolchain pin, never loaded or
+     run, and not in the working tree.
 
-   So the blocker is the absence of an **ARMv6** artifact, not of every 32-bit
-   ARM artifact. On the target board this removes LVA's core feature (local wake
-   detection). `not-run`; the failure mode (wrong ELF class at `ctypes.CDLL`, or
-   `SIGILL` on a v7 instruction) is **`hypothesis`**.
+   So the blocker is the absence of a **supported, provenance-pinned ARMv6
+   artifact**, not of every 32-bit ARM artifact and not of any ARMv6 library ever
+   built here. On the target board, an ordinary install removes LVA's core
+   feature (local wake detection). Two failure modes are worth separating,
+   because they come from different causes:
+
+   - *the published routes:* the pinned binding maps **any** 32-bit ARM to
+     `linux_armv7l` (`get_platform()` in `wakeword.py`, read 2026-11-15), so a
+     Zero W is handed the ARMv7-A + NEON/VFPv4 library that pymicro-wakeword
+     bundles. ARM1176 has neither NEON nor VFPv4. The predicted result is a load
+     failure or `SIGILL` rather than a clean "unsupported platform" message, but
+     that prediction is **`hypothesis`**, not a run;
+   - *the piwheels/sdist route:* a wrong-ELF-class error at `ctypes.CDLL`, because
+     those artifacts carry an x86-64 library (prior note, `observed`).
+
+   The failure of an ordinary install is what makes the missing artifact a
+   blocker; the existence of the historical build is what makes it an
+   engineering gap rather than a dead end.
 2. **No armhf LVA container image**, so upstream's recommended install route is
    unavailable and Debra must own a bare-metal venv path. A workaround exists; it
    is work, not a blocker of principle.
@@ -129,16 +158,22 @@ The card asks for the named historical leads to be inspected, not just listed.
 Both are recorded in [legacy findings](../legacy-findings.md) and neither is a
 verified build.
 
-- **`legacy/tflitebuilder/tfbuild.sh`** tries TensorFlow Lite C **v2.14.0** with
-  ARMv6/VFP hard-float flags and XNNPACK disabled, and installs the shared
-  library at a Python-3.13-specific path. Reusable information: an ARMv6 build is
-  at least attempted with the C Makefile route, and XNNPACK is the part that was
-  switched off. Unresolved: whether the wake bindings' C API (`TfLiteModel*`,
-  `TfLiteInterpreter*`) and their symbol set are satisfied by 2.14.0 at all,
-  because the current wheels bundle **2.17.1** — an older build is not
-  automatically ABI-compatible with bindings pinned to a newer library, and the
-  symbol presence has to be checked rather than assumed. The script is also a
-  one-shot install, not a reproducible build: no source hash, no toolchain pin.
+- **`legacy/tflitebuilder/tfbuild.sh`** (read in history at
+  `90a4c19:legacy/tflitebuilder/tfbuild.sh`; the file is not in the working tree)
+  tries TensorFlow Lite C **v2.14.0** with ARMv6/VFP hard-float flags and XNNPACK
+  disabled, and installs the shared library at a Python-3.13-specific path.
+  What it actually does, verified from the script: it installs current
+  distribution `cmake`/`build-essential` with no version pins, shallow-clones the
+  **branch/tag name** `v2.14.0` (not a commit hash), configures
+  `../tensorflow/lite/c` with CMake using `-march=armv6 -mfpu=vfp
+  -mfloat-abi=hard` and `-DTFLITE_ENABLE_XNNPACK=OFF`, builds with `make`, copies
+  the first `libtensorflowlite_c.so` that `find` returns and strips it. Reusable
+  information: the CMake + `make` route, the exact ARMv6 flags, and XNNPACK as
+  the part that was switched off. Not reusable as a reproducible build: a tag is
+  not a hash, the toolchain is whatever the distribution had that day, and
+  "first match from `find`" is not a verified output. The historical concern
+  about 2.14.0 against the currently bundled 2.17.1 is narrower than it looked;
+  see the artifact check below.
 - **`legacy/wheelbuilder/Dockerfile`** bootstraps a Raspbian trixie armhf rootfs
   under QEMU `arm1176` and carries native/Rust build tools. Reusable information:
   an emulated armhf rootfs is a plausible build environment for ARMv6 wheels.
@@ -147,9 +182,31 @@ verified build.
   route is trusted, and the rootfs has to be pinned by digest rather than by
   distribution name.
 
-Neither lead is evidence that an ARMv6 build works. E4 below is the experiment
-that would start to answer the version-and-ABI question, and it names the
-symbol check that 2.14.0-versus-2.17.1 requires.
+### The artifact that script produced, inspected
+
+That build is not purely hypothetical: its output is in this repository's history
+at `90a4c19:legacy/raspi0/libtensorflowlite_c.so` (3,029,304 bytes, stripped,
+BuildID `552c58ae…`). I extracted it to a scratch directory and read it with
+`readelf` on 2026-11-15, without executing it:
+
+| Check | Result | What it establishes |
+| --- | --- | --- |
+| `readelf -h` | `ELF32`, `Machine: ARM`, `EABI5`, `DYN` | a 32-bit ARM shared object, not x86-64 |
+| `readelf -A` | `Tag_CPU_arch: v6`, `Tag_FP_arch: VFPv2`, `Tag_CPU_unaligned_access: v6` | built for ARMv6 with VFPv2, i.e. ARM1176-compatible attributes |
+| `readelf --dyn-syms` | all **16** symbols the pinned bindings bind in `wakeword.py` are exported (versioned `@@VERS_1.0`), including `TfLiteModelCreateFromFile`, `TfLiteInterpreterCreate`, `TfLiteInterpreterInvoke`, `TfLiteTensorCopyFromBuffer` and the tensor-introspection calls `TfLiteTensorByteSize`/`TfLiteTensorQuantizationParams` | the v2.14.0 C API the bindings call is **present** in this build |
+| `readelf -d` | needs `libstdc++.so.6`, `libm.so.6`, `libgcc_s.so.1`, `libc.so.6`, `ld-linux-armhf.so.3` | it is a hard-float (`armhf`) library; it cannot load in an ARMv6 `armel` userspace |
+
+So "does 2.14.0 satisfy the bindings' symbol set" has a concrete answer: at the
+symbol level, yes. That is not the same as "it works". A stripped binary with no
+source hash or toolchain pin has no provenance beyond the script above, it was
+never loaded or run on real hardware, and a symbol can be present while
+behaviour, tensor layout or operator support differ between 2.14.0 and 2.17.1.
+What the check removes is the assumption that the historical build is useless
+because of its version; what it cannot remove is the need to test it.
+
+None of this is evidence that ARMv6 voice works. E4 below is the experiment that
+would build a provenance-pinned library and load it, and it no longer has to
+guess whether the older API is compatible at all.
 
 ## 4. Offload options that keep the full-support goal
 
@@ -178,11 +235,19 @@ household service.
   Expected evidence: a dated transcript of what the image ships and whether
   piwheels is preconfigured. **This does not establish which archive built the
   packages, and it cannot**: an installed version string does not carry a build
-  origin or an instruction-set guarantee for PipeWire, mpv, PortAudio or their
-  dependencies. Blockers 6 and 8 stay `unknown` until either the image's archive
-  configuration and package metadata are tied to the image hash, or the exact
-  binaries are audited with `readelf` on the card. Write down which of those two
-  the run did; do not report the inventory as provenance.
+  origin, an instruction-set guarantee, or working audio. Three questions stay
+  separate and stay `unknown` until each has its own evidence:
+
+  - *archive provenance* (blocker 6): the image's archive configuration and
+    package metadata, tied to the image hash;
+  - *instruction-set safety* (blocker 5 and the `readelf` question): the exact
+    binaries read with `readelf` on the card;
+  - *functional audio* (blocker 8): PipeWire's Pulse compatibility, the socket,
+    and whether `soundcard` can play and record — a load-and-play test, not an
+    attribute.
+
+  `readelf` answers the second and nothing else. Write down which of the three
+  the run touched; do not report the inventory as provenance.
 - **E1 — artifact audit, no ARM hardware.** Two separate checks, because one
   command cannot answer both questions:
   1. *What is published.* `pip download --only-binary=:all: --platform
@@ -196,10 +261,24 @@ household service.
      failure means "no binary for this platform", not "a source build was
      chosen". Record the pip version, the indexes and the requirement strings
      with their pins.
-  2. *What a normal install would choose.* The same audit **without**
-     `--only-binary`, into a separate scratch directory, plus the source
-     distribution's metadata (`pip download --no-binary=:all: --no-deps`) and its
-     build requirements. That is where a source build shows up.
+  2. *What a source build would involve, package by package.* This cannot be a
+     second cross-target `pip download`: `--platform`, `--python-version`,
+     `--implementation` and `--abi` are only valid together with
+     `--only-binary=:all:` **or** `--no-deps`, so "the same audit without
+     `--only-binary`" is not a runnable command. The valid shapes are:
+     - a per-package sdist inspection —
+       `pip download --no-deps --no-binary=:all: <pkg>==<pinned version>` — then
+       read `pyproject.toml`/`setup.py`, the declared build backend and its
+       requirements. This says what a build would need; it does not say what a
+       complete install on the target would choose;
+     - a full target resolution, which needs a target environment (E2's report,
+       or a real armhf system), not a host-side `pip download`.
+     Two cautions to record with the result: preparing sdist metadata can execute
+     build-backend code, so it belongs in a disposable, network-restricted
+     environment rather than a scratch directory; and an arbitrary pip failure
+     does not by itself mean "no binary exists" — an unreachable index and a
+     dependency conflict look the same in a one-line error, so keep the full
+     diagnostic.
 - **E2 — resolver report, no install.** After a pinned requirement set exists —
   there is no `requirements-pinned.txt` in the repository yet, so creating one
   from the resolved versions is a prerequisite, not a step — run `pip install
@@ -211,26 +290,37 @@ household service.
   also make pip select an *older* wheel-bearing version rather than fail, a pass
   here is not proof that the newest declared version is installable. Report it as
   an artifact list, never as a source-build inventory.
-- **E3 — import probe under emulation.** Prerequisites, established outside the
-  command: a read-only mount or chroot of the extracted image, and a package
-  environment whose import paths are recorded. QEMU's `-L` is an ELF-interpreter
-  prefix, not an isolation boundary, so a bare `qemu-arm-static -L /mnt/raspios`
-  invocation does not make anything read-only. Probe each package in its own
-  process — `qemu-arm-static -cpu arm1176 -L /mnt/raspios
+- **E3 — import probe under emulation.** Prerequisites, all established outside
+  the command and each verified rather than assumed: (a) **read-only storage** —
+  a read-only bind mount or a snapshot with a write attempt that is observed to
+  be refused; (b) **confinement**, if it is wanted, from a mechanism that is one.
+  A chroot alone is not: `chroot(2)` changes pathname resolution and nothing
+  else, so it supplies neither read-only storage nor a security boundary. QEMU's
+  `-L` is an ELF-interpreter prefix, not an isolation boundary either, so a bare
+  `qemu-arm-static -L /mnt/raspios` invocation confines nothing. (c) the
+  environment the example executes in — with `qemu-arm-static` and the target
+  `python3` reachable inside the chroot's root — and the interpreter/search paths
+  the probe will use, recorded with the result.
+
+  Probe each package in its own process —
+  `qemu-arm-static -cpu arm1176 -L /mnt/raspios
   /mnt/raspios/usr/bin/python3 -c "import numpy; print(numpy.__file__)"`, then
   the same for `webrtc_noise_gain`, then the TFLite load — because a combined
   import cannot tell you which package raised `SIGILL`. Expected evidence: exit
-  status per package, the imported file path, and the signal or error text.
+  status per package, the imported file path, the signal or error text, and an
+  explicit statement of which mount and confinement were in force.
   Caveat to record with the result: QEMU's CPU model is an approximation and says
   nothing about speed.
 - **E4 — TFLite C build for ARMv6.** In a `linux/arm/v6` buildx container (or on a
-  spare Zero with swap, offline): build `libtensorflowlite_c.so` at the version
-  the pinned wake bindings expect (**2.17.1**, not the 2.14.0 the historical
-  script used), then `readelf -A` and a `ctypes.CDLL(...)` load under E3's
-  emulator, then check that the symbols the bindings call (`TfLiteModelCreate*`,
-  `TfLiteInterpreter*`) are present. Expected evidence: v6/VFPv2 attributes, a
-  successful load, a symbol check, and `TfLiteModelCreateFromFile` on a bundled
-  `.tflite`.
+  spare Zero with swap, offline): build `libtensorflowlite_c.so` from a commit
+  hash — not a tag — with a pinned toolchain, at the version the pinned wheels
+  currently bundle (**2.17.1**), chosen as the first target because it matches
+  what the bindings ship beside. Whether the bindings work with an older library
+  is a separate, open question; section 3 shows the 2.14.0 build exports every
+  symbol they bind, which is encouragement, not proof. Then `readelf -A`, a
+  `ctypes.CDLL(...)` load under E3's emulator, and a check that those same
+  symbols resolve. Expected evidence: v6/VFPv2 attributes, a successful load, the
+  symbol check, and `TfLiteModelCreateFromFile` on a bundled `.tflite`.
 - **E5 — wake detection on real hardware.** On a Zero W, a fixed 10 s 16 kHz mono
   WAV: `time python -m pymicro_wakeword --model okay_nabu sample.wav`, with
   `/usr/bin/time -v` for peak RSS. Expected evidence: detection result,
