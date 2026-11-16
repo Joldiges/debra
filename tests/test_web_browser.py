@@ -92,19 +92,19 @@ if (new URLSearchParams(location.search).get("hold") === "setup") state.holdSetu
 const setupPayload = () => ({
   writable: false,
   // The server's own words, so a check reads what the page was given.
-  reason: "This page reports what the device is built to do. It can record which "
-    + "audio board you have, ask a small root helper to write that board's overlay "
-    + "into the boot configuration, and restart the device. It cannot make the "
-    + "driver work: whether a board binds is what the restart and the sound-card "
-    + "list show.",
+  reason: "Nothing here proves a board works. The EEPROM product names a family, "
+    + "a listed sound card is not a passing test, and whether the driver binds "
+    + "after a restart is unknown until that restart has happened and the card is "
+    + "listed again.",
   hardware: {
     detected_hat: "ReSpeaker 2-Mics Pi HAT", detected_source: "fixture",
     retained_label: "ReSpeaker 2-Mics Pi HAT v2", retained_note: "fixture",
     cards: ["seeed2micvoicec", "vc4hdmi0"], cards_source: "/proc/asound/cards",
     selectable: state.hatSelectable, installed: null,
     choice: state.hatChoice,
-    reason: "This page can record which board you have chosen, and it can ask a small "
-      + "root helper to write that board's overlay into the boot configuration.",
+    reason: "Each row is what this page can establish about that board: the EEPROM "
+      + "product, whether a sound card with the driver's name is listed, and what is "
+      + "still unknown.",
     choice_note: "A recorded choice is what you asked for. Installing is a separate step, "
       + "it changes a file that decides whether the device boots, and it only takes "
       + "effect after a restart.",
@@ -653,15 +653,19 @@ window.addEventListener("load", async () => {
            "the update reason is still repeated in the observation list");
     assert(document.getElementById("setup-hardware-source").textContent.includes("seeed2micvoicec"),
            "the ALSA card list is not shown");
-    // The status line has to carry both halves: what the card can do, and what
-    // it cannot, or a person reads either a promise or a dead end.
+    // Both halves have to be on the card, or a person reads either a promise or
+    // a dead end. They are deliberately in different places now: the opening
+    // paragraph says what the page can change, and the status line says what
+    // none of it proves. Repeating both in one sentence was the duplication this
+    // pass removed.
     const status = document.getElementById("setup-status").textContent;
-    assert(/can record which audio board you have/.test(status),
-           "the status does not say what the card can do: " + status);
-    assert(/ask a small root helper to write/.test(status),
-           "the status does not say how installing works: " + status);
-    assert(/cannot make the driver work/.test(status),
-           "the status does not say what the card cannot do: " + status);
+    const opening = document.querySelector("#setup > p:not(.eyebrow)").textContent;
+    assert(/records which audio board/.test(opening) &&
+           /write that board’s overlay into the boot configuration/.test(opening) &&
+           /restart the device/.test(opening),
+           "the opening paragraph does not say what the page can change: " + opening);
+    assert(/not proof|Nothing here proves|is not a passing test/.test(status),
+           "the status does not say what the page cannot prove: " + status);
     // THE CARDINAL RULE: a planned capability is static text, never a control.
     // A disabled control is still a control: it promises a shape the page
     // cannot honour, and a handler on it runs the moment it is enabled.
@@ -1841,7 +1845,7 @@ window.addEventListener("load", async () => {
     assert(rows().every(count => count > 0),
            "an audio write discarded a valid setup answer: " + rows());
     assert(document.getElementById("setup-status").textContent.includes(
-             "cannot make the driver work"),
+             "not a passing test"),
            "the reason is missing: " + document.getElementById("setup-status").textContent);
     result.textContent = "PASS: an audio write does not discard a Setup answer already in flight";
   } catch (error) {

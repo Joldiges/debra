@@ -1122,11 +1122,12 @@ class Backend:
             # helper to write one overlay line, but every write is the helper's
             # and every setting below is still read-only.
             "writable": False,
-            "reason": "This page reports what the device is built to do. It can record which "
-                      "audio board you have, ask a small root helper to write that board's "
-                      "overlay into the boot configuration, and restart the device. It "
-                      "cannot make the driver work: whether a board binds is what the "
-                      "restart and the sound-card list show.",
+            # The card's opening paragraph says what it can change; this line is
+            # the other half, so neither has to say everything twice.
+            "reason": "Nothing here proves a board works. The EEPROM product names a "
+                      "family, a listed sound card is not a passing test, and whether the "
+                      "driver binds after a restart is unknown until that restart has "
+                      "happened and the card is listed again.",
             "hardware": {
                 "detected_hat": product,
                 "detected_source": "Device-tree HAT EEPROM product; empty means the HAT "
@@ -1157,10 +1158,9 @@ class Backend:
                                          "call it. Until then nothing here can change the "
                                          "boot configuration."},
                 "installed": None,
-                "reason": "This page can record which board you have chosen, and it can ask "
-                          "a small root helper to write that board's overlay into the boot "
-                          "configuration. It cannot make the driver work: whether a board "
-                          "binds is what the restart and the sound-card list show.",
+                "reason": "Each row is what this page can establish about that board: the "
+                          "EEPROM product, whether a sound card with the driver's name is "
+                          "listed, and what is still unknown.",
                 "choice_note": "A recorded choice is what you asked for. Installing is a "
                                "separate step, it changes a file that decides whether the "
                                "device boots, and it only takes effect after a restart.",

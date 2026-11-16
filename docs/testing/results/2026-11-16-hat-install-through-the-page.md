@@ -119,6 +119,29 @@ The preflight refusal is real, not theoretical: the Zero 2 W's 64-bit image has
 reported un-installable per board rather than failing after the write. The helper
 checks the same two facts again before it writes.
 
+## The card, in a real browser
+
+The page was loaded from the device in headless Chrome over the DevTools
+protocol, with the keyless device's own "continue without a key" button pressed
+and the Setup disclosure opened. Nothing was guessed: the report is the page's
+own DOM.
+
+| Device | Board recorded | Control shown | Card says |
+| --- | --- | --- | --- |
+| `debra-3c6b3f` | v2, overlay `respeaker-2mic-v2_0` in the file | **Remove driver** only | "The boot configuration names respeaker-2mic-v2_0. A restart applies it…" |
+| `debra-8518d6`, before a choice | none | none | "Choose a board above to see what installing it would do." |
+| `debra-8518d6`, after recording v1 | v1 | **none at all** | "This device does not have the install helper yet, so nothing here can change the boot configuration." |
+
+The last row is the point of the card's rule: a device that cannot install shows
+the enrolment command and no control. Nothing was offered disabled. No JavaScript
+error was logged on either page (`window.onerror` and `unhandledrejection` were
+captured from first byte).
+
+Two wording faults were found this way and fixed: the card's opening paragraph
+still said the only thing it keeps is the board choice, and the status line
+repeated the paragraph above it. They now carry different halves — what the page
+can change, and what none of it proves.
+
 ## What this does and does not prove
 
 - **Proven:** the HTTP endpoint reaches a root process with no password; the
