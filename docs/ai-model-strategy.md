@@ -13,9 +13,10 @@ a role; retain task evidence and change selections deliberately.
 
 | Role | Starting selection | Conditions |
 | --- | --- | --- |
-| Coordinator, architecture, integration | `openai/gpt-6.1-sol#xhigh` through the existing OpenAI subscription connection | Reserve enough allowance for supervision, decisions, and integration. James identifies Sol `xhigh` as the first tier he sufficiently trusts for this role; this is his judgment, not a benchmark result. |
-| Separate capable acceptance reviewer, first review of a slice | A fresh `openai/gpt-6.1-sol#flex-high` session | Review the exact frozen candidate and original sources. Separate context is useful but is not cross-model independence or an enforced merge gate. The coordinator still reproduces checks. |
-| Acceptance re-review of named findings, or a mechanical subsystem | A fresh `openai/gpt-6.1-terra#flex-high` session | Half the price of Sol at the same variant. Suitable when the question is "did these N findings close, and did the repair break anything", not "is this design sound". Not a silent replacement for Sol in coordination or a first review; escalate to Sol if Terra misses a finding the coordinator can reproduce. |
+| Coordinator, architecture, integration | Recorded selection `openai/gpt-6.1-sol#xhigh`; the host may run a cheaper session instead (see [Cost revision](#cost-revision-2026-11-16)) | Reserve enough allowance for supervision, decisions, and integration. James identifies Sol `xhigh` as the first tier he sufficiently trusts for this role; this is his judgment, not a benchmark result. |
+| Separate acceptance reviewer, ordinary slice | A fresh `openai/gpt-6-luna#flex-high` session | Review the exact frozen candidate and original sources. Separate context and a different model family from the DeepSeek coordinator are what make it independent; it is not an enforced merge gate, and the coordinator still reproduces checks. |
+| Separate acceptance reviewer, contract or new interface | A fresh `openai/gpt-6.1-terra#flex-high` session | For the question "is this the right contract", not "did these findings close". Also the escalation when Luna's report is vague or misses a reproduced defect. |
+| Separate acceptance reviewer, trust boundary | A fresh `openai/gpt-6.1-sol#flex-high` session | Credentials, identity, the restore/rollback boundary, recovery. Reserved because a miss there is silent and remote. |
 | Inexpensive bounded research/documentation worker | `openrouter/deepseek/deepseek-v4.1-flash-1017#high` | Preferred inexpensive worker, subject to the F01/F05 gates and verified task permissions. One documentation pilot is evidence for that narrow task, not general coding or architecture qualification. |
 | Allowance-funded alternative worker | `openai/gpt-6-luna#high` | Luna is acceptable for bounded work; prefer useful included allowance over paid calls when coordinator capacity permits. Its role still needs task-specific evidence and the same permission/review gates. |
 | Copilot-funded work, pending discovery | No exact model selected yet | Use suitable included models strategically after account connection, entitlement, current model IDs, allowance, and any premium multipliers are established. Do not assume a model available elsewhere is included here. |
@@ -43,24 +44,50 @@ DeepSeek's own total ($21.49) is far above what the listed per-token prices impl
 for its token counts, so either that listing is stale or reasoning tokens are
 billed differently; "cheap model" does not mean "cheap session".
 
-The policy from here:
+The session that wrote this ran `deepseek/deepseek-v4.1-flash-1017#high` per the
+host, not the Sol coordinator selection recorded above. That is the practical
+reason the independence rule below is about **families**, not tiers: a DeepSeek
+reviewer shares the author's blind spots.
 
-1. **Tier.** First review of a new slice uses `gpt-6.1-sol#flex-high`. A
-   re-review whose scope is "close these named findings" uses
-   `gpt-6.1-terra#flex-high`, and so does a mechanical subsystem review. Sol is
-   not the default second opinion; it is the escalation.
-2. **Effort.** `high`, not `xhigh`, for reviews and workers. `xhigh` is reserved
-   for a review that has to reason about a whole contract at once.
-3. **Rounds.** The expensive pattern is example-driven repair: each round closes
-   the reported cases and the next round finds the next layer. After **two**
-   rounds on one slice, the next review is asked for the contract ("enumerate the
-   semantics this check must equal") rather than for more counterexamples, and
-   the coordinator re-scopes instead of launching a fourth round by habit.
-4. **Verification.** A reviewer re-runs the suites that cover the changed
-   subsystem plus **one** full offline run, not every suite serially, unless the
-   change crosses subsystem boundaries.
-5. **Worker repair** stays on DeepSeek Flash, but with a bounded mandate: name
-   the files, the findings, and the tests, and do not let it re-derive the design.
+The policy from here is a **ladder by consequence**, not "start cheap and escalate
+if it finds something". A cheap reviewer that finds nothing is weak evidence, and
+a cheap reviewer that finds something is not a reason to pay for a second opinion
+— the coordinator can reproduce it. What the tier buys is independence and
+judgement, and neither is monotonic in price.
+
+| Tier | Who | Used for | Not used for |
+| --- | --- | --- | --- |
+| 0 | No model: tests, mutation kills, blob freeze, docs/schema checks | Every change. The coordinator runs these. | — |
+| 1 | `opencode/deepseek-v4.1-flash-free` ($0) | Mechanical questions about a diff: does each pin fail under its reverted guard; does the README claim something the diff does not do | Anything that gates a trust boundary; anything whose miss would be silent |
+| 2 | `openrouter/openai/gpt-6-luna#flex-high` ($0.10 / $0.50) | Re-review of named findings; the first review of an ordinary slice | Credentials, identity, recovery, rollback |
+| 3 | `openrouter/openai/gpt-6.1-terra#flex-high` ($1 / $5) | Contract-level review; a new interface; a trust-boundary **re-review** whose counterexamples the coordinator has reproduced; when Luna's report is vague or misses a defect the coordinator reproduced | Routine re-reviews; a trust boundary's first review |
+| 4 | `openrouter/openai/gpt-6.1-sol#flex-high` ($2 / $10) | The **first** review of a trust-boundary slice (credentials, identity, restore/rollback, recovery); a design change on one; or a Terra review that missed a reproduced defect | Routine work; a re-review of cases already reproduced |
+
+Prices are the model catalog's standard rates per million input/output tokens,
+checked 2026-11-16; Flex is about half. The `-pro` variants cost double and are
+not selected.
+
+1. **Independence is cross-family.** The coordinator and the repair workers run
+   DeepSeek V4.1 Flash, so a DeepSeek reviewer is **not independent** for their
+   repairs — independence starts at Luna. A DeepSeek review is acceptable for an
+   OpenAI-authored change, or for a mechanical question with an objective check
+   (a mutation that must die).
+2. **Sometimes no model review.** A prose-only change, a test-only pin whose
+   mutation kill the coordinator has demonstrated, or a repair that is exactly
+   the named findings with no new interface needs Tier 0 only. Record "no model
+   review" and why, rather than implying one certified it.
+3. **At most two model reviews per slice per day.** After the second, either
+   accept with the open findings recorded or re-scope with James.
+4. **Budget the prompt, not only the model.** Name the diff, the findings, the
+   commands and a time limit; forbid re-deriving the design and re-reading the
+   whole repository. A cheap model given a 40k-token prompt and an unbounded
+   command list costs more than an expensive model given a tight one.
+5. **Record the tier and its outcome** in the verdict row, including "no model
+   review".
+
+The first Luna re-review is an **experiment**, not an assumption: if it misses a
+defect the coordinator can reproduce, that is evidence to move the ordinary floor
+to Terra, and it gets recorded.
 
 This changes no provider default, account billing, or host configuration, and it
 does not authorize new work. It is a selection policy for work already approved.
@@ -69,7 +96,9 @@ Other model recommendations are welcome. Compare a small representative task,
 including source accuracy, defects, repair burden, review cost, latency, and
 permission compliance. A different model family can add review diversity, but
 must demonstrate adequate capability; cheap review is not an acceptance goal.
-There is no standing Haiku default or automatic model-upgrade ladder.
+There is no automatic model-upgrade ladder or routing: the tiers above are a
+selection the coordinator applies deliberately and records, and a cheaper tier is
+never used to make a hard change look reviewed.
 
 ## Allowances first, without waste
 
