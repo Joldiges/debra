@@ -56,10 +56,10 @@ no passphrase is written anywhere except NetworkManager's own keyfile.
 The [web installer](../web/README.md) uses a systemd **user** unit, because it
 controls one user's audio session. This cannot, and the reasons are specific:
 
-- `nmcli device wifi hotspot` and `nmcli connection load` change system-wide
-  NetworkManager state. A user unit runs with no seat and no login session, so
-  polkit has nobody to authenticate and refuses. It would install cleanly and
-  then fail at boot.
+- `nmcli connection reload`, `nmcli connection up` and `nmcli connection delete`
+  change system-wide NetworkManager state. A user unit runs with no seat and no
+  login session, so polkit has nobody to authenticate and refuses. It would
+  install cleanly and then fail at boot.
 - `raspi-config nonint do_wifi_country` writes the supplicant configuration and
   the regulatory domain, and needs root.
 - The setup page binds port 80, a privileged port.
@@ -85,10 +85,19 @@ none of them make it a secure portal:
   (`0600`) so the note stays true when the access point is raised again, and it
   is deliberately absent from the status API, which anything that has joined can
   read. Anyone who can join the setup network can also submit the form; the
-  password protects the setup window, not the household. `nmcli` decides the
-  security itself, so the access point is read back after it is raised and taken
-  down if it is not the WPA2 (or, in the development mode, the open) one that
-  was asked for.
+  password protects the setup window, not the household. The access point is
+  raised from a profile this repository writes into NetworkManager's own store,
+  so its key management is the one that was asked for and the password never
+  appears in a command line. What is actually running is still read back, and a
+  mismatch takes the access point down: `nmcli device wifi hotspot` cannot be
+  used for this at all, because with no password it generates one that nobody is
+  shown, which is not an open network.
+- The mode is a choice the page owns, not only the installer. It is kept in
+  `/var/lib/debra/setup/setup-security` (`0600`) beside the password, deliberately
+  not in `setup.json` whose schema is closed, and it wins over the installed flag
+  from the first change onwards. Switching keeps the same profile: a deleted and
+  recreated shared connection is handed the next subnet, which would move the
+  address the page is already bound to.
 - **Development mode, and today's default:** the setup network comes up open,
   with no password at all, and the page and the card note both say so. Typing a
   card password on every development boot is friction with no corresponding risk
@@ -97,7 +106,8 @@ none of them make it a secure portal:
   otherwise; that one line is the release decision. `--setup-security wpa`
   installs the protected mode, which stays implemented and tested, and the setup
   page can switch between them without a reinstall. The installer warns, and the
-  unit records the mode it was installed with. Never ship an image built that
+  installed flag is the mode a device starts in; from the first change on the
+  page the stored choice is the one that is used. Never ship an image built that
   way.
 - The service shuts the page down as soon as the device is online.
 

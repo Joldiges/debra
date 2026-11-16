@@ -341,7 +341,7 @@ def wait_for_uplink(network, timeout=UPLINK_WAIT_S, interval=UPLINK_POLL_S, slee
 def hotspot_address(network, status):
     """The address the access point actually got, or the documented default.
 
-    `nmcli device wifi hotspot` normally assigns 10.42.0.1, but nothing
+    NetworkManager's shared mode normally assigns 10.42.0.1, but nothing
     guarantees it. Binding the page to a guessed address would fail on a
     different subnet and leave the person with a setup network and no page, so
     the real address is asked for first.
@@ -376,15 +376,18 @@ def serve(state_dir, card_note=None, network=None, address=None,
     onboarder = onboarding.Onboarder(
         network, state_path, state_dir / "baseline", root=capture_root,
         card_note_path=card_note, security=security)
-    if security == "none":
+    if onboarder.security == "none":
         # Deliberately open, and said out loud every boot rather than once at
         # install time: the journal is where an open setup network is noticed.
+        # The mode that is reported is the one the device will use, which after
+        # the first change on the page is the stored one rather than the flag.
         LOGGER.warning("setup network is OPEN: installed with --setup-security none")
 
     wait_for_uplink(network, uplink_wait)
     status = onboarder.resume()
     # The phase and the device name are the only status fields logged. The
-    # status also carries the setup-network password, which never goes in a log.
+    # setup-network password is not a status field at all, so it cannot reach
+    # the journal from here.
     LOGGER.info("setup phase %s, device name %s", status["phase"], status["hostname"])
     if status["phase"] == "online":
         return 0

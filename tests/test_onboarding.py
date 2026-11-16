@@ -233,7 +233,8 @@ class HotspotTests(Temp):
         # The hostname is applied before the access point is named after it, and
         # an already-set country is read rather than asked for again.
         # The scan sits before the access point is raised, which is the only
-        # window where the radio is free enough to look around.
+        # window where the radio is free enough to look around. The address is
+        # part of what the raise reports back, not a second question.
         self.assertEqual(network.phases(),
                          ["set_hostname", "wifi_interface", "country", "scan",
                           "start_hotspot"])
@@ -643,6 +644,193 @@ class PortalTests(Temp):
         self.assertEqual(code, 409)
 
 
+class SecurityEndpointTests(Temp):
+    """`POST /api/security`: answered before the radio changes, like a join."""
+
+    def setUp(self):
+        super().setUp()
+        self.network = FakeNetwork()
+        self.note = self.dir / "boot" / "debra-setup.txt"
+        self.onboarder = self.onboarder(self.network, security="none",
+                                        card_note_path=self.note)
+        self.onboarder.start_hotspot()
+        self.server = onboarding.Portal(("127.0.0.1", 0), self.onboarder,
+                                        onboarding.ASSETS / "setup.html")
+        self.host = "127.0.0.1:%d" % self.server.server_port
+        self.server.host = self.host
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join()
+        super().tearDown()
+
+    def request(self, path, body=None, host=None, method=None):
+        data = None if body is None else json.dumps(body).encode()
+        request = urllib.request.Request(
+            "http://" + self.host + path, data=data, method=method or ("POST" if data else "GET"))
+        request.add_header("Host", host or self.host)
+        if data:
+            request.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read()
+
+    def settle(self, calls_before):
+        """Wait for the worker: it must have run and finished before we look.
+
+        The reply is delivered before the worker is started, so a plain sleep
+        would either be slow or flaky. New calls mean the worker reached the
+        radio; the thread name means it finished, which is what the note and the
+        state need before they can be read.
+        """
+        for _ in range(400):
+            touched = len(self.network.calls) > calls_before
+            running = any(thread.name == "debra-setup-security"
+                          for thread in threading.enumerate())
+            if touched and not running:
+                return
+            threading.Event().wait(0.01)
+        self.fail("the setup network was never raised again")
+
+    def assert_re_raised(self, calls_before, password):
+        """The radio was raised again, and with the mode that was asked for.
+
+        The stop half of the cycle lives in the adapter, which cycles the one
+        profile it already has (see AccessPointCheckTests): taking the access
+        point down here would delete that profile and hand the device the next
+        shared subnet.
+        """
+        raises = [call for call in self.network.calls[calls_before:]
+                  if call[0] == "start_hotspot"]
+        self.assertEqual(len(raises), 1,
+                         "the access point was not raised again: "
+                         + str(self.network.phases()[calls_before:]))
+        self.assertEqual(raises[0][3], password,
+                         "the access point was raised in the wrong mode")
+
+    def test_turning_the_password_on_answers_first_then_re_raises_the_network(self):
+        seen = {}
+        real_reply = onboarding.PortalHandler._reply
+        calls_before = len(self.network.calls)
+
+        def reply(handler, code, body, content_type="application/json"):
+            if code == 202:
+                seen["replied"] = True
+            return real_reply(handler, code, body, content_type)
+
+        real_start = self.network.start_hotspot
+
+        def start(ssid, interface, password=None):
+            seen["start_saw_reply"] = seen.get("replied", False)
+            return real_start(ssid, interface, password)
+
+        with patch.object(onboarding.PortalHandler, "_reply", reply), \
+                patch.object(self.network, "start_hotspot", start):
+            code, body = self.request("/api/security", {"mode": "wpa"})
+            self.assertEqual(code, 202)
+            payload = json.loads(body)
+            self.assertEqual(payload["mode"], "wpa")
+            self.assertEqual(payload["ssid"], "Debra-Setup-demo1")
+            password = onboarding.setup_secret(self.onboarder.secret_path)
+            self.assertEqual(payload["password"], password,
+                             "the reply did not carry the password the page needs")
+            self.settle(calls_before)
+        self.assertTrue(seen.get("start_saw_reply"),
+                        "the access point was raised before the page was answered")
+        # The radio was actually re-raised, with a password this time.
+        self.assert_re_raised(calls_before, True)
+        self.assertTrue(self.network.hotspot["password"],
+                        "the access point came back open after being told to use a password")
+        self.assertEqual(self.onboarder.status()["security"], "wpa")
+        # The note is how a person learns the password before any page loads, so
+        # it has to be rewritten, not left describing the open network.
+        note = self.note.read_text(encoding="utf-8")
+        self.assertIn(password, note)
+        self.assertNotIn("none (development build)", note)
+
+    def test_turning_the_password_off_answers_without_one(self):
+        self.onboarder.set_security("wpa")
+        self.onboarder.rearm_hotspot()
+        self.network.calls.clear()
+        calls_before = len(self.network.calls)
+        code, body = self.request("/api/security", {"mode": "none"})
+        self.assertEqual(code, 202)
+        payload = json.loads(body)
+        self.assertEqual(payload["mode"], "none")
+        self.assertNotIn("password", payload,
+                         "a password was served for an open setup network")
+        self.settle(calls_before)
+        self.assert_re_raised(calls_before, False)
+        self.assertFalse(self.network.hotspot["password"],
+                         "the access point came back protected after being told to be open")
+        self.assertIn("none (development build)",
+                      self.note.read_text(encoding="utf-8"))
+
+    def test_the_password_never_reaches_the_journal(self):
+        calls_before = len(self.network.calls)
+        with self.assertLogs(onboarding.LOGGER, level="INFO") as logs:
+            code, body = self.request("/api/security", {"mode": "wpa"})
+            self.assertEqual(code, 202)
+            self.settle(calls_before)
+        password = onboarding.setup_secret(self.onboarder.secret_path)
+        self.assertNotIn(password, "\n".join(logs.output))
+
+    def test_a_mode_that_is_not_one_is_refused_and_changes_nothing(self):
+        before = len(self.network.calls)
+        for body in ({"mode": "open"}, {"mode": ""}, {"mode": None},
+                     {"mode": ["wpa"]}, {"mode": "wpa", "extra": 1}, {}):
+            code, reply = self.request("/api/security", body)
+            self.assertEqual(code, 400, body)
+            self.assertTrue(json.loads(reply)["error"], body)
+        self.assertEqual(len(self.network.calls), before,
+                         "a refused mode touched the radio")
+        self.assertEqual(self.onboarder.status()["security"], "none")
+        self.assertFalse(self.state_path.with_name("setup-security").exists(),
+                         "a refused mode was written down")
+
+    def test_a_change_is_refused_when_there_is_no_access_point(self):
+        state_module.write(self.state_path, dict(state_module.blank("debra-1"), phase="online"))
+        before = len(self.network.calls)
+        code, body = self.request("/api/security", {"mode": "wpa"})
+        self.assertEqual(code, 409)
+        self.assertIn("not running", json.loads(body)["error"])
+        self.assertEqual(len(self.network.calls), before)
+        self.assertEqual(state_module.read(self.state_path)["phase"], "online")
+        self.assertFalse(self.state_path.with_name("setup-security").exists())
+
+    def test_a_foreign_origin_is_refused_like_the_join_handler(self):
+        before = len(self.network.calls)
+        code, _ = self.request("/api/security", {"mode": "wpa"}, host="evil.example")
+        self.assertEqual(code, 403)
+        self.assertEqual(len(self.network.calls), before)
+        self.assertEqual(self.onboarder.status()["security"], "none")
+
+    def test_a_reply_that_cannot_be_delivered_leaves_the_radio_alone(self):
+        # The mode was written before the reply. If the browser never hears it,
+        # the device must not ask for a password nobody was told.
+        real_reply = onboarding.PortalHandler._reply
+
+        def reply(handler, code, body, content_type="application/json"):
+            if code == 202:
+                raise BrokenPipeError(32, "Broken pipe")
+            return real_reply(handler, code, body, content_type)
+
+        before = len(self.network.calls)
+        with patch.object(onboarding.PortalHandler, "_reply", reply):
+            with self.assertRaises(OSError):
+                self.request("/api/security", {"mode": "wpa"})
+        self.assertEqual(len(self.network.calls), before,
+                         "the access point was re-raised for a reply that never arrived")
+        self.assertEqual(self.onboarder.status()["security"], "none",
+                         "the mode stayed changed although the person was never told")
+        self.assertIn("none (development build)",
+                      self.note.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -772,42 +960,279 @@ class SetupSecurityTests(Temp):
             self.onboarder(FakeNetwork(), security="")
 
 
+class SetupSecuritySwitchTests(Temp):
+    """The mode is a choice on the page, not only an installer argument."""
+
+    def test_the_chosen_mode_is_kept_and_wins_over_the_installed_default(self):
+        onboarder = self.onboarder(security="none")
+        onboarder.start_hotspot()
+        self.assertEqual(onboarder.status()["security"], "none")
+        onboarder.set_security("wpa")
+        stored = self.state_path.with_name("setup-security")
+        self.assertEqual(stored.read_text(encoding="utf-8").strip(), "wpa")
+        self.assertEqual(stat.S_IMODE(stored.stat().st_mode), 0o600,
+                         "the chosen mode must not be world-readable")
+        # A new process starts from the installed default and still has to come
+        # up protected: the person's choice outlives the boot that made it.
+        again = self.onboarder(security="none")
+        self.assertEqual(again.status()["security"], "wpa")
+        # And it is not in the state record, whose schema is closed: a new key
+        # there would make every state file written before it unreadable.
+        self.assertNotIn("security", json.loads(self.state_path.read_text(encoding="utf-8")))
+
+    def test_the_stored_mode_is_what_the_access_point_is_raised_with(self):
+        self.onboarder(security="none").set_security("wpa")
+        network = FakeNetwork()
+        self.onboarder(network, security="none").start_hotspot()
+        calls = [call for call in network.calls if call[0] == "start_hotspot"]
+        self.assertTrue(calls[0][3],
+                        "the stored mode was ignored: the access point came up open")
+
+    def test_an_unknown_mode_is_refused_and_writes_nothing(self):
+        onboarder = self.onboarder(security="wpa")
+        stored = self.state_path.with_name("setup-security")
+        with self.assertRaises(ValueError):
+            onboarder.set_security("open")
+        self.assertFalse(stored.exists(), "a refused mode left a file behind")
+        self.assertEqual(onboarder.status()["security"], "wpa")
+
+    def test_a_stored_mode_that_is_not_one_falls_back_to_the_installed_default(self):
+        stored = self.state_path.with_name("setup-security")
+        stored.write_text("wpaa\n", encoding="utf-8")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(security="wpa")
+        self.assertEqual(onboarder.status()["security"], "wpa")
+
+    def test_the_password_is_never_in_the_status_before_or_after_a_switch(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="none")
+        onboarder.start_hotspot()
+        self.assertNotIn("password", json.dumps(onboarder.status()))
+        onboarder.set_security("wpa")
+        onboarder.rearm_hotspot()
+        password = onboarding.setup_secret(onboarder.secret_path)
+        self.assertEqual(onboarder.status()["security"], "wpa")
+        self.assertNotIn(password, json.dumps(onboarder.status()),
+                         "the status page became a second place to read the password")
+
+    def test_the_whole_stop_and_raise_happens_in_the_adapter(self):
+        # Not in the caller: a stop at this level deletes the profile, and a new
+        # shared connection is given the next subnet.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        before = list(network.calls)
+        onboarder.rearm_hotspot()
+        added = network.calls[len(before):]
+        self.assertNotIn(("stop_hotspot",), added,
+                         "the profile was deleted instead of being re-keyed in place")
+        self.assertIn("start_hotspot", [call[0] for call in added])
+
+    def test_an_address_that_moved_is_recorded_rather_than_ignored(self):
+        # The page is bound when it starts, so an access point that comes back
+        # on a different address leaves the socket where nothing answers. That
+        # is not a successful change that looks like one.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        real_start = network.start_hotspot
+
+        def moved(ssid, interface, password=None):
+            # Shared mode hands the next shared connection the next subnet, so
+            # this is what a delete-and-recreate would have done.
+            network.address = "10.43.0.1"
+            return real_start(ssid, interface, password)
+
+        network.start_hotspot = moved
+        with self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+            onboarder.rearm_hotspot()
+        self.assertIn("moved from 10.42.0.1 to 10.43.0.1",
+                      onboarder.status()["last_error"] or "")
+        self.assertIn("moved from 10.42.0.1 to 10.43.0.1", "\n".join(logs.output))
+
+    def test_an_unchanged_address_is_not_reported_as_a_failure(self):
+        # The other half: a warning that fires every time would be noise, and a
+        # state that always carried a last_error would stop meaning anything.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        status = onboarder.rearm_hotspot()
+        self.assertEqual(status["phase"], "hotspot")
+        self.assertIsNone(status["last_error"])
+
+    def test_a_re_raise_is_not_attempted_while_a_join_is_in_flight(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        accepted, _ = onboarder.admit("HomeWiFi")
+        self.assertTrue(accepted)
+        before = list(network.calls)
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder.rearm_hotspot()
+        self.assertEqual(network.calls, before,
+                         "an access point was raised over a join in progress")
+        self.assertEqual(state_module.read(self.state_path)["phase"], "connecting")
+
+
 class AccessPointCheckTests(Temp):
-    """What was created is read back, because nmcli chooses the security."""
+    """The access point comes from a profile we wrote, and is then verified.
 
-    def test_a_secured_access_point_is_verified_as_wpa2(self):
-        recorder = Recorder()
-        network = nm_module.Nmcli(runner=recorder)
-        self.assertEqual(
-            network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue"),
-            "wpa-psk")
-        self.assertIn(["nmcli", "-t", "-f",
-                       "802-11-wireless-security.key-mgmt",
-                       "connection", "show", "id", "debra-setup"], recorder.calls)
+    `nmcli device wifi hotspot` cannot raise an open network: with no password
+    it generates one and never shows it, so the development bypass came up
+    protected and the read-back then deleted it, leaving no setup network at
+    all. The profile is written the same way a household join is, and what is
+    running is read back rather than assumed.
+    """
 
-    def test_an_access_point_that_came_up_open_is_taken_down(self):
-        recorder = Recorder(key_mgmt="")
-        network = nm_module.Nmcli(runner=recorder)
+    def setUp(self):
+        super().setUp()
+        self.profiles = self.dir / "system-connections"
+        self.profiles.mkdir()
+
+    def adapter(self, **kwargs):
+        kwargs.setdefault("profile_dir", self.profiles)
+        return nm_module.Nmcli(runner=Recorder(**kwargs), profiles_dir=self.profiles)
+
+    def test_the_access_point_is_created_from_a_profile_we_wrote(self):
+        recorder = Recorder(profile_dir=self.profiles)
+        network = nm_module.Nmcli(runner=recorder, profiles_dir=self.profiles)
+        raised = network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
+        self.assertEqual(raised, {"key_mgmt": "wpa-psk", "address": "10.42.0.1"})
+        # The command that cannot express "open" is not used at all, and the
+        # password is in the profile rather than in argv where any process can
+        # read it.
+        flattened = [" ".join(call) for call in recorder.calls]
+        self.assertFalse(any("device wifi hotspot" in call for call in flattened),
+                         "nmcli was asked to invent the access point itself")
+        self.assertNotIn("s3cretvalue", " ".join(flattened))
+        text, mode, path = recorder.contents[-1]
+        self.assertEqual(Path(path).parent, self.profiles,
+                         "the profile was written where NetworkManager does not read")
+        self.assertEqual(mode, 0o600, "the setup profile must be owner-only")
+        self.assertIn("mode=ap", text)
+        self.assertIn("key-mgmt=wpa-psk", text)
+        self.assertIn("psk=s3cretvalue", text)
+        self.assertIn("method=shared", text, "the access point would have no address to serve on")
+        self.assertIn("autoconnect=false", text,
+                      "a setup network that comes up on its own competes with the household one")
+        self.assertIn(f"uuid={nm_module.HOTSPOT_UUID}", text)
+        # Only the finished profile is there: a staging file would be parsed
+        # half written by the plugin that watches the directory.
+        self.assertEqual(sorted(item.name for item in self.profiles.iterdir()),
+                         ["debra-setup.nmconnection"])
+
+    def test_the_access_point_is_never_delegated_to_nmcli(self):
+        # `nmcli device wifi hotspot` chooses the security itself and, without a
+        # password, generates one nobody is shown. Even the protected form is
+        # that tool's decision rather than ours, so it is not used at all - and
+        # this is the test that says so with a message, rather than failing
+        # somewhere downstream when the read-back disagrees.
+        recorder = Recorder(profile_dir=self.profiles)
+        network = nm_module.Nmcli(runner=recorder, profiles_dir=self.profiles)
+        network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
+        self.assertFalse(any(call[1:4] == ["device", "wifi", "hotspot"]
+                             for call in recorder.calls),
+                         "nmcli was asked to invent the access point: " + str(recorder.calls))
+
+    def test_an_open_setup_network_is_a_profile_with_no_key_management(self):
+        # The regression this whole path exists for. Asked for an open network
+        # without a password, `device wifi hotspot` raises a WPA2 one whose key
+        # nobody was shown, and the read-back then deletes it, leaving no setup
+        # network at all.
+        recorder = Recorder(profile_dir=self.profiles)
+        network = nm_module.Nmcli(runner=recorder, profiles_dir=self.profiles)
+        raised = network.start_hotspot("Debra-Setup-demo1", "wlan0", None)
+        self.assertEqual(raised["key_mgmt"], "none")
+        self.assertFalse(any(call[1:4] == ["device", "wifi", "hotspot"]
+                             for call in recorder.calls),
+                         "a password-less `device wifi hotspot` cannot be an open network")
+        text = recorder.contents[-1][0]
+        self.assertIn("key-mgmt=none", text)
+        self.assertNotIn("psk=", text, "an open setup network carries no password")
+
+    def test_a_running_access_point_is_brought_down_before_it_is_re_keyed(self):
+        # A reload updates the stored profile; a running access point keeps the
+        # settings it was activated with, so it has to be cycled - but the same
+        # profile, or shared mode hands out a new subnet and the page's address
+        # moves underneath it.
+        recorder = Recorder(profile_dir=self.profiles)
+        network = nm_module.Nmcli(runner=recorder, profiles_dir=self.profiles)
+        network.start_hotspot("Debra-Setup-demo1", "wlan0", None)
+        first_uuid = [line for line in recorder.contents[-1][0].splitlines()
+                      if line.startswith("uuid=")]
+        recorder.calls.clear()
+        network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
+        second_uuid = [line for line in recorder.contents[-1][0].splitlines()
+                       if line.startswith("uuid=")]
+        self.assertEqual(first_uuid, second_uuid, "the profile identity changed")
+        verbs = [" ".join(call[1:]) for call in recorder.calls]
+        reload_at = next(i for i, call in enumerate(verbs) if call == "connection reload")
+        down_at = next(i for i, call in enumerate(verbs)
+                       if call == "connection down id debra-setup")
+        up_at = next(i for i, call in enumerate(verbs)
+                     if call == "connection up id debra-setup ifname wlan0")
+        self.assertLess(reload_at, down_at)
+        self.assertLess(down_at, up_at)
+        self.assertIn("key-mgmt=wpa-psk", recorder.contents[-1][0])
+
+    def test_an_access_point_that_came_up_open_when_asked_protected_is_taken_down(self):
+        recorder = Recorder(profile_dir=self.profiles, key_mgmt="none")
+        network = nm_module.Nmcli(runner=recorder, profiles_dir=self.profiles)
         with self.assertRaises(nm_module.NmError) as caught:
             network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
         self.assertIn("could not be secured", str(caught.exception))
         self.assertIn(["nmcli", "connection", "delete", "debra-setup"], recorder.calls,
                       "an unsecured access point must not be left running")
+        self.assertEqual(list(self.profiles.iterdir()), [],
+                         "the rejected profile was left for the next reload")
 
-    def test_wep_is_not_accepted_in_place_of_wpa2(self):
-        recorder = Recorder(key_mgmt="wep-key")
-        network = nm_module.Nmcli(runner=recorder)
-        with self.assertRaises(nm_module.NmError):
-            network.start_hotspot("Debra-Setup-demo1", "wlan0", "s3cretvalue")
-
-    def test_an_open_access_point_that_came_up_secured_is_refused_too(self):
-        # Otherwise a development build silently stops being the bypass it
-        # says it is, and every test of that path passes against a WPA2 one.
-        recorder = Recorder(key_mgmt="wpa-psk")
-        network = nm_module.Nmcli(runner=recorder)
+    def test_an_access_point_that_came_up_protected_when_asked_open_is_refused_too(self):
+        # Otherwise a development build silently stops being the bypass it says
+        # it is, and every test of that path passes against a WPA2 one.
+        recorder = Recorder(profile_dir=self.profiles, key_mgmt="wpa-psk")
+        network = nm_module.Nmcli(runner=recorder, profiles_dir=self.profiles)
         with self.assertRaises(nm_module.NmError):
             network.start_hotspot("Debra-Setup-demo1", "wlan0", None)
         self.assertIn(["nmcli", "connection", "delete", "debra-setup"], recorder.calls)
+
+    def test_wep_is_not_accepted_in_place_of_wpa2(self):
+        with self.assertRaises(nm_module.NmError):
+            self.adapter(key_mgmt="wep-key").start_hotspot(
+                "Debra-Setup-demo1", "wlan0", "s3cretvalue")
+
+    def test_an_access_point_that_never_activated_is_not_success(self):
+        # The profile can load and `connection up` can be accepted while the
+        # radio never activates on it. A network that is not activated has no
+        # address and no page.
+        with self.assertRaises(nm_module.NmError) as caught:
+            self.adapter(ap_never_activates=True).start_hotspot(
+                "Debra-Setup-demo1", "wlan0", None)
+        self.assertIn("did not come up", str(caught.exception))
+        self.assertEqual(list(self.profiles.iterdir()), [],
+                         "a profile that never activated was left behind")
+
+    def test_a_driver_that_refuses_ap_mode_is_a_reported_failure(self):
+        with self.assertRaises(nm_module.NmError) as caught:
+            self.adapter(ap_up_fails=True).start_hotspot(
+                "Debra-Setup-demo1", "wlan0", None)
+        self.assertIn("AP mode", str(caught.exception))
+        self.assertEqual(list(self.profiles.iterdir()), [])
+
+    def test_a_password_that_cannot_be_used_is_refused_before_anything_is_written(self):
+        recorder = Recorder(profile_dir=self.profiles)
+        network = nm_module.Nmcli(runner=recorder, profiles_dir=self.profiles)
+        with self.assertRaises(nm_module.NmError):
+            network.start_hotspot("Debra-Setup-demo1", "wlan0", "short")
+        self.assertEqual(recorder.calls, [], "an unusable password reached nmcli")
+        self.assertEqual(list(self.profiles.iterdir()), [])
+
+    def test_stopping_the_access_point_removes_its_profile(self):
+        network = self.adapter()
+        network.start_hotspot("Debra-Setup-demo1", "wlan0", None)
+        self.assertTrue(nm_module.hotspot_profile_path(self.profiles).exists())
+        network.stop_hotspot()
+        self.assertFalse(nm_module.hotspot_profile_path(self.profiles).exists(),
+                         "a reload would raise the access point again from this file")
 
 
 class CountryTests(Temp):
@@ -889,13 +1314,20 @@ class Recorder:
     connection. A double that answers every query with IP fields is exactly the
     bypass the review found: it made an unknown profile look like success.
 
-    It also answers the access point's key management, so the setup network can
-    be checked after it is raised rather than assumed to be what was asked for.
+    The access point half answers from the profile file the adapter wrote, not
+    from what the adapter asked for: a reload makes the profile the directory
+    holds the one NetworkManager knows, and `device show` reports that device
+    as activated. That is the only way the read-back check can fail when the
+    security is wrong. `device wifi hotspot` is modelled at its worst - it
+    generates a password when none is given and nobody can read it - so the
+    old call cannot pass here by being asked nicely.
     """
 
     def __init__(self, address="192.0.2.40", gateway="192.0.2.1", up_fails=False,
                  active_profile=None, load_fails=False, modify_fails=False,
-                 interface="wlan0", profile_dir=None, key_mgmt="wpa-psk"):
+                 interface="wlan0", profile_dir=None, key_mgmt=None,
+                 hotspot_address="10.42.0.1", ap_up_fails=False,
+                 ap_never_activates=False):
         self.calls, self.contents = [], []
         self.address, self.gateway, self.up_fails = address, gateway, up_fails
         self.active_profile = active_profile
@@ -909,24 +1341,76 @@ class Recorder:
         self.loaded_id = None
         self.deleted = []
         self.modified = []
-        # What the access point reports after it is created.
+        # None means "report what the profile says", which is what a real
+        # NetworkManager does. A string is a device that ignored the profile -
+        # WEP, or a security that does not match - which is the only way the
+        # read-back can be tested at all.
         self.key_mgmt = key_mgmt
+        self.hotspot_address = hotspot_address
+        self.hotspot_up = False
+        self.ap_up_fails = ap_up_fails
+        self.ap_never_activates = ap_never_activates
+
+    def _profile(self):
+        """The access point's profile as NetworkManager would now read it."""
+        if self.profile_dir is None:
+            return None
+        path = nm_module.hotspot_profile_path(self.profile_dir)
+        try:
+            return (path.read_text(encoding="utf-8"),
+                    stat.S_IMODE(path.stat().st_mode), str(path))
+        except OSError:
+            return None
+
+    def _profile_key_mgmt(self):
+        profile = self._profile()
+        if profile is None:
+            return ""
+        section = None
+        for line in profile[0].splitlines():
+            line = line.strip()
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1]
+            elif section == "wifi-security" and line.startswith("key-mgmt="):
+                return line.partition("=")[2].strip()
+        return ""
 
     def __call__(self, argv, timeout=45):
         self.calls.append(list(argv))
         if argv[1:] == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
             return f"{self.interface}:wifi:connected\n"
         if argv[1:4] == ["-t", "-f", "802-11-wireless-security.key-mgmt"]:
-            # `nmcli -t` prints the value alone, and nothing for an unset one.
-            return f"{self.key_mgmt}\n" if self.key_mgmt else "\n"
+            value = self.key_mgmt if self.key_mgmt is not None else self._profile_key_mgmt()
+            return f"{value}\n"
         if argv[1:3] == ["-t", "-f"] and argv[4:6] == ["device", "show"]:
+            name = self.active_profile
+            if name is None:
+                name = self.loaded_id if not self.up_fails else None
+            if self.hotspot_up:
+                name = nm_module.SETUP_CONNECTION
             if argv[3] == "GENERAL.CONNECTION":
-                name = self.active_profile
-                if name is None:
-                    name = self.loaded_id if not self.up_fails else None
                 return f"GENERAL.CONNECTION:{name or ''}\n"
+            if "GENERAL.STATE" in argv[3]:
+                activated = bool(name)
+                if name == nm_module.SETUP_CONNECTION:
+                    # The setup profile can be the loaded one without the device
+                    # having activated on it, which is the failure this models.
+                    activated = self.hotspot_up
+                state, label = ((100, "connected") if activated
+                                else (30, "disconnected"))
+                lines = [f"GENERAL.STATE:{state} ({label})",
+                         f"GENERAL.CONNECTION:{name or ''}"]
+                if self.hotspot_up:
+                    lines.append(f"IP4.ADDRESS[1]:{self.hotspot_address}/24")
+                return "\n".join(lines) + "\n"
             return (f"IP4.ADDRESS[1]:{self.address}/24\n"
                     f"IP4.GATEWAY:{self.gateway}\n")
+        if argv[1:4] == ["device", "wifi", "hotspot"]:
+            # The real tool, and why it cannot be used for an open network: with
+            # no password it generates one that is never shown to anyone.
+            self.hotspot_up = True
+            self.key_mgmt = "wpa-psk"
+            return ""
         if argv[1:3] == ["connection", "load"]:
             if self.load_fails:
                 raise nm_module.NmError("NetworkManager refused the profile")
@@ -938,13 +1422,30 @@ class Recorder:
                                   stat.S_IMODE(path.stat().st_mode),
                                   str(path)))
             return ""
+        if argv[1:3] == ["connection", "reload"]:
+            profile = self._profile()
+            if profile is not None:
+                self.contents.append(profile)
+            return ""
+        if argv[1:4] == ["connection", "down", "id"]:
+            if argv[4] == nm_module.SETUP_CONNECTION:
+                self.hotspot_up = False
+            return ""
         if argv[1:4] == ["connection", "up", "id"]:
             self.loaded_id = argv[4]
             if self.up_fails:
                 raise nm_module.NmError("The Wi-Fi password was refused by the network")
+            if argv[4] == nm_module.SETUP_CONNECTION:
+                if self.ap_up_fails:
+                    raise nm_module.NmError("AP mode is not supported by this driver")
+                # `connection up` can be accepted and the device still not be
+                # activated on the profile - the second way this path fails.
+                self.hotspot_up = not self.ap_never_activates
             return ""
         if argv[1:4] == ["connection", "delete", "id"]:
             self.deleted.append(argv[4])
+            if argv[4] == nm_module.SETUP_CONNECTION:
+                self.hotspot_up = False
             return ""
         if argv[1:3] == ["connection", "modify"]:
             if self.modify_fails:

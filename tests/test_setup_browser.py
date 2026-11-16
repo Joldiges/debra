@@ -502,6 +502,65 @@ window.addEventListener("load", async () => {
                + JSON.stringify(textOf("open-setup")));
       }
       result.textContent = "PASS: the page says whether the setup network is open";
+    } else if (mode === "security-on") {
+      // The development build raises an open network. One button turns the
+      // password on, without a reinstall: the device answers first, then the
+      // radio is cycled, so the page has to say what to reconnect with.
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      assert(textOf("security-mode") === "Setup network: open (development build)",
+             "the page does not say the setup network is open: "
+             + JSON.stringify(textOf("security-mode")));
+      assert(textOf("security-toggle") === "Require a password",
+             "the button does not offer the password: " + JSON.stringify(textOf("security-toggle")));
+      const statusesBefore = calls.filter(call => call.path === "/api/status").length;
+      // A poll must not be able to replace the handover with the form.
+      window.DEBRA_POLL_MS = 150;
+      byId("security-toggle").click();
+      assert(await until(() => shown("security-handover")), "the change handover never appeared");
+      const requests = calls.filter(call => call.path === "/api/security");
+      assert(requests.length === 1, "expected one change request, saw " + requests.length);
+      assert(requests[0].status === 202,
+             "the change was only acknowledged after it ran (status " + requests[0].status + ")");
+      const password = textOf("security-password");
+      assert(password.length >= 8,
+             "the handover does not show the password: " + JSON.stringify(password));
+      assert(shown("security-password-line"), "the password line is hidden");
+      assert(!shown("security-open-line"), "an open network is still described as having no password");
+      assert(textOf("security-ssid") === "Debra-Setup-demo1",
+             "the handover does not name the network to reconnect to: "
+             + JSON.stringify(textOf("security-ssid")));
+      assert(/nothing is rebooted/i.test(document.body.textContent),
+             "the handover does not say that nothing is rebooted");
+      assert(!shown("form-card") && !shown("failed") && !shown("online"),
+             "another screen is showing during the change");
+      const polled = await until(
+        () => calls.filter(call => call.path === "/api/status").length > statusesBefore, 100, 20);
+      assert(polled, "the page stopped polling after the change");
+      await wait(400);
+      assert(shown("security-handover"),
+             "a status poll put the form back over the change handover");
+      result.textContent = "PASS: the button turns the password on and the handover survives a poll";
+    } else if (mode === "security-off") {
+      // The other direction, from a device installed protected: the bypass has
+      // to work as well as the protection it bypasses.
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      assert(textOf("security-mode") === "Setup network: password required",
+             "the page does not say the setup network needs a password: "
+             + JSON.stringify(textOf("security-mode")));
+      assert(textOf("security-toggle") === "Bypass security",
+             "the button does not offer the bypass: " + JSON.stringify(textOf("security-toggle")));
+      byId("security-toggle").click();
+      assert(await until(() => shown("security-handover")), "the change handover never appeared");
+      const requests = calls.filter(call => call.path === "/api/security");
+      assert(requests.length === 1 && requests[0].status === 202,
+             "the bypass was not acknowledged before it ran");
+      assert(textOf("security-password") === "",
+             "a password was served for an open network: " + JSON.stringify(textOf("security-password")));
+      assert(!shown("security-password-line"), "a password line is shown for an open network");
+      assert(shown("security-open-line"), "the handover does not say the network will be open");
+      assert(textOf("security-ssid") === "Debra-Setup-demo1",
+             "the handover does not name the network to reconnect to");
+      result.textContent = "PASS: the bypass turns the password off and says the network is open";
     } else {
       throw new Error("unknown case " + JSON.stringify(mode));
     }
@@ -726,10 +785,14 @@ class SetupBrowserTests(unittest.TestCase):
         return result
 
     def drive(self, case, *arguments, cut=False, page=None, script=CHECK, phone=False):
-        """Click through one case and return Chromium's output and the device state.
+        """Click through one case, returning Chromium's output, state and files.
 
         `phone=True` opens the wrapper that holds the real page in a 390 px frame
         instead of the page at the browser's own width.
+
+        The two security files are read while the state directory still exists:
+        the password is never in the state, so the only way to compare what the
+        page showed with what the device kept is to read it here.
         """
         with DevServer(*arguments) as portal:
             proxy = PortalProxy(("127.0.0.1", 0), portal.host, page=page,
@@ -745,7 +808,12 @@ class SetupBrowserTests(unittest.TestCase):
                 proxy.shutdown()
                 proxy.server_close()
                 thread.join()
-            return result, portal.state()
+            files = {}
+            for name in ("setup-security", "setup-secret"):
+                path = portal.directory / name
+                if path.exists():
+                    files[name] = path.read_text(encoding="utf-8").strip()
+            return result, portal.state(), files
 
     @staticmethod
     def verdict(html):
@@ -757,8 +825,7 @@ class SetupBrowserTests(unittest.TestCase):
                 return line[start:].split("</pre>")[0]
         return ""
 
-    def assert_driven(self, case, *arguments, cut=False):
-        result, state = self.drive(case, *arguments, cut=cut)
+    def assert_verdict(self, result):
         self.assertGreaterEqual(
             result.returncode, 0,
             "Chromium crashed on every attempt (signal %d): %s"
@@ -767,7 +834,16 @@ class SetupBrowserTests(unittest.TestCase):
         verdict = self.verdict(result.stdout)
         self.assertTrue(verdict.startswith('<pre id="browser-test-result">PASS:'),
                         (verdict or result.stdout[-2000:]) + "\n" + result.stderr[-1000:])
+
+    def assert_driven(self, case, *arguments, cut=False):
+        result, state, _files = self.drive(case, *arguments, cut=cut)
+        self.assert_verdict(result)
         return state
+
+    def assert_driven_with_files(self, case, *arguments, cut=False):
+        result, state, files = self.drive(case, *arguments, cut=cut)
+        self.assert_verdict(result)
+        return state, files
 
     def test_a_development_build_says_the_setup_network_is_open(self):
         # The dev server runs the open mode: the development bypass means there
@@ -779,6 +855,30 @@ class SetupBrowserTests(unittest.TestCase):
         # The same page, installed the other way. Without this the "open" line
         # could be shown always and both tests would still pass.
         self.assert_driven("wpa", "--setup-security", "wpa")
+
+    def test_the_button_turns_the_password_on_and_the_device_keeps_it(self):
+        # The bypass is what Debra runs today; this is how the protection it
+        # bypasses stays reachable without a reinstall.
+        state, files = self.assert_driven_with_files("security-on")
+        self.assertEqual(state["phase"], "hotspot")
+        self.assertIsNone(state["last_error"])
+        self.assertEqual(files.get("setup-security"), "wpa",
+                         "the chosen mode was not written down")
+        password = files.get("setup-secret") or ""
+        self.assertGreaterEqual(len(password), 8,
+                                "no setup password was created for the protected network")
+        self.assertNotIn(password, json.dumps(state),
+                         "the setup password reached the state record")
+
+    def test_the_button_bypasses_the_password_on_a_protected_device(self):
+        # The other direction, from a device installed protected. Without it the
+        # bypass could be dead code that only the open default hides.
+        state, files = self.assert_driven_with_files("security-off",
+                                                     "--setup-security", "wpa")
+        self.assertEqual(state["phase"], "hotspot")
+        self.assertIsNone(state["last_error"])
+        self.assertEqual(files.get("setup-security"), "none",
+                         "the bypass was not written down")
 
     def test_the_form_shows_the_device_name_and_the_country_list(self):
         state = self.assert_driven("form")

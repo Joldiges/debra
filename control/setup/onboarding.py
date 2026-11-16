@@ -22,6 +22,12 @@ and no household passphrase is stored in the setup state. The setup network's
 own password is a separate owner-only file, because the note on the boot
 partition has to keep working across retries and the status API must not
 become a second place to read it from.
+
+How that network is protected, open or password, is a choice the person can
+change from the page itself without a reinstall. The choice is kept in a second
+owner-only file beside the password and read at every start; the status API
+reports the mode, never the password, and the one place the password is served
+is the reply to the request that turned the password on.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ import os
 import re
 import secrets
 import socket
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -183,13 +190,12 @@ class Onboarder:
                  clock=time.monotonic, serial_paths=SERIAL_PATHS, root="/",
                  card_note_path=None, keyfile_dir=None,
                  security=DEFAULT_SETUP_SECURITY,
-                 secret_path=None):
+                 secret_path=None, security_path=None):
         if security not in SETUP_SECURITY:
             # A typo in an install argument must not quietly become an open
             # network: say no at the boundary instead of choosing for someone.
             raise ValueError(f"security must be one of {', '.join(SETUP_SECURITY)}")
         self.network = network
-        self.security = security
         self.hostname = hostname
         self.state_path = Path(state_path)
         self.baseline_dir = Path(baseline_dir)
@@ -206,8 +212,22 @@ class Onboarder:
         # never in the state itself: that file is reported by the API.
         self.secret_path = (Path(secret_path) if secret_path
                             else self.state_path.with_name("setup-secret"))
+        # Where the person's choice of mode is kept. Next to the password and
+        # deliberately not inside setup.json: that record is closed and
+        # validated, so a new key there would make every existing state file
+        # unreadable on the next boot.
+        self.security_path = (Path(security_path) if security_path
+                              else self.state_path.with_name("setup-security"))
+        # The installed mode is the default a device comes up with, not an
+        # override of what somebody chose on the page: the stored mode wins
+        # because it is the later decision, and it is what the card note, the
+        # running access point and this field all have to agree about.
+        self.security = self._stored_security() or security
         self._last_submit = 0.0
         self._lock = threading.Lock()
+        # Read from the owner-only file once, so the reply that turns the
+        # password on and the access point it is turned on with cannot disagree.
+        self._password = None
         # Nearby networks, scanned while the radio is free. Kept in memory: it
         # is a convenience for the form, not state the device should remember.
         self._networks = []
@@ -323,16 +343,18 @@ class Onboarder:
             self.refresh_networks(interface)
         name = hotspot_name(hostname)
         password = setup_secret(self.secret_path) if self.security == "wpa" else None
+        raised = None
         try:
-            self.network.start_hotspot(name, interface, password)
+            raised = self.network.start_hotspot(name, interface, password)
         except nm_module.NmError as exc:
             data.update(phase="failed", last_error=str(exc))
             state_module.write(self.state_path, data)
             return self.status()
-        try:
-            self._portal_address = self.network.device_address(interface)
-        except (AttributeError, nm_module.NmError):
-            self._portal_address = None
+        # The adapter reads the address back from the access point it just
+        # verified, which is the real one rather than a guess. An adapter that
+        # only says it raised the network gets asked separately.
+        address = raised.get("address") if isinstance(raised, dict) else None
+        self._portal_address = address or self._device_address(interface)
         data.update(phase=phase, hotspot={"ssid": name, "interface": interface},
                     last_error=reason)
         state_module.write(self.state_path, data)
@@ -382,8 +404,17 @@ class Onboarder:
         note is reprinted with the address the page really bound to. Two copies
         of it could disagree, and a note describing the previous access point
         is worse than no note.
+
+        Read once per process. `setup_secret` draws a new password when the file
+        cannot be written, and the reply that turns the password on serves the
+        one it read: two reads in the same breath would then hand the person a
+        password the access point is not using.
         """
-        return setup_secret(self.secret_path) if self.security == "wpa" else None
+        if self.security != "wpa":
+            return None
+        if self._password is None:
+            self._password = setup_secret(self.secret_path)
+        return self._password
 
     def _write_card_note(self, ssid, password, hostname):
         """Write the three things needed before any page can be loaded.
@@ -423,6 +454,129 @@ class Onboarder:
             # The class only: an OSError carries the path it failed on, and the
             # note names a credential.
             LOGGER.warning("Setup note not written: %s", exc.__class__.__name__)
+
+    def _device_address(self, interface):
+        """The address the access point holds, or None. Never raises.
+
+        One place, because the note, the status and the address comparison after
+        a re-raise have to agree about where the page is. An adapter that cannot
+        answer is not a failure here: the documented default is what the note
+        falls back to, and that is a guess, not an error.
+        """
+        try:
+            return self.network.device_address(interface)
+        except (AttributeError, nm_module.NmError):
+            return None
+
+    # -- how the setup network is protected ---------------------------------
+
+    def _stored_security(self):
+        """The mode the person chose on the page, if there is one.
+
+        A file in a state directory can hold anything, so an unknown value is
+        not a mode: it is read as "no choice" and the installed default applies.
+        The value is not repeated into the journal - it is not a credential, but
+        a hand-edited file is not text for a log either.
+        """
+        try:
+            stored = self.security_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            LOGGER.warning("The stored setup network mode could not be read: %s", exc)
+            return None
+        if stored in SETUP_SECURITY:
+            return stored
+        LOGGER.warning("The stored setup network mode is not one of %s; "
+                       "using the installed default", ", ".join(SETUP_SECURITY))
+        return None
+
+    def _write_security(self, mode):
+        """Replace the stored mode, owner-only, in one rename.
+
+        Atomic for the same reason the state file is: a mode lost half-written
+        reads back as neither, and the person is then told the setup network is
+        one thing while the device does another.
+        """
+        path = self.security_path
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, staged = tempfile.mkstemp(prefix=".setup-security-", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(mode + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.chmod(staged, 0o600)
+            os.replace(staged, path)
+        except BaseException:
+            try:
+                os.unlink(staged)
+            except OSError:
+                pass
+            raise
+
+    def set_security(self, mode):
+        """Choose how the setup network is protected, and keep the choice.
+
+        The argument is the mode, never a password: the password is drawn on the
+        device and reused, and the mode is the part the next boot needs. Nothing
+        here touches the radio - the page is answered first, and `rearm_hotspot`
+        is the half that runs afterwards, exactly as `admit` and
+        `join_reserved` split a join.
+        """
+        if mode not in SETUP_SECURITY:
+            raise ValueError(f"security must be one of {', '.join(SETUP_SECURITY)}")
+        with self._lock:
+            self._write_security(mode)
+            self.security = mode
+        return mode
+
+    def hotspot_running(self):
+        """True while there is an access point to take down and raise again."""
+        data = state_module.read(self.state_path)
+        return data["phase"] in ("hotspot", "failed") and bool(data["hotspot"])
+
+    def rearm_hotspot(self):
+        """Raise the access point again, in whichever mode is current now.
+
+        This is the half that runs after the page has been answered, so the only
+        browser that asked for it is already gone. Every failure is recorded
+        rather than raised: a traceback in a worker thread leaves the device in
+        a mode nobody has been told about.
+
+        The access point is not taken down here first. The adapter rewrites the
+        profile it already has and cycles that same connection, because a
+        deleted and recreated shared connection is handed the next subnet and
+        the page is bound to the address the first one gave. What has to be
+        checked is whether the address moved anyway, not assumed either way.
+        """
+        data = state_module.read(self.state_path)
+        if not (data["phase"] in ("hotspot", "failed") and data["hotspot"]):
+            # Something moved the device on while the reply was being written:
+            # a join is in flight, and raising an access point over it would
+            # take the radio away from the association it is making.
+            LOGGER.warning("The setup network was not raised again: "
+                           "the device is no longer waiting for setup")
+            return self.status()
+        interface = data["hotspot"].get("interface")
+        before = self._device_address(interface)
+        self.start_hotspot(rescan=False)
+        after = self._portal_address
+        if before and after and before != after:
+            # The page is still bound to the address it was opened on, so it is
+            # now unreachable from the network it serves. Only a restart of the
+            # service moves the socket; until someone does that, the state has
+            # to say so instead of reading as a normal change.
+            message = (f"The setup network moved from {before} to {after}, and the "
+                       "page is still listening on the old address")
+            LOGGER.warning("%s; restart the setup service to move it", message)
+            try:
+                data = state_module.read(self.state_path)
+                data["last_error"] = message
+                state_module.write(self.state_path, data)
+            except (OSError, ValueError):
+                LOGGER.warning("The moved setup network address could not be recorded")
+        return self.status()
 
     def admit(self, ssid):
         """Reserve the one in-flight attempt, or say why not.
@@ -844,27 +998,45 @@ class PortalHandler(BaseHTTPRequestHandler):
             return
         self._reply(200, page, "text/html; charset=utf-8")
 
+    def _json_body(self):
+        """The one JSON object this POST carries, or None after replying itself.
+
+        Both POST paths take a small object and neither can do anything useful
+        without it, so the framing rules live here once rather than in two
+        copies that could drift apart.
+        """
+        lengths = self.headers.get_all("Content-Length", [])
+        if (len(lengths) != 1 or self.headers.get_all("Transfer-Encoding") is not None
+                or not re.fullmatch(r"[0-9]+", lengths[0] or "")):
+            self._reply(400, {"error": "One Content-Length is required"})
+            return None
+        length = int(lengths[0])
+        if not 0 < length <= 1024:
+            self._reply(413, {"error": "Request must be 1-1024 bytes"})
+            return None
+        try:
+            return json.loads(self.rfile.read(length))
+        except (ValueError, OSError):
+            self._reply(400, {"error": "Expected a JSON object"})
+            return None
+
     def do_POST(self):
-        if self.path != "/api/join":
+        path = self.path.split("?")[0]
+        if path not in ("/api/join", "/api/security"):
             self._reply(404, {"error": "Not found"})
             return
         if not self._same_origin():
             self._reply(403, {"error": "Unrecognized host"})
             return
-        lengths = self.headers.get_all("Content-Length", [])
-        if (len(lengths) != 1 or self.headers.get_all("Transfer-Encoding") is not None
-                or not re.fullmatch(r"[0-9]+", lengths[0] or "")):
-            self._reply(400, {"error": "One Content-Length is required"})
+        body = self._json_body()
+        if body is None:
             return
-        length = int(lengths[0])
-        if not 0 < length <= 1024:
-            self._reply(413, {"error": "Request must be 1-1024 bytes"})
+        if path == "/api/security":
+            self._security(body)
             return
-        try:
-            body = json.loads(self.rfile.read(length))
-        except (ValueError, OSError):
-            self._reply(400, {"error": "Expected a JSON object"})
-            return
+        self._join(body)
+
+    def _join(self, body):
         if not isinstance(body, dict) or set(body) - {"ssid", "psk", "country"}:
             self._reply(400, {"error": "Expected ssid, psk and country only"})
             return
@@ -912,6 +1084,66 @@ class PortalHandler(BaseHTTPRequestHandler):
         worker = threading.Thread(target=self.server.onboarder.join_reserved,
                                   args=(ssid, psk or None, country, token),
                                   daemon=False, name="debra-onboarding")
+        worker.start()
+
+    def _security(self, body):
+        """Change how the setup network is protected, without a reinstall.
+
+        The reply is the one place the setup password is ever served. It is not
+        in the status, not in the state and not in the journal, and it is only
+        sent to a client that has already joined the access point - which is
+        the same client that is about to lose it, so it has to carry the new
+        password with it.
+        """
+        if not isinstance(body, dict) or set(body) != {"mode"}:
+            self._reply(400, {"error": "Expected a mode"})
+            return
+        mode = body["mode"]
+        if mode not in SETUP_SECURITY:
+            self._reply(400, {"error": "Mode must be wpa or none"})
+            return
+        onboarder = self.server.onboarder
+        if not onboarder.hotspot_running():
+            # Joining, or already online: there is no access point to take down
+            # and raise again, and re-raising one would take the radio away from
+            # whatever is using it.
+            self._reply(409, {"error": "The setup network is not running, so there is "
+                                       "nothing to change"})
+            return
+        previous = onboarder.security
+        try:
+            onboarder.set_security(mode)
+        except ValueError:
+            self._reply(400, {"error": "Mode must be wpa or none"})
+            return
+        except OSError:
+            self._reply(500, {"error": "The device could not save that setting"})
+            return
+        password = onboarder._hotspot_password() if mode == "wpa" else None
+        payload = {"status": "changing", "mode": mode,
+                   "ssid": (onboarder.status().get("hotspot") or {}).get("ssid")}
+        if password:
+            payload["password"] = password
+        # Answer before the radio changes, for the same reason a join does: this
+        # reply is the last thing the setup network can carry.
+        try:
+            self._reply(202, payload)
+        except OSError:
+            # The browser never heard the answer. Turning the password on and
+            # raising a network that asks for one nobody was told is worse than
+            # not changing it, so the device goes back to the mode it is
+            # actually running in.
+            LOGGER.warning("The change of the setup network was not delivered; "
+                           "keeping the previous mode")
+            try:
+                onboarder.set_security(previous)
+            except (ValueError, OSError):
+                LOGGER.warning("The previous setup network mode could not be restored")
+            return
+        # Not a daemon: the access point is between two states, and exiting in
+        # the middle of that leaves the setup network down with no page.
+        worker = threading.Thread(target=onboarder.rearm_hotspot, daemon=False,
+                                  name="debra-setup-security")
         worker.start()
 
 

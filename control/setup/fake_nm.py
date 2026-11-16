@@ -15,6 +15,11 @@ class FakeNetwork:
       "bad-psk"   nmcli refuses the password
       "no-address" it associates but never gets a usable address
       "no-uplink"  it reports no uplink at all
+
+    It does not model `nmcli` itself: the access point is recorded, not raised.
+    The adapter's own profile write, reload, activation and read-back are
+    exercised by the nmcli double in tests/test_onboarding.py, which has to
+    answer like NetworkManager or the check is proving nothing.
     """
 
     def __init__(self, interface="wlan0", country=None, behaviour="ok"):
@@ -25,6 +30,9 @@ class FakeNetwork:
         self.hotspot = None
         self.joined = None
         self.hostname = None
+        # What the access point hands out in shared mode. A test that wants to
+        # see a page left on a stale address moves this between two raises.
+        self.address = "10.42.0.1"
 
     # -- identity -----------------------------------------------------------
 
@@ -74,14 +82,23 @@ class FakeNetwork:
                     "gateway": "192.0.2.1", "routable": True, "has_route": True}
         return None
 
+    def device_address(self, interface):
+        """The address the access point holds, as `nmcli device show` reports it."""
+        self.calls.append(("device_address", interface))
+        return self.address if interface else None
+
     # -- transitions --------------------------------------------------------
 
     def start_hotspot(self, ssid, interface, password=None):
         # The password is recorded as a flag, never as its value: a test log is
-        # not a place for a credential.
+        # not a place for a credential. The return value is what the real
+        # adapter reports after verifying: the key management that is running
+        # and the address the access point got.
         self.calls.append(("start_hotspot", ssid, interface, bool(password)))
         self.hotspot = {"ssid": ssid, "interface": interface,
                         "password": password}
+        return {"key_mgmt": "wpa-psk" if password else "none",
+                "address": self.address}
 
     def stop_hotspot(self):
         self.calls.append(("stop_hotspot",))

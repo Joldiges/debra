@@ -14,6 +14,7 @@ import re
 import secrets
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 
 
@@ -27,6 +28,16 @@ PROFILES_DIR = "/etc/NetworkManager/system-connections"
 # generated, so a stale setup profile is always found and removed instead of
 # piling up under a new name each attempt.
 SETUP_CONNECTION = "debra-setup"
+
+# The access point's profile identity. NetworkManager matches a profile by its
+# UUID, so a fixed one is what lets `connection reload` update the profile the
+# device already has instead of adding a second setup network beside it.
+# Derived rather than random so a re-install cannot produce two identities for
+# the same access point; it only has to be unique among this device's profiles.
+HOTSPOT_UUID = str(uuid.uuid5(uuid.NAMESPACE_DNS, "setup-access-point.debra.invalid"))
+
+# The state `nmcli device show` reports for an activated device.
+NM_ACTIVATED = 100
 
 
 class NmError(Exception):
@@ -201,53 +212,29 @@ def _fsync_directory(directory):
         os.close(handle)
 
 
-def write_keyfile(directory, ssid, psk, connection_id, autoconnect=False,
-                  interface=None):
-    """Write one Wi-Fi profile where NetworkManager will keep it.
+def _write_profile(directory, name, lines):
+    """Write one keyfile atomically, owner-only, and return its final path.
 
-    The password goes here rather than into an `nmcli` argument because argv is
-    world-readable in /proc while the command runs. The file is 0600 and stays
-    where it is: `nmcli connection load` loads a profile *from a location the
-    keyfile plugin reads*, it does not copy an arbitrary file into storage. A
-    profile in a temporary directory is not one NetworkManager will find again,
-    so the previous version's file was both rejected and deleted, and the
-    device had no household network after a reboot.
+    Shared by the household join and the access point, because both have the
+    same requirement: the profile has to be on disk, complete, before anything
+    reads it. The file is written under a staged name and renamed into place,
+    so a crash mid-write cannot leave a profile that looks real but is empty or
+    truncated, and no reader ever sees half a file.
 
-    The profile is written under a name the keyfile plugin does not read and
-    renamed into place. Some NetworkManager builds watch this directory and
-    some do not, and the manual tells an administrator to reload after editing
-    a file by hand, so the caller runs `connection load` explicitly either way.
-    The rename still matters: a crash mid-write would otherwise leave a profile
-    that looks real but is empty or truncated.
-
-    `autoconnect` stays off until the join has been verified, so a trial that
-    fails never competes with the real network. `interface` pins the profile to
-    one radio, so a device with two Wi-Fi interfaces cannot bring the household
-    network up on the wrong one.
+    Some NetworkManager builds watch this directory and some do not, and the
+    manual tells an administrator to reload after editing a file by hand, so
+    the callers run `connection load`/`connection reload` explicitly either
+    way. Writing the profile is never what makes NetworkManager notice it.
     """
     directory = Path(directory or PROFILES_DIR)
-    connection = ["[connection]",
-                  f"id={_keyfile_value(connection_id)}",
-                  "type=wifi",
-                  "autoconnect=" + ("true" if autoconnect else "false")]
-    if interface:
-        connection.append(f"interface-name={_keyfile_value(interface)}")
-    lines = connection + ["",
-                          "[wifi]",
-                          "mode=infrastructure",
-                          f"ssid={_keyfile_ssid(ssid)}",
-                          ""]
-    if psk:
-        lines += ["[wifi-security]", "key-mgmt=wpa-psk", f"psk={_keyfile_value(psk)}", ""]
-    lines += ["[ipv4]", "method=auto", "", "[ipv6]", "method=auto", ""]
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        fd, staged = tempfile.mkstemp(prefix=f".{connection_id}-", suffix=".part",
+        fd, staged = tempfile.mkstemp(prefix=f".{name}-", suffix=".part",
                                       dir=directory)
     except OSError:
         # A path and a filename are not a sentence for the setup page.
         raise NmError("The Wi-Fi profile could not be saved on this device") from None
-    final = directory / f"{connection_id}.nmconnection"
+    final = directory / f"{name}.nmconnection"
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write("\n".join(lines))
@@ -265,11 +252,98 @@ def write_keyfile(directory, ssid, psk, connection_id, autoconnect=False,
     return final
 
 
+def write_keyfile(directory, ssid, psk, connection_id, autoconnect=False,
+                  interface=None):
+    """Write one Wi-Fi profile where NetworkManager will keep it.
+
+    The password goes here rather than into an `nmcli` argument because argv is
+    world-readable in /proc while the command runs. The file is 0600 and stays
+    where it is: `nmcli connection load` loads a profile *from a location the
+    keyfile plugin reads*, it does not copy an arbitrary file into storage. A
+    profile in a temporary directory is not one NetworkManager will find again,
+    so the previous version's file was both rejected and deleted, and the
+    device had no household network after a reboot.
+
+    `autoconnect` stays off until the join has been verified, so a trial that
+    fails never competes with the real network. `interface` pins the profile to
+    one radio, so a device with two Wi-Fi interfaces cannot bring the household
+    network up on the wrong one.
+    """
+    connection = ["[connection]",
+                  f"id={_keyfile_value(connection_id)}",
+                  "type=wifi",
+                  "autoconnect=" + ("true" if autoconnect else "false")]
+    if interface:
+        connection.append(f"interface-name={_keyfile_value(interface)}")
+    lines = connection + ["",
+                          "[wifi]",
+                          "mode=infrastructure",
+                          f"ssid={_keyfile_ssid(ssid)}",
+                          ""]
+    if psk:
+        lines += ["[wifi-security]", "key-mgmt=wpa-psk", f"psk={_keyfile_value(psk)}", ""]
+    lines += ["[ipv4]", "method=auto", "", "[ipv6]", "method=auto", ""]
+    return _write_profile(directory, connection_id, lines)
+
+
+def hotspot_profile_path(directory=None):
+    """The one file the setup access point's profile is kept in."""
+    return Path(directory or PROFILES_DIR) / f"{SETUP_CONNECTION}.nmconnection"
+
+
+def write_hotspot_keyfile(directory, ssid, interface, password):
+    """Write the setup access point's profile, with the security we asked for.
+
+    `nmcli device wifi hotspot` is not usable for this. Its own manual says the
+    password is *generated* when none is given, so asking it for an open network
+    produced a WPA2 network whose key nobody could read - and the read-back then
+    deleted it, leaving a device with no setup network at all. `key-mgmt=none`
+    in an explicit profile is the only way to say "open" and mean it, and it
+    keeps the password out of argv on the way.
+
+    `ipv4.method=shared` is what gives the access point an address and a DHCP
+    server for the phone that joins it. It is also why this profile is rewritten
+    in place rather than deleted when the mode changes: NetworkManager gives
+    each new shared connection the next subnet (10.42.0.1, then 10.42.1.1), and
+    the page is bound to the address the first one handed out.
+
+    `autoconnect=false`: the setup network exists for one boot's job. A profile
+    that comes up on its own would compete with the household network later.
+    """
+    if not valid_ssid(ssid):
+        raise NmError("Hotspot name must be 1-32 printable characters")
+    if not interface:
+        raise NmError("The setup network needs a Wi-Fi interface")
+    if password is not None and not valid_psk(password):
+        raise NmError("Wi-Fi password must be 8-63 printable characters")
+    lines = ["[connection]",
+             f"id={_keyfile_value(SETUP_CONNECTION)}",
+             f"uuid={HOTSPOT_UUID}",
+             "type=wifi",
+             "autoconnect=false",
+             f"interface-name={_keyfile_value(interface)}",
+             "",
+             "[wifi]",
+             "mode=ap",
+             f"ssid={_keyfile_ssid(ssid)}",
+             "",
+             "[wifi-security]",
+             "key-mgmt=" + ("wpa-psk" if password else "none")]
+    if password:
+        lines.append(f"psk={_keyfile_value(password)}")
+    lines += ["", "[ipv4]", "method=shared", "", "[ipv6]", "method=ignore", ""]
+    return _write_profile(directory, SETUP_CONNECTION, lines)
+
+
 class Nmcli:
     """The real adapter. `runner` is injectable so tests never touch a network."""
 
-    def __init__(self, runner=_run):
+    def __init__(self, runner=_run, profiles_dir=None):
         self._run = runner
+        # Where a profile has to live to be found again after a reboot. Also
+        # injectable, so an offline test writes into a scratch directory instead
+        # of this machine's real NetworkManager store.
+        self.profiles_dir = Path(profiles_dir or PROFILES_DIR)
 
     def wifi_interface(self):
         out = self._run(["nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status"])
@@ -486,35 +560,76 @@ class Nmcli:
             pass
 
     def start_hotspot(self, ssid, interface, password=None):
-        """Raise the setup access point, or take it down again.
+        """Raise the setup access point from a profile we wrote, and verify it.
 
-        `nmcli device wifi hotspot` picks the security itself: a password means
-        WPA2, but the manual also allows a WEP fallback, and no password means
-        an open network. A network that came up open while the card note says
-        "Password:" cannot be joined as advertised, and an open one that was
-        meant to be protected is worse than no setup network at all. So what
-        was actually created is read back, and a mismatch removes it.
+        Returns `{"key_mgmt": ..., "address": ...}` for what is actually
+        running, because what was asked for is not evidence of what came up.
+
+        The profile is rewritten in place and reloaded, then the access point is
+        brought down and up. A reload alone does not re-key a running access
+        point - NetworkManager keeps the settings a connection was activated
+        with - and deleting the connection instead would hand the device a new
+        shared subnet, moving the address the setup page is bound to.
         """
-        if not valid_ssid(ssid):
-            raise NmError("Hotspot name must be 1-32 printable characters")
-        argv = ["nmcli", "device", "wifi", "hotspot", "ifname", interface,
-                "con-name", SETUP_CONNECTION, "ssid", ssid]
-        if password:
-            argv += ["password", password]
-        self._run(argv, timeout=60)
-        wanted = "wpa-psk" if password else ""
+        wanted = "wpa-psk" if password else "none"
+        if password and not valid_psk(password):
+            raise NmError("Wi-Fi password must be 8-63 printable characters")
+        path = write_hotspot_keyfile(self.profiles_dir, ssid, interface, password)
         try:
+            self._run(["nmcli", "connection", "reload"], timeout=30)
+            if self._device_detail(interface)["connection"] == SETUP_CONNECTION:
+                self._run(["nmcli", "connection", "down", "id", SETUP_CONNECTION],
+                          timeout=60)
+            self._run(["nmcli", "connection", "up", "id", SETUP_CONNECTION,
+                       "ifname", interface], timeout=60)
             actual = self._hotspot_security()
+            detail = self._device_detail(interface)
         except NmError:
-            self._remove_hotspot()
+            self._forget_hotspot(path)
             raise
         if actual != wanted:
-            self._remove_hotspot()
+            self._forget_hotspot(path)
             raise NmError("The setup network could not be secured as asked")
-        return actual
+        if detail["state"] != NM_ACTIVATED or detail["connection"] != SETUP_CONNECTION:
+            # The profile loaded but the radio did not come up on it: another
+            # profile won, or the driver refused AP mode. A setup network that
+            # is not activated has no address and no page.
+            self._forget_hotspot(path)
+            raise NmError("The setup network did not come up on this device")
+        return {"key_mgmt": actual, "address": detail["address"]}
+
+    def _device_detail(self, interface):
+        """Activation state, active connection and first IPv4 address of a device.
+
+        One call rather than three: `nmcli -t` prints repeated fields with an
+        index (`IP4.ADDRESS[1]:`), which is stripped here the same way `active()`
+        does it, so an address is never silently missed.
+        """
+        if not interface:
+            return {"state": None, "connection": None, "address": None}
+        detail = self._run(["nmcli", "-t", "-f",
+                            "GENERAL.STATE,GENERAL.CONNECTION,IP4.ADDRESS",
+                            "device", "show", interface], timeout=30)
+        state = connection = address = None
+        for line in detail.splitlines():
+            key, _, value = line.partition(":")
+            key = re.sub(r"\[\d+\]$", "", key.strip())
+            value = value.strip()
+            if key == "GENERAL.STATE":
+                match = re.match(r"(\d+)", value)
+                state = int(match.group(1)) if match else None
+            elif key == "GENERAL.CONNECTION":
+                connection = value or None
+            elif key == "IP4.ADDRESS" and address is None:
+                address = value.split("/")[0].strip() or None
+        return {"state": state, "connection": connection, "address": address}
 
     def _hotspot_security(self):
-        """The key management of the access point that is now running."""
+        """The key management of the profile the access point is running.
+
+        An open profile reports `none`, not an empty value, so that is what a
+        deliberate open network is compared against.
+        """
         output = self._run(["nmcli", "-t", "-f",
                             "802-11-wireless-security.key-mgmt",
                             "connection", "show", "id", SETUP_CONNECTION],
@@ -529,10 +644,26 @@ class Nmcli:
             # page can show, and a second failure here would replace it.
             LOGGER.warning("Setup access point could not be removed: %s", exc)
 
+    def _forget_hotspot(self, path):
+        """Remove an access point that did not come up as asked, and its file."""
+        self._remove_hotspot()
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def stop_hotspot(self):
         # Deleting the profile as well as deactivating it keeps a stale
         # "debra-setup" connection from competing with the real network later.
-        self._run(["nmcli", "connection", "delete", SETUP_CONNECTION], timeout=30)
+        # The file goes too: a reload would otherwise raise the access point
+        # again from a profile that was meant to be gone.
+        try:
+            self._run(["nmcli", "connection", "delete", SETUP_CONNECTION], timeout=30)
+        finally:
+            try:
+                hotspot_profile_path(self.profiles_dir).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def routable(address):

@@ -11,6 +11,12 @@ Nothing here touches a radio, root or the network.
 Then open http://127.0.0.1:8099/ . Submitting the form runs the real transition:
 the page answers, the fake access point drops, the fake join happens, and the
 page comes back as online or failed.
+
+The security button on the page runs the real transition too: the fake access
+point is taken down and raised again, and the mode is written to the state
+directory, so `--setup-security` chooses the starting mode and the page changes
+it from there. Clicking it both ways is how the two directions are exercised
+without a radio.
 """
 
 from __future__ import annotations
@@ -89,7 +95,13 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     print(f"setup page: http://127.0.0.1:{args.port}/  (state in {directory})", flush=True)
-    if args.setup_security == "none":
+    if onboarder.security != args.setup_security:
+        # The stored mode is the later decision, so a reused --state-dir keeps
+        # whichever mode was last clicked. Saying so is cheaper than a person
+        # concluding the flag stopped working.
+        print(f"setup mode: {onboarder.security} (kept in {directory / 'setup-security'}, "
+              f"which wins over --setup-security {args.setup_security})", flush=True)
+    if onboarder.security == "none":
         print("card note:  not needed - this development build raises an open "
               "setup network", flush=True)
     else:

@@ -2,7 +2,7 @@
 // The setup page is deliberately small and dependency-free: it is served from a
 // device that has no internet, over a network that is about to disappear.
 const el = id => document.getElementById(id);
-const SECTIONS = ["loading", "form-card", "handover", "uncertain", "failed", "online"];
+const SECTIONS = ["loading", "form-card", "security-handover", "handover", "uncertain", "failed", "online"];
 let status = null;
 let busy = false;
 // A status request that started before a submission is no longer news: the
@@ -13,6 +13,11 @@ let generation = 0;
 // True while the person is filling the form after a failure. Without it the
 // 15-second poll re-rendered the failure screen and wiped the form mid-typing.
 let editing = false;
+// True from the moment the device accepted a change of the setup network's
+// protection. The phase stays "hotspot" for that - nothing is being joined - so
+// without this flag a poll would put the form back over the handover that says
+// which network and password to reconnect with.
+let switching = false;
 
 // A short list covers most homes; "Other" swaps to a two-letter code so no
 // country is unreachable rather than silently missing from a long dropdown.
@@ -97,6 +102,13 @@ function showCountryField(needsCountry) {
 }
 
 function render() {
+  if (switching) {
+    // The radio is being changed underneath this page. Every status field that
+    // is about to arrive describes the device as it was, so none of them is a
+    // reason to take the handover away.
+    show("security-handover");
+    return;
+  }
   el("device-name").textContent = status.hostname || "your Debra";
   // A development build raises the setup network with no password. Say so,
   // rather than leaving a person looking for a password that does not exist.
@@ -172,9 +184,21 @@ function render() {
   const needsCountry = !status.country;
   showCountryField(needsCountry);
   buildNetworkPicker(status.networks);
+  renderSecurity();
   el("step-label").textContent = needsCountry ? "STEP 1 OF 2" : "ONE STEP";
   el("form-card").classList.toggle("hidden", false);
   show("form-card");
+}
+
+// How the setup network is protected, said in one line, with the one button
+// that changes it. The button names the mode it leads to rather than the mode
+// it is in, because "Bypass security" is only an answer to "password required".
+function renderSecurity() {
+  const open = status.security === "none";
+  el("security-mode").textContent = open
+    ? "Setup network: open (development build)"
+    : "Setup network: password required";
+  el("security-toggle").textContent = open ? "Require a password" : "Bypass security";
 }
 
 async function load() {
@@ -296,6 +320,54 @@ el("join").addEventListener("click", async () => {
     el("join").textContent = "Join network";
   }
 });
+
+// Bypassing the password and putting one back are one button, because they are
+// one decision. The device answers before it touches the radio, exactly like a
+// join, so this page has to be able to say what to reconnect to on its own.
+el("security-toggle").addEventListener("click", async () => {
+  if (busy) return;
+  const mode = status?.security === "wpa" ? "none" : "wpa";
+  busy = true;
+  el("security-toggle").disabled = true;
+  el("security-error").textContent = "";
+  try {
+    const response = await fetch("/api/security", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({mode}),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.status !== 202) {
+      // A refusal changes nothing, so the form is still the right screen and
+      // the advice belongs on it.
+      el("security-error").textContent = data.error || "The device refused that request.";
+      return;
+    }
+    showSecurityHandover(mode, data.ssid, data.password || null);
+  } catch {
+    // The reply is the last thing the setup network can carry. Losing it here
+    // means the device is already changing, so say so rather than claim the
+    // form is still current.
+    showSecurityHandover(mode, status?.hotspot?.ssid || null, null);
+  } finally {
+    busy = false;
+    el("security-toggle").disabled = false;
+  }
+});
+
+function showSecurityHandover(mode, ssid, password) {
+  switching = true;
+  el("security-ssid").textContent = ssid || "the setup network";
+  const protectedMode = mode === "wpa";
+  el("security-password").textContent = password || "";
+  el("security-password-line").classList.toggle("hidden", !(protectedMode && password));
+  el("security-open-line").classList.toggle("hidden", protectedMode);
+  // A password that was generated but did not arrive is not a password the
+  // person can type. Saying where the copy is beats an empty field.
+  el("security-missing").classList.toggle("hidden", !(protectedMode && !password));
+  show("security-handover");
+}
 
 el("retry").addEventListener("click", () => {
   // The access point is back, so the page is reachable again: show the form
