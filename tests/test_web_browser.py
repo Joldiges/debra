@@ -727,6 +727,13 @@ window.addEventListener("load", async () => {
     // other devices. A phone used to open on "switch to another Debra".
     const pair = document.getElementById("pair"), devices = document.getElementById("devices");
     assert(before(pair, devices), "the network switcher is listed before the welcome card");
+    // The footer used to sit inside the dashboard, so it appeared above the
+    // network switcher: a page that ended and then carried on. And it must not
+    // carry prototype notes on the welcome card.
+    assert(before(devices, document.getElementById("page-footer")),
+           "the page footer is above the network switcher");
+    assert(document.getElementById("page-footer").hidden,
+           "prototype notes and an unknown build are shown before access");
     document.getElementById("bypass").click();
     for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
     assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
@@ -743,6 +750,8 @@ window.addEventListener("load", async () => {
            "the keyless warning is below the controls it describes");
     // The first screen has to carry the control the person came for. This is
     // the whole point of the reorder, and it is measured, not assumed.
+    assert(!document.getElementById("page-footer").hidden,
+           "the page footer never appeared after the dashboard opened");
     for (const id of ["volume", "apply", "mute"]) {
       const box = document.getElementById(id).getBoundingClientRect();
       assert(box.height > 0, id + " is not rendered");

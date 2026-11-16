@@ -170,7 +170,6 @@
           </div>
         </details>
       </section>
-      <footer>Early reusable prototype · No updates, installs, restarts, Wi-Fi changes, LED writes, or automatic volume restoration.<br><span id="build">Build: unknown</span></footer>
     </div>
     <!-- Switching device is a rare action on a page about this device, so it
          comes last, behind a disclosure, and never before the welcome card. -->
@@ -182,6 +181,11 @@
         <p id="devices-status" class="detail" role="status"></p>
       </details>
     </section>
+    <!-- The page footer, outside the dashboard so the network switcher cannot
+         end up below it: a footer followed by another card reads as a page that
+         ended and then carried on. Hidden until the dashboard opens, so the
+         welcome card does not carry prototype notes and an unknown build. -->
+    <footer id="page-footer" hidden>Early reusable prototype · No updates, installs, restarts, Wi-Fi changes, LED writes, or automatic volume restoration.<br><span id="build">Build: unknown</span></footer>
   </main>
 </body>
 </html>

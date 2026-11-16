@@ -232,6 +232,7 @@ function forgetKey(message) {
   el("retry").hidden = true;
   el("pair").hidden = false;
   el("dashboard").hidden = true;
+  el("page-footer").hidden = true;
   el("connection").textContent = "Not connected";
   showPairStatus(message);
   showNotices();
@@ -241,6 +242,7 @@ function revokeBypass(message) {
   bypass = false;
   el("pair").hidden = false;
   el("dashboard").hidden = true;
+  el("page-footer").hidden = true;
   // Nothing read under the bypass is still current once the device wants a key.
   currentAudio = null;
   lastReadAt = null;
@@ -329,6 +331,7 @@ function render(data) {
   showPairStatus("");
   const firstPaint = el("dashboard").hidden;
   el("dashboard").hidden = false;
+  el("page-footer").hidden = false;
   updateCurrentSection();
   if (firstPaint) {
     // The button a person just pressed is gone. Left alone, focus falls back to
@@ -760,6 +763,7 @@ el("disconnect").addEventListener("click", () => {
   el("setup-hardware-note").textContent = "";
   el("setup-status").textContent = "";
   el("dashboard").hidden = true;
+  el("page-footer").hidden = true;
   el("pair").hidden = false;
   el("connection").textContent = "Disconnected";
   // What the card offers next: the key field when the device wants a key, the
