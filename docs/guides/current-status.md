@@ -50,10 +50,11 @@ These run on a Fedora development computer, not on the Pi.
   the baseline, and 46 for its installer. One device run has happened, on the
   other line's tree at `a90cfba`
   ([result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)):
-  the online path, the hardware-derived rename, a baseline and the systemd start
-  all worked, and it left `/etc/hosts` and `avahi-daemon` on the old name. The
-  setup access point has never been raised, nothing has run at boot, and this
-  branch's tree has not run on a device.
+  the online path, the hardware-derived rename, a baseline, a manual start and
+  then a boot with the unit enabled all worked. It left `/etc/hosts` and
+  `avahi-daemon` on the old name until the next boot repaired both. The setup
+  access point has never been raised, and this branch's tree has not run on a
+  device.
 - The activity TUI has a **Notices** tab: one checklist of everything worth not
   missing (blockers, confirmations, failed research tasks, a turn running too
   long), ticked off with `x` and kept as a dimmed "checked off" count so a

@@ -346,15 +346,18 @@ the web prototype are unaffected; they are separate units.
 ## What is still unproven
 
 One device run has happened, and it was the other line's tree: the Zero 2 W
-installed and ran `control/setup/` at `a90cfba`, recorded in
+installed and ran `control/setup/` at `a90cfba`, then rebooted with the unit
+enabled, recorded in
 [the first-run result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md).
 It exercised the online path, the hardware-derived rename, a baseline over a real
-root and the unit being started by systemd. `ensure_identity` is byte-identical
-in this tree, so that run's two findings — `/etc/hosts` and `avahi-daemon` keeping
-the old name — apply here unchanged. The baseline does not transfer as-is: that
-tree archived `setup.json` and this one excludes the whole state directory. The
-list below is what this tree has not run; where that run has moved an item, the
-item says so, and everything left involves a radio.
+root, the unit being started by systemd, and then the unit running as part of a
+boot. `ensure_identity` is byte-identical in this tree, so the two findings the
+run produced — `/etc/hosts` and `avahi-daemon` keeping the old name until the
+next boot — apply here unchanged; the run also measured that both self-correct at
+boot, one of them by way of cloud-init rewriting the file. The baseline does not
+transfer as-is: that tree archived `setup.json` and this one excludes the whole
+state directory. The list below is what this tree has not run; where that run has
+moved an item, the item says so, and everything left involves a radio.
 
 Ordered by how likely it is to bite on a real first boot.
 
@@ -386,13 +389,15 @@ Ordered by how likely it is to bite on a real first boot.
    `missing: []`), and its manifest says the archive holds the household
    passphrase. That tree did not exclude the setup state directory; this one
    does, and that exclusion has only ever run against a temporary root.
-6. **`hostnamectl` has run once, and the name it applied is not the name the
-   device answers to.** The device run renamed the board in `/etc/hostname` and
-   `hostnamectl --static` without disturbing the connection, and left `/etc/hosts`
-   (so every `sudo` warns) and `avahi-daemon` on the old name until it was
-   restarted. At boot that is self-correcting because `/etc/hostname` is already
-   written; the gap is a first run on a running device, which is exactly the
-   case that was run. Nothing here repairs it.
+6. **`hostnamectl` has run, and between a rename and the next boot the device
+   does not answer to the name it reports.** The device run renamed the board in
+   `/etc/hostname` and `hostnamectl --static` without disturbing the connection,
+   and left `/etc/hosts` (so every `sudo` warns) and `avahi-daemon` on the old
+   name. A reboot with the unit enabled fixed both: avahi announces the new name
+   because it starts after `/etc/hostname` is written, and cloud-init rewrote
+   `/etc/hosts` — which makes the repair a property of that image, not of Debra.
+   The window that matters is the one a person installing on a running device
+   sits in, and nothing here repairs it.
 7. **The captive-portal redirect may never be asked for.** The probe paths are
    answered, but the setup network's DNS decides whether a phone reaches them;
    see [above](#the-phone-should-offer-to-open-the-page). Until that is measured
@@ -407,10 +412,11 @@ Ordered by how likely it is to bite on a real first boot.
    cannot see it. The service warns (`The setup note is not on a mounted boot
    partition`) and the access point still starts. Nothing refuses to run without
    that partition, and no boot has been tried with it absent.
-10. **The unit has been started by systemd once, and never as part of a boot.**
-    The device run reports `status=0/SUCCESS`, `inactive (dead)`, 1.28 s, with
-    `multi-user.target.wants/` created. That was a start on a running device, so
-    the ordering, the 30-second wait and the reboot are still unexercised, and
+10. **The unit has run as part of a boot once.** `status=0/SUCCESS`,
+    `inactive (dead)`, 1.28 s on a start, and on the reboot `Result=success`,
+    `NRestarts=0`, 1.29 s, deciding online and leaving the state and baseline
+    untouched. The 30-second uplink wait was never reached (the device was
+    already online), a slow or absent uplink is untested, and
     `systemd-analyze verify` has not been run.
 11. **The cooldown is words, not a countdown.** The page says to wait ten
     minutes because the attempt counter lives in the state file and a power

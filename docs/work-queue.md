@@ -140,10 +140,11 @@ The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
 first baseline now have an implementation (`control/setup/`, 266 onboarding tests
-and 46 installer tests) that has **run on a device once**, for the online path
-and the rename only ([result](testing/results/2026-11-15-zero2w-setup-service-first-run.md));
-the setup access point, the page and any boot are still unexercised. The activity
-TUI has a notices checklist. The whole offline suite is 756 tests, 49 of which
+and 46 installer tests) that has **run on a device**, for the online path, the
+rename and a boot, and not for anything involving the setup access point
+([result](testing/results/2026-11-15-zero2w-setup-service-first-run.md)). The
+access point, the page and a join performed by Debra are still unexercised. The
+activity TUI has a notices checklist. The whole offline suite is 756 tests, 49 of which
 are the opt-in browser cases that skip in an ordinary run
 (`-p 'test_*browser.py'` with `DEBRA_BROWSER_TEST=1`).
 

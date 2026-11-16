@@ -6,11 +6,11 @@ The phase machine, the setup page and the first baseline exist as code under
 `control/setup/` and pass offline tests against a recorded fake NetworkManager.
 One device run has happened since, on the other line's tree at `a90cfba` (the
 Zero 2 W; [result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)):
-the online path, the hardware-derived rename, a baseline over a real root and the
-unit being started by systemd all worked, and the run showed the service leaving
-`/etc/hosts` and `avahi-daemon` on the old name. The setup access point was never
-raised on that device, and it was a start on a running system, not a boot. This
-branch's own tree has not run on a device at all. Its system unit and installer
+the online path, the hardware-derived rename, a baseline over a real root, a
+manual start and then a boot with the unit enabled all worked. The run showed the
+service leaving `/etc/hosts` and `avahi-daemon` on the old name until the next
+boot, which repaired both. The setup access point was never raised on that
+device. This branch's own tree has not run on a device at all. Its system unit and installer
 are tested offline — see [the setup service](../../control/setup/README.md). Read
 [implemented today versus planned](#implemented-today-versus-planned)
 before relying on a step.

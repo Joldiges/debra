@@ -138,16 +138,19 @@ distinction is not obvious from the file, so:
 
 - **Transfers:** `ensure_identity` is byte-identical here, so the rename that
   worked, and the two defects it left (`/etc/hosts` and `avahi-daemon` keeping
-  the old name), apply unchanged. The two are recorded as defects in that result
-  and named in this tree's residuals rather than repaired here.
+  the old name), apply unchanged. The same result then rebooted the board and
+  measured both repairing themselves at boot, one of them because cloud-init
+  rewrote `/etc/hosts` - a property of that image, not of Debra. The window that
+  matters, a rename on a running device, is unchanged and is named in this
+  tree's residuals rather than repaired here.
 - **Does not transfer:** that tree had no `NEVER_CAPTURE`, so its baseline
   archived `setup.json`. This tree excludes the whole state directory and the
   access-point profile, which is the safer behaviour and has only ever run
   against a temporary root. Its 9449-byte archive is therefore not evidence about
   this tree's exclusion list.
 - **Out of scope for it entirely:** the setup access point, the page, a join
-  performed by Debra, a restore, and any boot. The unit was started on a running
-  device, not at boot.
+  performed by Debra and a restore. The unit has run both ways, a manual start
+  and a boot, and both decided online and left the state alone.
 
 ## Residuals this work does not close
 
