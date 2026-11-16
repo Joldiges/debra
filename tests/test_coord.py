@@ -332,6 +332,18 @@ class CoordTests(unittest.TestCase):
             self.assertEqual(self.profile_rules(committed), self.profile_rules(generated),
                              f"{committed.name} has drifted from tools/coord.py")
 
+    def test_search_can_be_opted_back_in(self):
+        narrow = coord._permissions("research", [])
+        self.assertNotIn(("grep", "*", "allow"), narrow)
+        wide = coord._permissions("research", [], search=True)
+        self.assertIn(("grep", "*", "allow"), wide)
+        self.assertIn(("glob", "*", "allow"), wide)
+        out = self.root / "searchy.md"
+        text = self.run_tool("profile", "--task", "SEARCH", "--role", "research",
+                             "--allow-search", "--out", str(out))
+        self.assertIn("can read a denied path's contents", text)
+        self.assertIn(("grep", "*", "allow"), self.profile_rules(out))
+
     def test_secret_denies_follow_the_broad_read_allow(self):
         rules = coord._permissions("research", [])
         allow = rules.index(("read", "*", "allow"))

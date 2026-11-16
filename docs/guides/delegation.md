@@ -92,10 +92,10 @@ Three conclusions, all uncomfortable:
 
 1. **A path deny is a per-tool deny.** `grep` authorises its pattern, not each
    file's `read` rule, so a path whose read is denied is still readable through
-   search. The restricted profiles therefore carry no `grep` or `glob`; `read` is
-   the only route that respects the path rules. If a worker genuinely needs to
-   search, the honest fix is keeping private state out of the search root, not
-   re-allowing search.
+   search. The restricted profiles therefore carry no `grep` or `glob` by
+   default, leaving `read` as the route that respects the path rules.
+   `--allow-search` opts both back in for a checkout with no private state, and
+   says what it costs when you use it.
 2. **Absent is not refused.** A deny-everything profile removes the tool
    entirely, so an editing or shell attempt cannot happen and no refusal string
    exists to record. That is stronger for safety and weaker as evidence: it says
@@ -158,6 +158,32 @@ python tools/coord.py check
 `check` reports consistency of bookkeeping only. It cannot tell whether the
 review was honest, the model was the one recorded, or the claims are true. Those
 stay with the reviewer and the coordinator.
+
+## Defaults, and what this will never do
+
+The defaults are the frictionless ones, deliberately:
+
+- The built-in `build`, `general` and `explore` agents are untouched. The
+  coordinator still edits, commits and integrates directly, and no ordinary task
+  needs a profile, a record, or a verdict.
+- A restricted profile is chosen per assignment, not imposed globally, and the
+  only thing it can ever do is *narrow* what one subagent session may touch.
+- `--allow-search` turns `grep`/`glob` back on when a worker needs to search and
+  the checkout has no private state, instead of leaving it unable to work.
+
+Four things this tooling must never grow, because they would be safety theatre:
+
+1. **No auto-approval.** `verdict` transcribes a review that a named reviewer
+   wrote; it cannot review, and no command changes a verdict to `approve` on its
+   own. Nothing here can mark work accepted, merged or done.
+2. **No permission approval.** It writes an agent file; it never replies to a
+   permission prompt, sets "allow always", or edits saved approvals.
+3. **No silent broadening.** A generated profile's allowlist comes from the
+   assignment's named paths. Widening it is a new command someone can see and
+   review, not a side effect.
+4. **No enforcement claim.** Records are evidence of what was assigned and what
+   came back. They are not proof a review happened, and passing `check` means the
+   bookkeeping agrees with itself, nothing more.
 
 ## Cost to development
 
