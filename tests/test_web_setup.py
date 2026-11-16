@@ -321,26 +321,53 @@ class PageTests(unittest.TestCase):
         self.assertIn('"/api/setup"', self.js)
         self.assertIn("loadSetup", self.js)
 
-    def test_planned_controls_are_disabled_and_labelled(self):
-        # The three groups each build a disabled control and a visible badge.
-        self.assertIn("radio.disabled = true", self.js)
-        self.assertIn("select.disabled = setting.selectable !== true", self.js)
-        self.assertIn("button.disabled = action.enabled !== true", self.js)
-        self.assertIn('badge.className = "badge planned"', self.js)
-        self.assertIn('badge.textContent = "Planned"', self.js)
+    def test_planned_choices_are_static_text_with_badges(self):
+        # The cardinal rule of this page: a capability that does not exist is
+        # text, not a control. A disabled control still promises a shape, still
+        # has to explain itself, and any handler on it runs the moment anything
+        # enables it. The eight planned rows live in the markup and carry a
+        # badge and a sentence; the renderer builds none of them.
+        rows = [
+            "Select this HAT for the setup",
+            "Select a jack or USB output for the setup",
+            "Choose the music receiver",
+            "Choose whether music becomes quieter or pauses",
+            "Choose when component versions change",
+            "Check for available versions",
+            "Install reviewed component versions",
+            "Return to an earlier working setup",
+        ]
+        chunks = self.html.split('<div class="choice">')
+        for sentence in rows:
+            chunk = next((c for c in chunks if sentence in c), None)
+            self.assertIsNotNone(chunk, sentence)
+            # The badge must be in the same row as the sentence, not merely
+            # somewhere on the page.
+            self.assertIn('<span class="badge planned">Planned</span>',
+                          chunk.split("</div>")[0], sentence)
 
-    def test_disabled_controls_stay_readable_and_described(self):
-        # A dimmed control with dimmed text would hide the reason it exists.
-        self.assertIn(".choice input:disabled", self.css)
-        self.assertIn(".badge.planned", self.css)
-        self.assertIn("aria-describedby", self.js)
-        self.assertIn("addReason", self.js)
+    def test_the_setup_card_builds_no_control(self):
+        # Only the renderer's own text helpers survive. A control builder that
+        # came back would be the old card returning under a new name.
+        for gone in ("hatChoice", "settingChoice", "updateAction", "setupRow",
+                     "addReason", "plannedBadge"):
+            self.assertNotIn(f"function {gone}", self.js, gone)
+        for built in ('createElement("input")', 'createElement("select")',
+                      'createElement("button")'):
+            self.assertNotIn(built, self.js, built)
+        # What the device reports is rendered as evidence, in its own container.
+        self.assertIn("function observationRow", self.js)
+        self.assertIn("setup-observations", self.js)
+        self.assertIn("setup-observations", self.html)
 
-    def test_page_renders_every_control_the_payload_can_carry(self):
-        for name in ("hatChoice", "settingChoice", "updateAction", "renderSetup"):
+    def test_page_reports_everything_the_payload_can_carry(self):
+        for name in ("hatStatus", "observedLine", "observationRow", "renderSetup"):
             self.assertIn(f"function {name}", self.js, name)
         # The page must not hard-code an enabled state for a future action.
         self.assertNotIn("setup-update-check", self.html)
+        # And the notice that a planned row cannot be used is still visible
+        # without opening anything.
+        self.assertIn("These are planned setup choices, not controls", self.html)
 
 
 if __name__ == "__main__":
