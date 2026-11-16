@@ -42,6 +42,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
+| Acceptance review `code-r12` | WEB03 | `.local/reviews/code-r12-20261116/` | independent, `gpt-6.1-sol`; frozen on `2004248` (323 files, every one compared with its Git blob), judging R11-01…R11-04, re-running the three new mutations and the earlier survivors, re-running the 80-combination option matrix, and looking for what the stricter option check now refuses that `install()` still writes |
 
 ## Done this round
 
