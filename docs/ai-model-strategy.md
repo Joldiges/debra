@@ -14,10 +14,10 @@ a role; retain task evidence and change selections deliberately.
 | Role | Starting selection | Conditions |
 | --- | --- | --- |
 | Coordinator, architecture, integration | `openai/gpt-6.1-sol#xhigh` through the existing OpenAI subscription connection | Reserve enough allowance for supervision, decisions, and integration. James identifies Sol `xhigh` as the first tier he sufficiently trusts for this role; this is his judgment, not a benchmark result. |
-| Separate capable acceptance reviewer | A fresh `openai/gpt-6.1-sol#xhigh` session | Review the exact frozen candidate and original sources. Separate context is useful but is not cross-model independence or an enforced merge gate. The coordinator still reproduces checks. |
+| Separate capable acceptance reviewer, first review of a slice | A fresh `openai/gpt-6.1-sol#flex-high` session | Review the exact frozen candidate and original sources. Separate context is useful but is not cross-model independence or an enforced merge gate. The coordinator still reproduces checks. |
+| Acceptance re-review of named findings, or a mechanical subsystem | A fresh `openai/gpt-6.1-terra#flex-high` session | Half the price of Sol at the same variant. Suitable when the question is "did these N findings close, and did the repair break anything", not "is this design sound". Not a silent replacement for Sol in coordination or a first review; escalate to Sol if Terra misses a finding the coordinator can reproduce. |
 | Inexpensive bounded research/documentation worker | `openrouter/deepseek/deepseek-v4.1-flash-1017#high` | Preferred inexpensive worker, subject to the F01/F05 gates and verified task permissions. One documentation pilot is evidence for that narrow task, not general coding or architecture qualification. |
 | Allowance-funded alternative worker | `openai/gpt-6-luna#high` | Luna is acceptable for bounded work; prefer useful included allowance over paid calls when coordinator capacity permits. Its role still needs task-specific evidence and the same permission/review gates. |
-| Intermediate candidate, not promoted | `openai/gpt-6.1-terra` | Evaluate on a bounded comparison before promotion; select and record a variant for the experiment. Do not silently replace Sol for coordination or acceptance. |
 | Copilot-funded work, pending discovery | No exact model selected yet | Use suitable included models strategically after account connection, entitlement, current model IDs, allowance, and any premium multipliers are established. Do not assume a model available elsewhere is included here. |
 
 For non-urgent **paid GPT** work when included allowance is unavailable or best
@@ -26,6 +26,44 @@ reserved, prefer the corresponding existing OpenRouter Flex variant:
 `openrouter/openai/gpt-6.1-terra#flex-xhigh` for an explicitly assigned evaluation,
 or `openrouter/openai/gpt-6.1-sol#flex-xhigh` for capable work. These are fallback
 choices, not permission to start more work or change a running session silently.
+
+## Cost revision, 2026-11-16
+
+James reported that recent spending was too high and asked for Terra in place of
+Sol some of the time, and for `high` rather than `xhigh`. The measured picture
+agrees with the request but says the round count matters more than the tier.
+
+The local session database (its provider-reported `cost` column; 294 sessions)
+showed about **$50.17 total**, of which **$24.98 started on 2026-11-15** and
+**$10.54 on 2026-11-16**. On 2026-11-16 that was `gpt-6.1-sol` **$7.93 across 14
+sessions** and DeepSeek Flash **$2.49 across 24**. No single review exceeded
+$1.09; the spend is many rounds of the same two slices — `code-r8` through
+`code-r12` and `setup-r7` through `setup-r9` on one day — not one expensive run.
+DeepSeek's own total ($21.49) is far above what the listed per-token prices imply
+for its token counts, so either that listing is stale or reasoning tokens are
+billed differently; "cheap model" does not mean "cheap session".
+
+The policy from here:
+
+1. **Tier.** First review of a new slice uses `gpt-6.1-sol#flex-high`. A
+   re-review whose scope is "close these named findings" uses
+   `gpt-6.1-terra#flex-high`, and so does a mechanical subsystem review. Sol is
+   not the default second opinion; it is the escalation.
+2. **Effort.** `high`, not `xhigh`, for reviews and workers. `xhigh` is reserved
+   for a review that has to reason about a whole contract at once.
+3. **Rounds.** The expensive pattern is example-driven repair: each round closes
+   the reported cases and the next round finds the next layer. After **two**
+   rounds on one slice, the next review is asked for the contract ("enumerate the
+   semantics this check must equal") rather than for more counterexamples, and
+   the coordinator re-scopes instead of launching a fourth round by habit.
+4. **Verification.** A reviewer re-runs the suites that cover the changed
+   subsystem plus **one** full offline run, not every suite serially, unless the
+   change crosses subsystem boundaries.
+5. **Worker repair** stays on DeepSeek Flash, but with a bounded mandate: name
+   the files, the findings, and the tests, and do not let it re-derive the design.
+
+This changes no provider default, account billing, or host configuration, and it
+does not authorize new work. It is a selection policy for work already approved.
 
 Other model recommendations are welcome. Compare a small representative task,
 including source accuracy, defects, repair burden, review cost, latency, and
