@@ -90,10 +90,12 @@ class FakeNetwork:
     # -- transitions --------------------------------------------------------
 
     def start_hotspot(self, ssid, interface, password=None):
-        # The password is recorded as a flag, never as its value: a test log is
-        # not a place for a credential. The return value is what the real
-        # adapter reports after verifying: the key management that is running
-        # and the address the access point got.
+        # The call record keeps a flag rather than the password, so a test log
+        # is not a place for a credential. The attribute below does hold the
+        # value, because the profile writer is what a test inspects; nothing
+        # prints it. The return value is what the real adapter reports after
+        # verifying: the key management that is running and the address the
+        # access point got.
         self.calls.append(("start_hotspot", ssid, interface, bool(password)))
         self.hotspot = {"ssid": ssid, "interface": interface,
                         "password": password}

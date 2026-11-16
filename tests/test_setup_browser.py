@@ -561,6 +561,38 @@ window.addEventListener("load", async () => {
       assert(textOf("security-ssid") === "Debra-Setup-demo1",
              "the handover does not name the network to reconnect to");
       result.textContent = "PASS: the bypass turns the password off and says the network is open";
+    } else if (mode === "security-lost") {
+      // The toggle's request never gets an answer. That is ambiguous, not a
+      // reason to tell the person the network now demands a password the device
+      // may never have set: the device answers before it touches the radio, so
+      // a lost reply means the change may not have started at all.
+      const before = window.fetch;
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/security" && (options.method || "GET").toUpperCase() === "POST") {
+          throw new TypeError("Failed to fetch");
+        }
+        return before(path, options);
+      };
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      byId("security-toggle").click();
+      assert(await until(() => shown("security-uncertain")),
+             "the uncertain card never appeared for a lost change reply");
+      assert(!shown("security-handover"),
+             "a lost reply claimed the setup network now requires a password");
+      assert(textOf("security-uncertain-network") === "Debra-Setup-demo1",
+             "the uncertain card does not name the setup network: "
+             + JSON.stringify(textOf("security-uncertain-network")));
+      assert(!byId("security-toggle").disabled, "the security button stayed disabled");
+      // The page must not latch onto the change. Nothing arrived here, so the
+      // next status answer - the device's own word - is still the open mode.
+      window.fetch = before;
+      render();
+      assert(shown("form-card") && !shown("security-uncertain"),
+             "the page never went back to the form after a lost reply");
+      assert(textOf("security-mode") === "Setup network: open (development build)",
+             "the page stopped reporting the mode the device is really in: "
+             + JSON.stringify(textOf("security-mode")));
+      result.textContent = "PASS: a lost reply says it is not known yet, without claiming the change";
     } else {
       throw new Error("unknown case " + JSON.stringify(mode));
     }
@@ -934,6 +966,13 @@ class SetupBrowserTests(unittest.TestCase):
 
     def test_a_lost_reply_is_not_reported_as_a_handover(self):
         self.assert_driven("lost-reply")
+
+    def test_a_lost_change_reply_does_not_claim_the_password_was_turned_on(self):
+        # The same lesson as a lost join reply, in the other handler: the device
+        # answers before it touches the radio, so a reply that never arrived is
+        # not evidence that anything changed.
+        state = self.assert_driven("security-lost")
+        self.assertIsNone(state.get("last_error"))
 
     def test_a_status_answer_from_before_the_submission_is_ignored(self):
         self.assert_driven("stale-poll")

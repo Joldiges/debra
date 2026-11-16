@@ -80,18 +80,21 @@ none of them make it a secure portal:
   arrived from, and there is no firewall rule here. What actually keeps the page
   off the household network is that the address exists only while the access
   point does.
-- The access point is WPA2 with a random per-device password that is written
-  only to the boot-partition note. It is kept in `/var/lib/debra/setup/setup-secret`
-  (`0600`) so the note stays true when the access point is raised again, and it
-  is deliberately absent from the status API, which anything that has joined can
-  read. Anyone who can join the setup network can also submit the form; the
-  password protects the setup window, not the household. The access point is
-  raised from a profile this repository writes into NetworkManager's own store,
-  so its key management is the one that was asked for and the password never
-  appears in a command line. What is actually running is still read back, and a
-  mismatch takes the access point down: `nmcli device wifi hotspot` cannot be
-  used for this at all, because with no password it generates one that nobody is
-  shown, which is not an open network.
+- The access point is `wpa-psk` with a random per-device password that is
+  written only to the boot-partition note. It is kept in
+  `/var/lib/debra/setup/setup-secret` (`0600`) so the note stays true when the
+  access point is raised again, and it is deliberately absent from the status
+  API, which anything that has joined can read. Anyone who can join the setup
+  network can also submit the form; the password protects the setup window, not
+  the household. The access point is raised from a profile this repository
+  writes into NetworkManager's own store, so its key management is the one that
+  was asked for and the password never appears in a command line. The profile's
+  key management and the device's active connection are both read back after
+  activation, and a mismatch takes the access point down. `nmcli device wifi
+  hotspot` cannot be used for this at all, because with no password it generates
+  one that nobody is shown, which is not an open network. `wpa-psk` is the
+  setting; WPA2 is what NetworkManager's default `proto` makes of it, which this
+  code does not pin - and all of it is unproven on a radio.
 - The mode is a choice the page owns, not only the installer. It is kept in
   `/var/lib/debra/setup/setup-security` (`0600`) beside the password, deliberately
   not in `setup.json` whose schema is closed, and it wins over the installed flag
@@ -177,10 +180,26 @@ sudo systemctl enable --now debra-setup.service
 still names the device paths (`/usr/local/lib/debra/setup/...`), so it is only
 useful for inspection or imaging. `--restore <unit>` is the rollback below.
 
-`--setup-security none` installs the development bypass: the setup access point
-comes up open. It is the only way to get that mode, it is written into the unit
-so it cannot appear by accident, and the installer prints a warning. Omitting it
-gives `wpa`, the random per-device password described above.
+**`--setup-security` decides whether the setup network is open, and the default
+today is `none`** - the development bypass, so the access point comes up open
+with no password at all. That is a deliberate development-phase choice, not a
+shipping posture: see the **Development mode** bullet under "Why this is a
+system unit" above, and
+`DEFAULT_SETUP_SECURITY` in [`onboarding.py`](onboarding.py), whose single line is
+the release decision.
+
+```sh
+sudo python3 -B control/setup/install.py --python "$(command -v python3)" \
+    --setup-security wpa
+```
+
+`--setup-security wpa` installs the protected setup network: a random per-device
+password on the boot-partition note. Whatever is chosen is written into the unit
+as an argument, so the mode a device runs is something the unit says and not a
+default that a later change can reinterpret. The installer prints a warning when
+the mode is `none`. The page can switch the running device between the two
+without a reinstall, and that choice is kept in
+`/var/lib/debra/setup/setup-security`.
 
 ## What it writes
 
@@ -197,8 +216,8 @@ gives `wpa`, the random per-device password described above.
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |
 
 `debra-setup.service` in this directory is the **template**: the installer
-substitutes `@PYTHON@`, `@RUNNER@`, `@STATE@` and `@CARD_NOTE@` with
-systemd-quoted values. It is copied into the release as well, so a re-install
+substitutes `@PYTHON@`, `@RUNNER@`, `@STATE@`, `@CARD_NOTE@` and `@SECURITY@`
+with systemd-quoted values. It is copied into the release as well, so a re-install
 from a release works. The release also contains `install.py` itself, because the
 unit runs `releases/<id>/install.py --serve`; the runner on the device is
 therefore this reviewed file and not a generated second program.

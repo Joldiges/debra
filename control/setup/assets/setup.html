@@ -126,6 +126,25 @@ code { background: #101619; border: 1px solid var(--line); border-radius: 6px; p
        <code id="device-url">http://debra.local:8787/</code></p>
   </section>
 
+  <section id="security-uncertain" class="card hidden">
+    <p class="eyebrow">NOT SURE YET</p>
+    <h1>The device did not answer</h1>
+    <p>Your phone never got a reply, so nothing has been confirmed. The setup
+       network may be changing right now, or the request may never have
+       arrived.</p>
+    <p class="big">Check your phone's Wi-Fi list:</p>
+    <ul>
+      <li>If <strong id="security-uncertain-network">the setup network</strong> is
+          still there and still asks for what it did before, nothing changed.
+          Open this page again from it and try once more.</li>
+      <li>If it now asks for a password, or no longer asks for one, the change
+          went through. Join it again; a password is on
+          <code>debra-setup.txt</code> on the card.</li>
+    </ul>
+    <p class="detail">Nothing is rebooted. If the page comes back on its own, it
+       is showing the mode the device is really in.</p>
+  </section>
+
   <section id="uncertain" class="card hidden">
     <p class="eyebrow">NOT SURE YET</p>
     <h1>The device did not answer</h1>

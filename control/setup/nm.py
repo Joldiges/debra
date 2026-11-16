@@ -630,7 +630,7 @@ class Nmcli:
         An open profile reports `none`, not an empty value, so that is what a
         deliberate open network is compared against.
         """
-        output = self._run(["nmcli", "-t", "-f",
+        output = self._run(["nmcli", "-g",
                             "802-11-wireless-security.key-mgmt",
                             "connection", "show", "id", SETUP_CONNECTION],
                            timeout=30)

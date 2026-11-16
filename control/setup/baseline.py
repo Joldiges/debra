@@ -35,6 +35,15 @@ CAPTURE = (
     "var/lib/debra",
 )
 
+# Directories that are never captured, whatever CAPTURE says. `var/lib/debra`
+# is on the list because it is device configuration worth recovering, but the
+# setup service's own directory inside it holds the setup network's password and
+# the chosen mode. A baseline is an archive that gets copied to a laptop and
+# attached to a report; the credential must not travel with it. The setup
+# password exists on exactly two readable surfaces, the owner-only file and the
+# boot-partition note.
+NEVER_CAPTURE = (Path("var/lib/debra/setup"),)
+
 MAX_BYTES = 32 * 1024 * 1024
 
 
@@ -56,10 +65,15 @@ class _Collector:
         path = Path(path)
         try:
             resolved = path.resolve()
-            resolved.relative_to(self.root)
+            relative = resolved.relative_to(self.root)
         except (OSError, ValueError):
             self.skipped.append({"path": str(path), "reason": "resolves outside the capture root"})
             return
+        for private in NEVER_CAPTURE:
+            if relative == private or private in relative.parents:
+                self.skipped.append({"path": str(relative),
+                                     "reason": "the setup service's own directory"})
+                return
         if self.exclude is not None:
             try:
                 resolved.relative_to(self.exclude)

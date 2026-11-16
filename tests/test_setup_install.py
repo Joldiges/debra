@@ -384,8 +384,10 @@ class UnitTests(Fixture):
         for forbidden in ("psk", "password", "passphrase", "access.key", "secret",
                           "wifi-psk", "token"):
             self.assertNotIn(forbidden, lowered, f"the unit mentions {forbidden!r}")
-        # The setup-network password is `debra-` plus eight hex characters, and
-        # the device name is `debra-` plus six. Neither may appear.
+        # The device name is `debra-` plus six hex characters, and the setup
+        # network's password is now twelve random characters from an alphabet
+        # without look-alikes - neither may appear. The pattern stays because
+        # the name is the one that could be templated in by mistake.
         self.assertIsNone(re.search(r"debra-[0-9a-f]{6,}", lowered),
                           "a device name or setup password leaked into the unit")
         self.assertNotIn("reboot", lowered, "nothing applies Wi-Fi by rebooting")

@@ -771,13 +771,17 @@ class SecurityEndpointTests(Temp):
                       self.note.read_text(encoding="utf-8"))
 
     def test_the_password_never_reaches_the_journal(self):
+        # The root logger, not `onboarding.LOGGER`: the access point is raised
+        # by `debra.setup.nm`, and a password logged there would sit outside the
+        # one logger this test used to watch.
         calls_before = len(self.network.calls)
-        with self.assertLogs(onboarding.LOGGER, level="INFO") as logs:
+        with self.assertLogs(level="DEBUG") as logs:
             code, body = self.request("/api/security", {"mode": "wpa"})
             self.assertEqual(code, 202)
             self.settle(calls_before)
         password = onboarding.setup_secret(self.onboarder.secret_path)
         self.assertNotIn(password, "\n".join(logs.output))
+        self.assertTrue(logs.output, "nothing was logged, so this proves nothing")
 
     def test_a_mode_that_is_not_one_is_refused_and_changes_nothing(self):
         before = len(self.network.calls)
@@ -793,7 +797,12 @@ class SecurityEndpointTests(Temp):
                          "a refused mode was written down")
 
     def test_a_change_is_refused_when_there_is_no_access_point(self):
-        state_module.write(self.state_path, dict(state_module.blank("debra-1"), phase="online"))
+        # `online`: no access point at all. The phase alone has to be enough,
+        # because the state can still hold the hotspot dict of a raise that
+        # failed, and a check on that dict alone would answer 202 for a network
+        # that is not there.
+        data = dict(state_module.blank("debra-1"), phase="online", hotspot=None)
+        state_module.write(self.state_path, data)
         before = len(self.network.calls)
         code, body = self.request("/api/security", {"mode": "wpa"})
         self.assertEqual(code, 409)
@@ -801,6 +810,37 @@ class SecurityEndpointTests(Temp):
         self.assertEqual(len(self.network.calls), before)
         self.assertEqual(state_module.read(self.state_path)["phase"], "online")
         self.assertFalse(self.state_path.with_name("setup-security").exists())
+
+    def test_a_change_is_refused_while_a_join_is_running(self):
+        # The radio is mid-association. Cycling it here would take the interface
+        # out from under a join the device has already answered 202, and neither
+        # would end reliably. The hotspot dict is still present in this state, so
+        # a check that only asked whether there is a hotspot would say yes.
+        data = state_module.read(self.state_path)
+        data.update(phase="connecting")
+        state_module.write(self.state_path, data)
+        self.assertTrue(data["hotspot"], "this test needs a recorded hotspot")
+        before = len(self.network.calls)
+        code, body = self.request("/api/security", {"mode": "wpa"})
+        self.assertEqual(code, 409, "a mode change was allowed during a join")
+        self.assertIn("not running", json.loads(body)["error"])
+        self.assertEqual(len(self.network.calls), before,
+                         "the radio was touched during a join")
+        self.assertEqual(state_module.read(self.state_path)["phase"], "connecting")
+        self.assertFalse(self.state_path.with_name("setup-security").exists())
+
+    def test_a_join_is_refused_while_the_mode_is_changing(self):
+        # The other order: the change owns the radio, and a join that starts in
+        # the middle of it would be association racing a re-key. On one radio
+        # that is the disruption the change exists to avoid.
+        self.assertTrue(self.onboarder.begin_security_change())
+        try:
+            code, body = self.request(
+                "/api/join", {"ssid": "HomeWiFi", "psk": "correct horse"})
+            self.assertEqual(code, 409)
+            self.assertIn("changing", json.loads(body)["error"])
+        finally:
+            self.onboarder.abandon_security_change()
 
     def test_a_foreign_origin_is_refused_like_the_join_handler(self):
         before = len(self.network.calls)
@@ -829,10 +869,6 @@ class SecurityEndpointTests(Temp):
                          "the mode stayed changed although the person was never told")
         self.assertIn("none (development build)",
                       self.note.read_text(encoding="utf-8"))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class SetupPasswordTests(Temp):
@@ -919,9 +955,12 @@ class SetupSecurityTests(Temp):
         # Where Debra is today: the setup network comes up open so nothing has
         # to be read off a card before the page can be reached. This is a
         # deliberate default, kept in one constant, not an absence of one.
+        #
+        # The assertion is on the behaviour of a device that was told nothing,
+        # not on the constant itself: restating `DEFAULT_SETUP_SECURITY == "none"`
+        # would pass even if the constructor ignored it.
         network = FakeNetwork()
         status = self.onboarder(network).start_hotspot()
-        self.assertEqual(onboarding.DEFAULT_SETUP_SECURITY, "none")
         self.assertEqual(status["security"], "none")
         calls = [call for call in network.calls if call[0] == "start_hotspot"]
         self.assertEqual(calls[0][3], False)
@@ -997,11 +1036,43 @@ class SetupSecuritySwitchTests(Temp):
         self.assertEqual(onboarder.status()["security"], "wpa")
 
     def test_a_stored_mode_that_is_not_one_falls_back_to_the_installed_default(self):
+        # Installed `none` and a stored value that is not a mode: the installed
+        # default is the only answer left, and it is deliberately not the same
+        # as the choice the corrupted file looks most like (`wpa`). Written the
+        # other way round - installed `wpa`, stored `wpaa` - an implementation
+        # that ignored the file entirely would pass this test by accident.
         stored = self.state_path.with_name("setup-security")
         stored.write_text("wpaa\n", encoding="utf-8")
         with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(security="none")
+        self.assertEqual(onboarder.status()["security"], "none")
+        self.assertEqual(onboarder.security_source, "install")
+
+    def test_a_stored_mode_that_is_not_utf8_does_not_stop_the_service(self):
+        # The file lives in a directory a person can edit. One stray byte used
+        # to raise UnicodeDecodeError out of the constructor, and the service
+        # then exited with no access point at all.
+        stored = self.state_path.with_name("setup-security")
+        stored.write_bytes(b"\xff\xfe\x00wpa")
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
             onboarder = self.onboarder(security="wpa")
         self.assertEqual(onboarder.status()["security"], "wpa")
+
+    def test_a_second_change_inside_the_interval_is_refused(self):
+        # Anybody on the access point can post the toggle, and it is open by
+        # default. Without an interval a loop of posts cycles the radio for
+        # everyone on it.
+        clock = [1000.0]
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="none", clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        self.assertIs(onboarder.begin_security_change(), True)
+        onboarder.abandon_security_change()
+        self.assertEqual(onboarder.begin_security_change(), "throttle",
+                         "a second change was accepted immediately")
+        clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+        self.assertIs(onboarder.begin_security_change(), True)
+        onboarder.abandon_security_change()
 
     def test_the_password_is_never_in_the_status_before_or_after_a_switch(self):
         network = FakeNetwork()
@@ -1306,6 +1377,32 @@ class BaselineRootTests(Temp):
         self.assertTrue(all(not path.startswith("var/") for path in manifest["captured"]))
 
 
+class BaselineExclusionTests(Temp):
+    """A baseline is copied off the device; the setup credential must not be in it."""
+
+    def test_the_setup_password_is_not_captured_even_though_it_lives_under_var(self):
+        # var/lib/debra is captured because it is device configuration worth
+        # recovering. The setup service's own directory is inside it and holds
+        # the setup password, so membership of that parent cannot be the rule.
+        fake = self.dir / "fake-root"
+        (fake / "var" / "lib" / "debra" / "setup").mkdir(parents=True)
+        (fake / "var" / "lib" / "debra" / "setup" / "setup-secret").write_text(
+            "s3cretvalue\n", encoding="utf-8")
+        (fake / "var" / "lib" / "debra" / "setup" / "setup-security").write_text(
+            "wpa\n", encoding="utf-8")
+        (fake / "var" / "lib" / "debra" / "keep.me").write_text("x", encoding="utf-8")
+        onboarder = self.onboarder(root=str(fake), security="wpa")
+        onboarder.start_hotspot()
+        status = onboarder.join("HomeWiFi", "correct horse", None)
+        manifest = json.loads(Path(status["baseline"].replace(".tar.gz", ".json"))
+                              .read_text())
+        captured = manifest["captured"]
+        self.assertNotIn("var/lib/debra/setup/setup-secret", captured)
+        self.assertNotIn("var/lib/debra/setup/setup-security", captured)
+        self.assertIn("var/lib/debra/keep.me", captured,
+                      "the exclusion must not swallow the rest of the directory")
+
+
 class Recorder:
     """A stand-in for `_run` that answers like nmcli and remembers argv.
 
@@ -1379,9 +1476,17 @@ class Recorder:
         self.calls.append(list(argv))
         if argv[1:] == ["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]:
             return f"{self.interface}:wifi:connected\n"
-        if argv[1:4] == ["-t", "-f", "802-11-wireless-security.key-mgmt"]:
+        if argv[1:3] == ["-g", "802-11-wireless-security.key-mgmt"]:
+            # `-g/--get-values`: the value alone.
             value = self.key_mgmt if self.key_mgmt is not None else self._profile_key_mgmt()
             return f"{value}\n"
+        if argv[1:4] == ["-t", "-f", "802-11-wireless-security.key-mgmt"]:
+            # `-t` keeps the property name in front of the value - which is
+            # exactly what the real tool does, and what made a stripped
+            # comparison never match. Answering this form faithfully is what
+            # lets the tests catch a return to it.
+            value = self.key_mgmt if self.key_mgmt is not None else self._profile_key_mgmt()
+            return f"802-11-wireless-security.key-mgmt:{value}\n"
         if argv[1:3] == ["-t", "-f"] and argv[4:6] == ["device", "show"]:
             name = self.active_profile
             if name is None:
@@ -2654,3 +2759,11 @@ class ScanSpaceTests(unittest.TestCase):
         found = adapter.scan("wlan0")
         names = [item["ssid"] for item in found]
         self.assertIn(" Home ", names, f"the scan trimmed the name: {names}")
+
+
+if __name__ == "__main__":
+    # Last, so running this file directly collects every class above it. It used
+    # to sit in the middle of the file, and `python tests/test_onboarding.py`
+    # then reported success while silently skipping the security and
+    # access-point tests declared below it.
+    unittest.main()

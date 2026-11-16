@@ -5,10 +5,12 @@ last tried, and what it last failed with. It deliberately never holds the
 household Wi-Fi passphrase — NetworkManager owns that keyfile, and a copy here
 would be a second place to leak it from.
 
-The setup network's own password is a different credential and is kept here. It
-is generated, not derived: a password computed from the device name is computable
-by anyone who can see the name broadcast, which is everyone in range. It is also
-written to the boot-partition note, which is how the owner learns it.
+The setup network's own password is a different credential and is deliberately
+not here either: it lives in its own owner-only file beside this one, because
+this file is the record the status API reports. It is generated, not derived: a
+password computed from the device name is computable by anyone who can see the
+name broadcast, which is everyone in range. It is also written to the
+boot-partition note, which is how the owner learns it.
 """
 
 from __future__ import annotations

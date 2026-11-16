@@ -1,7 +1,7 @@
 # Managed by Debra setup installer
 #
 # Rendered by control/setup/install.py from control/setup/debra-setup.service,
-# which holds the four @PLACEHOLDER@ values. The installed copy is
+# which holds the five @PLACEHOLDER@ values. The installed copy is
 # /etc/systemd/system/debra-setup.service. See README.md.
 [Unit]
 Description=Debra first-boot setup (device name, Wi-Fi onboarding, baseline)

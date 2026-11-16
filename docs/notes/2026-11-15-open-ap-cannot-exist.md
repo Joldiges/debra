@@ -101,6 +101,29 @@ there: re-delegating the access point to `nmcli device wifi hotspot` (5 failures
 dropping the page's poll guard over the change handover (1 browser failure);
 disabling the key-management comparison (3 failures, re-run by the coordinator).
 
+## Known limits of the mode switch
+
+These are accepted for the development phase, and they are properties of the
+current design rather than defects to be discovered later.
+
+- **The password is served over cleartext HTTP.** `POST /api/security` is
+  answered on port 80 of the setup access point, which has no transport
+  security. Switching from the open mode therefore sends the new password over
+  the open network, and anyone in range capturing that exchange has it. The
+  password is stable (`setup_secret` reuses its file), so it stays valid on
+  later boots. The reply is "the one place the password is served", but on an
+  open access point that means anyone who has joined, not anyone who was
+  invited. It protects what comes after the change, not the moment of it.
+- **A lost reply is not the same as a lost change.** The device writes the mode
+  and answers 202 before it touches the radio, so a reply that never arrives
+  may mean the change started or may mean nothing happened. The page says it is
+  not known yet rather than claiming either, and the next status poll reports
+  the mode the device is really in.
+- **An address that moves is recorded, not fixed.** The profile is rewritten in
+  place to keep the shared-mode address stable, but if it moves anyway the
+  listening socket does not follow it; the state records why and a service
+  restart is still required.
+
 ## Not established
 
 - **No radio, no NetworkManager and no `nmcli` ran.** The profile syntax, whether

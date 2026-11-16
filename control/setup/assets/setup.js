@@ -2,7 +2,7 @@
 // The setup page is deliberately small and dependency-free: it is served from a
 // device that has no internet, over a network that is about to disappear.
 const el = id => document.getElementById(id);
-const SECTIONS = ["loading", "form-card", "security-handover", "handover", "uncertain", "failed", "online"];
+const SECTIONS = ["loading", "form-card", "security-handover", "handover", "uncertain", "security-uncertain", "failed", "online"];
 let status = null;
 let busy = false;
 // A status request that started before a submission is no longer news: the
@@ -346,10 +346,16 @@ el("security-toggle").addEventListener("click", async () => {
     }
     showSecurityHandover(mode, data.ssid, data.password || null);
   } catch {
-    // The reply is the last thing the setup network can carry. Losing it here
-    // means the device is already changing, so say so rather than claim the
-    // form is still current.
-    showSecurityHandover(mode, status?.hotspot?.ssid || null, null);
+    // A lost reply is ambiguous, not proof that the radio changed - and the
+    // join path already learned this. The previous version showed the handover
+    // card here, telling the person the network now required a password and to
+    // go and read one from the card, when the request may never have arrived.
+    // `switching` is deliberately not set: only a delivered 202 may claim the
+    // change, and the next status poll is allowed to replace this card with the
+    // mode the device is actually in.
+    el("security-uncertain-network").textContent =
+      status?.hotspot?.ssid || "the setup network";
+    show("security-uncertain");
   } finally {
     busy = false;
     el("security-toggle").disabled = false;
