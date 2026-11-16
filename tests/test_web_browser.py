@@ -481,127 +481,90 @@ window.addEventListener("load", async () => {
       return realFetch(path, options);
     };
     await loadSetup();
-    const hats = [...document.querySelectorAll("#setup-hats .choice")];
-    assert(hats.length === 2, "expected two HAT options, saw " + hats.length);
-    assert(hats[0].textContent.includes("ReSpeaker 2-Mics Pi HAT v2"), "HAT label missing");
-    assert(hats[0].textContent.includes("an ALSA card named seeed2micvoicec is listed"),
+    // What the device reports, rendered as text. These rows are the evidence;
+    // the planned rows below them are static markup in index.html.
+    const observations = [...document.querySelectorAll("#setup-observations .choice")];
+    assert(observations.length >= 2,
+           "expected at least two observations, saw " + observations.length);
+    const reSpeaker = observations.find(row => row.textContent.includes("ReSpeaker 2-Mics Pi HAT v2"));
+    assert(reSpeaker, "the ReSpeaker observation is missing");
+    assert(reSpeaker.textContent.includes("an ALSA card named seeed2micvoicec is listed"),
            "detected card not reported");
-    assert(hats[1].textContent.includes("no sound card of its own to check"),
+    const noHat = observations.find(row => row.textContent.includes("No HAT"));
+    assert(noHat, "the no-HAT observation is missing");
+    assert(noHat.textContent.includes("no sound card of its own to check"),
            "the no-HAT option claimed a card");
     // The two rows describe one EEPROM string and must not contradict each
     // other. The alternative is not a board the EEPROM can name, so "the EEPROM
     // does not name it" was the exact opposite of the row above.
-    assert(hats[0].textContent.includes("the exact model and revision are not established"),
-           "the ReSpeaker row dropped its qualification: " + hats[0].textContent);
-    assert(!/exact v2|identified by the HAT EEPROM as/i.test(hats[0].textContent),
+    assert(reSpeaker.textContent.includes("the exact model and revision are not established"),
+           "the ReSpeaker row dropped its qualification: " + reSpeaker.textContent);
+    assert(!/exact v2|identified by the HAT EEPROM as/i.test(reSpeaker.textContent),
            "the ReSpeaker row claims an identification the EEPROM cannot make");
-    assert(!/does not name a ReSpeaker/i.test(hats[1].textContent),
+    assert(!/does not name a ReSpeaker/i.test(noHat.textContent),
            "the No-HAT row states the negation of the ReSpeaker row's evidence");
-    assert(/gives no family verdict for this row/.test(hats[1].textContent),
+    assert(/gives no family verdict for this row/.test(noHat.textContent),
            "the No-HAT row does not say what is actually known about it");
     // What the EEPROM can and cannot say is stated once, above the rows.
     const eepromNotes = [...document.querySelectorAll("#setup p")]
       .filter(node => /can name a board family only/.test(node.textContent));
     assert(eepromNotes.length === 1, "the EEPROM limitation is stated "
            + eepromNotes.length + " times instead of once");
-    assert(hats.every(row => row.textContent.includes("Positions are an estimate")
-                        || row.textContent.includes("cannot tell which output")),
-           "a caveat was dropped");
-    const radios = [...document.querySelectorAll("#setup-hats input[type=radio]")];
-    assert(radios.length === 2 && radios.every(radio => radio.disabled),
-           "a HAT choice is selectable although nothing can change it");
-    assert(radios.every(radio => !radio.checked), "a HAT was shown as chosen");
-    const selects = [...document.querySelectorAll("#setup-settings select")];
-    assert(selects.length === 3, "expected three settings, saw " + selects.length);
-    assert(selects.every(select => select.disabled), "a setting is selectable");
-    assert(selects.every(select => select.value === ""), "a setting showed a value");
-    const buttons = [...document.querySelectorAll("#setup-updates button")];
-    assert(buttons.length === 3, "expected three update actions, saw " + buttons.length);
-    assert(buttons.every(button => button.disabled), "an update action is usable");
-    assert(document.querySelectorAll("#setup .badge.planned").length >= 5,
-           "planned controls are not labelled");
-    for (const control of [...radios, ...selects, ...buttons]) {
-      const id = control.getAttribute("aria-describedby");
-      assert(id && document.getElementById(id)?.textContent.length > 10,
-             "a disabled control does not explain itself");
-    }
+    assert(observations.some(row => row.textContent.includes("Positions are an estimate")),
+           "a caveat was dropped from the observations");
+    // The device's own service state is evidence too, and it must be reported
+    // without a control that would imply the page can change it.
+    assert(observations.some(row => /service:/.test(row.textContent)),
+           "no observed service state was reported");
+    assert(observations.some(row => row.textContent.includes("Updates")),
+           "the update reason was not reported as an observation");
     assert(document.getElementById("setup-hardware-source").textContent.includes("seeed2micvoicec"),
            "the ALSA card list is not shown");
     assert(document.getElementById("setup-status").textContent.includes("cannot change"),
            "the read-only reason is missing");
-    // A disabled control cannot be clicked by a person, but a handler attached
-    // to it would run the moment someone made it selectable, and inspecting the
-    // `disabled` property cannot see that handler. Dispatch what a person would
-    // generate and prove nothing is written.
-    const planned = [...document.querySelectorAll("#setup .choice")]
-      .filter(row => row.querySelector(".badge.planned"))
-      .flatMap(row => [...row.querySelectorAll("input, select, button")]);
-    assert(planned.length === 8, "expected eight planned controls, saw " + planned.length);
+    // THE CARDINAL RULE: a planned capability is static text, never a control.
+    // A disabled control is still a control: it promises a shape the page
+    // cannot honour, and a handler on it runs the moment it is enabled.
+    const staticRows = [...document.querySelectorAll("#setup-hats .choice, #setup-settings .choice, #setup-updates .choice")];
+    assert(staticRows.length === 8, "expected eight planned setup rows, saw " + staticRows.length);
+    for (const row of staticRows) {
+      assert(row.querySelector(".badge.planned"), "a planned setup row is not labelled: " + row.textContent.slice(0, 40));
+      assert((row.querySelector(".choice-detail")?.textContent || "").length > 30,
+             "a planned setup row does not say what it would do: " + row.textContent.slice(0, 40));
+    }
+    const controls = [...document.querySelectorAll("#setup input, #setup select, #setup button, #setup textarea, #setup a[href]")]
+      .filter(node => !node.closest("#access-details"));
+    assert(controls.length === 0,
+           "the setup card still offers " + controls.length + " control(s): "
+           + controls.map(node => node.tagName + "#" + node.id).join(", "));
+    const interactive = [...document.querySelectorAll("#setup [tabindex], #setup [role=button], #setup [role=link], #setup [role=switch], #setup [role=checkbox], #setup [role=radio]")];
+    assert(interactive.length === 0,
+           "the setup card offers interactive markup: " + interactive.length);
+    // A handler attached to a row or its title would be invisible to the
+    // `disabled` check above, and would run the moment anything reactivated it.
+    // Dispatch what a person would generate and prove nothing is written.
     const before = testState.posts.length;
-    const beforeSent = sent.length;
-    // The fixture's own log, written at the entry point the page calls, is the
-    // one a captured pre-wrapper `fetch` cannot evade. The label sweep below
-    // already reads it; this sweep read only the late wrapper, so a handler
-    // holding the function from before that wrapper was installed wrote and
-    // nothing here noticed.
     const beforeEarly = testState.requests.length;
-    for (const control of planned) {
-      // `.click()` is a no-op on a disabled control, and so is a real click,
-      // so the event is dispatched directly: a handler that exists still runs.
-      control.dispatchEvent(new Event("click", {bubbles: true}));
-      control.dispatchEvent(new Event("change", {bubbles: true}));
-      control.dispatchEvent(new Event("input", {bubbles: true}));
-      // A phone generates touch events, and a delegated `touchend` handler on
-      // a planned control is a write path this sweep could not see until the
-      // r10 review built one and it survived every web test.
-      control.dispatchEvent(new Event("touchstart", {bubbles: true}));
-      control.dispatchEvent(new Event("touchend", {bubbles: true}));
-      if (control.form) {
-        control.form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
+    const targets = staticRows.flatMap(row => [row, ...row.querySelectorAll("*")]);
+    for (const node of targets) {
+      node.dispatchEvent(new Event("click", {bubbles: true, cancelable: true}));
+      node.dispatchEvent(new Event("change", {bubbles: true}));
+      node.dispatchEvent(new Event("input", {bubbles: true}));
+      node.dispatchEvent(new Event("touchstart", {bubbles: true}));
+      node.dispatchEvent(new Event("touchend", {bubbles: true}));
+      if (node.form) {
+        node.form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
       }
     }
     await wait();
     await wait();
-    const writes = sent.slice(beforeSent).filter(([, method]) => method !== "GET");
-    assert(writes.length === 0,
-           "a planned control sent a request that is not a read: " + JSON.stringify(writes));
     const earlyWrites = testState.requests.slice(beforeEarly)
       .filter(request => request.method !== "GET");
     assert(earlyWrites.length === 0,
-           "a planned control sent a request the page's own log saw but the "
-           + "wrapper did not: " + JSON.stringify(earlyWrites));
+           "a planned setup row sent a request that is not a read: " + JSON.stringify(earlyWrites));
     assert(testState.posts.length === before,
-           "a planned control wrote to the device: "
+           "a planned setup row wrote to the device: "
            + JSON.stringify(testState.posts.slice(before)));
-    // A disabled control cannot be clicked by a person, but the <label> that
-    // names it is enabled and can be touched, and the label's own click reaches
-    // handlers on its row and on the whole card. Row-level and delegated label
-    // handlers both survived a control-only sweep, so the labels themselves are
-    // activated: the browser's own click plus the touch events a thumb makes.
-    const labels = [...document.querySelectorAll("#setup .choice-head label")];
-    assert(labels.length === 5, "expected five setup labels, saw " + labels.length);
-    for (const label of labels) {
-      const control = label.htmlFor ? document.getElementById(label.htmlFor) : null;
-      assert(control && control.disabled,
-             "a setup label points at a control that is not disabled: " + label.textContent);
-    }
-    const beforeLabels = testState.requests.length;
-    for (const label of labels) {
-      label.click();
-      label.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
-      label.dispatchEvent(new Event("touchstart", {bubbles: true}));
-      label.dispatchEvent(new Event("touchend", {bubbles: true}));
-    }
-    await wait();
-    await wait();
-    const labelWrites = testState.requests.slice(beforeLabels).filter(r => r.method !== "GET");
-    assert(labelWrites.length === 0,
-           "touching a planned label sent a request that is not a read: "
-           + JSON.stringify(labelWrites));
-    assert(testState.posts.length === before,
-           "touching a planned label wrote to the device: "
-           + JSON.stringify(testState.posts.slice(before)));
-    assert(selects.every(select => select.disabled), "touching a label made a setting selectable");
     assert(testState.posts.length === 0, "the setup card wrote to the device");
     // The planned task list is this page's statement of what the appliance
     // will do. It has no control at all, so the lies available are a row that
@@ -621,9 +584,9 @@ window.addEventListener("load", async () => {
            "a planned task does not cite what it waits on");
     assert(/nothing here can be used/.test(document.getElementById("planned").textContent),
            "the planned section does not say the rows cannot be used");
-    result.textContent = "PASS: setup card renders disabled choices with reasons "
-      + "and writes nothing when they or their labels are touched, and the planned "
-      + "tasks are labelled with what each waits on and offer no control";
+    result.textContent = "PASS: the setup card reports evidence as text, offers no control at all, "
+      + "and every planned row carries a badge and a sentence; the planned tasks are "
+      + "labelled with what each waits on and offer no control";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -1484,7 +1447,7 @@ window.addEventListener("load", async () => {
     for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
     // The Setup card is what makes the page long: without it the global #error
     // line would be near Audio anyway and the geometry proves nothing.
-    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-observations .choice"); i++) await wait();
     const width = document.documentElement.clientWidth, height = window.innerHeight;
     assert(width === 390, "the harness did not emulate a 390 px phone: " + width);
     const apply = document.getElementById("apply");
@@ -1536,7 +1499,7 @@ window.addEventListener("load", async () => {
   const result = document.createElement("pre");
   result.id = "browser-test-result";
   document.body.append(result);
-  const rows = () => ["setup-hats", "setup-settings", "setup-updates"]
+  const rows = () => ["setup-observations"]
     .map(id => document.getElementById(id).children.length);
   try {
     // `?hold=setup` holds the page's first Setup read, the one start() makes.
@@ -1622,12 +1585,12 @@ window.addEventListener("load", async () => {
   const result = document.createElement("pre");
   result.id = "browser-test-result";
   document.body.append(result);
-  const rows = () => ["setup-hats", "setup-settings", "setup-updates"]
+  const rows = () => ["setup-observations"]
     .map(id => document.getElementById(id).children.length);
   try {
     await wait();
     document.getElementById("bypass").click();
-    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-observations .choice"); i++) await wait();
     assert(rows().every(count => count > 0), "the setup rows never rendered: " + rows());
     // Hold one Setup response across a Disconnect and release it afterwards.
     testState.holdSetup = true;
@@ -1654,7 +1617,7 @@ window.addEventListener("load", async () => {
     // read. One global loading flag did, and because the old answer is
     // correctly discarded, the card stayed empty until the 15-second poll.
     document.getElementById("bypass").click();
-    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-observations .choice"); i++) await wait();
     assert(rows().every(count => count > 0), "re-pairing did not render the setup rows: " + rows());
     testState.holdSetup = true;
     const stale = loadSetup();
@@ -1663,7 +1626,7 @@ window.addEventListener("load", async () => {
     document.getElementById("disconnect").click();
     assert(rows().every(count => count === 0), "disconnect did not clear the setup rows: " + rows());
     document.getElementById("bypass").click();
-    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-observations .choice"); i++) await wait();
     assert(rows().every(count => count > 0),
            "a new session could not read while an old read was pending: " + rows());
     testState.releaseSetup();
@@ -1708,12 +1671,12 @@ window.addEventListener("load", async () => {
   const result = document.createElement("pre");
   result.id = "browser-test-result";
   document.body.append(result);
-  const rows = () => ["setup-hats", "setup-settings", "setup-updates"]
+  const rows = () => ["setup-observations"]
     .map(id => document.getElementById(id).children.length);
   try {
     await wait();
     document.getElementById("bypass").click();
-    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-observations .choice"); i++) await wait();
     assert(rows().every(count => count > 0), "the setup rows never rendered: " + rows());
     // Hold both reads: the old session's, and the new session's after a
     // re-pair. Releasing only the old one is the case the supplied re-pair test
@@ -2140,7 +2103,11 @@ class BrowserTests(unittest.TestCase):
         # says what was actually read.
         self.run_browser("?auth=none", "check-labels.js")
 
-    def test_setup_card_renders_disabled_choices_with_reasons(self):
+    def test_setup_card_offers_no_control_at_all(self):
+        # A disabled control is still a control. The card now reports what the
+        # device says as text and describes every planned choice as a sentence,
+        # and the check dispatches clicks, changes and touches across every one
+        # of them to prove no write path exists behind the text.
         self.run_browser("#key=" + "x" * 40, "check-setup.js")
 
     def test_a_refused_key_is_forgotten_and_named(self):

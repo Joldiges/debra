@@ -363,37 +363,33 @@ function render(data) {
 // read-only in this build, so each control is disabled and carries its reason
 // beside it: a control that looked usable would be the lie this page exists to
 // avoid. The server decides what is enabled; the page never assumes it.
-function plannedBadge() {
-  const badge = document.createElement("span");
-  badge.className = "badge planned";
-  badge.textContent = "Planned";
-  return badge;
-}
 function detailLine(text, className = "choice-detail") {
+  // A sentence with no control: the only thing a planned capability may carry.
   const line = document.createElement("p");
   line.className = className;
   line.textContent = text;
   return line;
 }
-// The reason is a visible line, and the control points at it, because a
-// disabled control that cannot be focused must still explain itself.
-function addReason(row, control, text, id) {
-  const line = detailLine(text);
-  line.id = id;
-  if (control) control.setAttribute("aria-describedby", id);
-  row.append(line);
-}
-function setupRow(id, label, planned) {
+function observationRow(title, status, caveat) {
+  // What the device itself reports, as text. No field, button or switch is
+  // built here on purpose: a disabled control is still a control, and a person
+  // reading this card cannot tell a promise from a capability.
   const row = document.createElement("div");
   row.className = "choice";
   const head = document.createElement("div");
   head.className = "choice-head";
-  const title = document.createElement("label");
-  title.htmlFor = id;
-  title.textContent = label;
-  head.append(title);
-  if (planned) head.append(plannedBadge());
+  const name = document.createElement("span");
+  name.className = "choice-title";
+  name.textContent = title;
+  head.append(name);
   row.append(head);
+  if (status) {
+    const line = document.createElement("p");
+    line.className = "choice-status";
+    line.textContent = status;
+    row.append(line);
+  }
+  if (caveat) row.append(detailLine(caveat, "choice-caveat"));
   return row;
 }
 function hatStatus(option) {
@@ -426,28 +422,6 @@ function hatStatus(option) {
   }
   return `Status: ${detected}; ${applied}.`;
 }
-function hatChoice(option) {
-  const id = `setup-hat-${option.id}`;
-  const row = setupRow(id, option.label, true);
-  if (option.summary) row.append(detailLine(option.summary));
-  const radio = document.createElement("input");
-  radio.type = "radio";
-  radio.name = "setup-hat";
-  radio.id = id;
-  // No radio is checked: the retained label is a note, not a recorded choice,
-  // so marking one would claim a selection the device does not have.
-  radio.disabled = true;
-  radio.setAttribute("aria-describedby", "setup-hardware-note");
-  // The dot belongs beside the name it selects. On a line of its own it read as
-  // a stray mark: its label is the row title, which sits two paragraphs above.
-  row.querySelector(".choice-head").prepend(radio);
-  const status = document.createElement("p");
-  status.className = "choice-status";
-  status.textContent = hatStatus(option);
-  row.append(status);
-  for (const caveat of option.caveats || []) row.append(detailLine(caveat, "choice-caveat"));
-  return row;
-}
 function observedLine(option) {
   if (!option.observed) return null;
   const parts = [];
@@ -460,54 +434,6 @@ function observedLine(option) {
   if (!parts.length) return null;
   return `${option.label} on this device now — ${parts.join("; ")}.`
     + " Service state is not proof it is configured or working.";
-}
-function settingChoice(setting) {
-  const id = `setup-setting-${setting.id}`;
-  const row = setupRow(id, setting.label, setting.selectable !== true);
-  if (setting.summary) row.append(detailLine(setting.summary));
-  const control = document.createElement("div");
-  control.className = "choice-control";
-  const select = document.createElement("select");
-  select.id = id;
-  select.disabled = setting.selectable !== true;
-  const blank = document.createElement("option");
-  blank.value = "";
-  blank.textContent = "Not set on this device";
-  select.append(blank);
-  for (const option of setting.options || []) {
-    const item = document.createElement("option");
-    item.value = String(option.id);
-    item.textContent = option.label;
-    select.append(item);
-  }
-  select.value = "";
-  control.append(select);
-  row.append(control);
-  for (const option of setting.options || []) {
-    const observed = observedLine(option);
-    if (observed) row.append(detailLine(observed));
-  }
-  addReason(row, select, setting.reason || "This choice is not available.", `${id}-reason`);
-  return row;
-}
-function updateAction(action) {
-  const row = document.createElement("div");
-  row.className = "choice";
-  const head = document.createElement("div");
-  head.className = "choice-head";
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "secondary";
-  button.id = `setup-update-${action.id}`;
-  button.textContent = action.label;
-  // Enabled only when the device says the action exists; nothing does today.
-  button.disabled = action.enabled !== true;
-  head.append(button);
-  if (button.disabled) head.append(plannedBadge());
-  row.append(head);
-  addReason(row, button, action.reason || "This action is not available.",
-            `${button.id}-reason`);
-  return row;
 }
 function renderSetup(data) {
   const hardware = data?.hardware, settings = data?.settings, updates = data?.updates;
@@ -524,13 +450,22 @@ function renderSetup(data) {
     : "ALSA cards: unknown";
   el("setup-hardware-source").textContent = `${detected} · ${retained} · ${cards}`;
   el("setup-hardware-note").textContent = hardware.reason || "";
-  el("setup-hats").replaceChildren(...(hardware.options || []).map(hatChoice));
-  el("setup-settings").replaceChildren(...Object.values(settings).map(settingChoice));
-  const rows = (updates.actions || []).map(updateAction);
-  // The group's own reason comes first: what the three buttons share is read
-  // before the individual ones.
-  if (updates.reason) rows.unshift(detailLine(updates.reason));
-  el("setup-updates").replaceChildren(...rows);
+  // Everything the renderer contributes is evidence about this device. The
+  // planned choices below it are static text in index.html and are never
+  // touched from here, so a device answer cannot add a control to the page.
+  const observations = [];
+  for (const option of hardware.options || []) {
+    observations.push(observationRow(option.label, hatStatus(option),
+      (option.caveats || []).join(" ")));
+  }
+  for (const setting of Object.values(settings)) {
+    for (const option of setting.options || []) {
+      const observed = observedLine(option);
+      if (observed) observations.push(observationRow(setting.label, observed));
+    }
+  }
+  if (updates.reason) observations.push(observationRow("Updates", updates.reason));
+  el("setup-observations").replaceChildren(...observations);
   el("setup-status").textContent = data.reason || "";
 }
 // The session whose Setup read is in flight, or null. It is per session rather
@@ -732,9 +667,10 @@ el("disconnect").addEventListener("click", () => {
   currentAudio = null;
   showPairStatus("");
   showNotices();
-  // Clear the previous device's build choices so a reconnect cannot show them
-  // for a different device, even for one frame.
-  for (const id of ["setup-hats", "setup-settings", "setup-updates"]) el(id).replaceChildren();
+  // Clear the previous device's own answers so a reconnect cannot show them for
+  // a different device, even for one frame. The planned rows are static text
+  // about the appliance, not about this device, so they are left alone.
+  el("setup-observations").replaceChildren();
   el("setup-hardware-source").textContent = "";
   el("setup-hardware-note").textContent = "";
   el("setup-status").textContent = "";

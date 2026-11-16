@@ -101,15 +101,30 @@
              default. -->
         <p id="setup-status" class="detail" role="status"></p>
         <details id="setup-details" class="more"><summary>View setup choices</summary>
-          <h3>Audio hardware</h3>
+          <h3>What this device reports</h3>
           <p id="setup-hardware-source" class="detail"></p>
           <p class="detail">The EEPROM product string can name a board family only: nothing this page reads establishes an exact model or revision, and an alternative that is not a board — the jack or USB output — is not something it can name.</p>
-          <div id="setup-hats" class="choices"></div>
+          <!-- Observations come from the device and are rendered here: text
+               only, with no control of any kind. -->
+          <div id="setup-observations" class="choices"></div>
           <p id="setup-hardware-note" class="detail"></p>
+          <h3>Audio hardware</h3>
+          <div id="setup-hats" class="choices">
+            <div class="choice"><div class="choice-head"><span class="choice-title">ReSpeaker 2-Mics Pi HAT v2</span><span class="badge planned">Planned</span></div><p class="choice-detail">Select this HAT for the setup; this page cannot change its drivers or verify compatibility yet.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">No HAT: 3.5 mm jack or USB audio</span><span class="badge planned">Planned</span></div><p class="choice-detail">Select a jack or USB output for the setup; this page cannot choose outputs or confirm that this board has a jack.</p></div>
+          </div>
           <h3>Tools and settings</h3>
-          <div id="setup-settings" class="choices"></div>
+          <div id="setup-settings" class="choices">
+            <div class="choice"><div class="choice-head"><span class="choice-title">Music player</span><span class="badge planned">Planned</span></div><p class="choice-detail">Choose the music receiver; no music-player choice is stored by this page yet.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">During an announcement</span><span class="badge planned">Planned</span></div><p class="choice-detail">Choose whether music becomes quieter or pauses; coordination with the music receiver is not implemented or tested yet.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Update policy</span><span class="badge planned">Planned</span></div><p class="choice-detail">Choose when component versions change; this page has no update-policy operation yet.</p></div>
+          </div>
           <h3>Updates</h3>
-          <div id="setup-updates" class="choices"></div>
+          <div id="setup-updates" class="choices">
+            <div class="choice"><div class="choice-head"><span class="choice-title">Check for updates</span><span class="badge planned">Planned</span></div><p class="choice-detail">Check for available versions; this page has no update source yet.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Install updates</span><span class="badge planned">Planned</span></div><p class="choice-detail">Install reviewed component versions; this page has no update operation yet.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Roll back the last change</span><span class="badge planned">Planned</span></div><p class="choice-detail">Return to an earlier working setup; this page has no rollback operation yet.</p></div>
+          </div>
         </details>
       </section>
       <!-- The tasks a person will come to this page for, in the order the
