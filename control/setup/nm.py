@@ -436,9 +436,12 @@ class Nmcli:
 
     def __init__(self, runner=_run, profiles_dir=None, hosts_path=HOSTS_PATH):
         self._run = runner
-        # Where a profile has to live to be found again after a reboot. Also
-        # injectable, so an offline test writes into a scratch directory instead
-        # of this machine's real NetworkManager store.
+        # Where the access point's profile has to live to be found again after
+        # a reboot. Injectable, so an offline test writes into a scratch
+        # directory instead of this machine's real NetworkManager store.
+        # `connect` takes its own `keyfile_dir`; it does not read this, so a
+        # test that constructs the adapter with a scratch `profiles_dir` and
+        # then joins a network still has to pass `keyfile_dir` as well.
         self.profiles_dir = Path(profiles_dir or PROFILES_DIR)
         self._hosts_path = Path(hosts_path)
 

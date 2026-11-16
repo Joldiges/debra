@@ -49,8 +49,9 @@ These run on a Fedora development computer, not on the Pi.
   and lists announced devices (15 tests). The activity table has 98 tests and its
   notices checklist 24; the task helper and research runner 15 and 9
   ([unattended runner](scheduled-runner.md)).
-- The first-boot setup service in `control/setup/` has run **once** on a Pi Zero
-  2 W ([first device run](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)):
+- The first-boot setup service in `control/setup/` has run on a Pi Zero 2 W in a
+  single device-run campaign - install, boot, a forced rename and its revert
+  ([first device run](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)):
   the online path finished in 1.28 s, renamed the board from its hardware serial
   (`debra-lab` → `debra-8518d6`), captured a baseline, enabled its unit and left
   port 80 closed. The access-point path has never run: no radio raised, no join

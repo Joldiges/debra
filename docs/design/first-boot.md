@@ -1,7 +1,8 @@
 # First boot: from a flashed card to a working device
 
-**Status: partly implemented, 2026-11-16. This tree has run on a device only
-through the online path; nothing here has raised a radio or served the page.**
+**Status: partly implemented, 2026-11-16. The online path has run on a device,
+but on main's tree, not this branch's; nothing here has raised a radio or served
+the page.**
 
 The phase machine, the setup page and the first baseline exist as code under
 `control/setup/` and pass offline tests against a recorded fake NetworkManager.
@@ -28,8 +29,9 @@ No Linux vocabulary is needed for these steps, and none is used.
 1. Plug the prepared card into the device, connect power, wait.
 2. The device has no Wi-Fi of its own yet, so it puts up a small network of its
    own. Its name is `Debra-Setup-` followed by six characters.
-3. On a phone, join that network and open the setup page. Today the page is
-   served at `http://10.42.0.1/` and nothing prints that address for you yet.
+3. On a phone, join that network and open the setup page. It is usually served
+   at `http://10.42.0.1/`; the card note and the page print whatever address it
+   actually bound to.
 4. Choose your country if you are asked for one, type the name of your home
    Wi-Fi and its password, and press **Join network**.
 5. The page tells you that the setup network is about to disappear. It does, and
@@ -109,7 +111,7 @@ the operating system is at most `partial`.
 | Step | What it is | Status | What is missing |
 | --- | --- | --- | --- |
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
-| Applying the name | `hostnamectl set-hostname`, the `/etc/hosts` alias, and a restart of the mDNS responder, so the running system answers to the recorded name | partial | Ran once on a Zero 2 W: a live rename kept the connection and the device answered `hostname -f` and `sudo` afterwards. Unproven: a rename by a *first* boot, and an image whose cloud-init metadata pins a hostname |
+| Applying the name | `hostnamectl set-hostname`, an atomic rewrite of the `/etc/hosts` alias, and an unconditional restart of the mDNS responder, so the running system answers to the recorded name | partial | Ran on a Zero 2 W: a live rename kept the connection and the device answered `hostname -f` and `sudo` afterwards, but that was the **earlier draft** — the atomic replace and the unconditional `try-restart` were written after it and are offline-only. Unproven: the shipped mechanism on a board, a rename by a *first* boot, and an image whose cloud-init metadata pins a hostname |
 | State across reboots | Versioned JSON schema (`SCHEMA = 3`), atomic owner-only writes, refuses unknown keys and phases; a schema-1 or schema-2 record is migrated on read | implemented | Nothing on the schema. A record from an earlier schema is dropped of retired keys, has the few fields an earlier build could lack filled from a blank record, and is written back; a combination the current rules refuse (`connecting` with no token, `hotspot` with no described network, `online` with one) is resolved the way the next boot resolves it. Schema 2's `hotspot_password` is moved into `setup-secret` and `wpa` into `setup-security` before the record is read, so the first boot after an upgrade cannot open a network that was protected; only then is the key dropped. If the mode file itself cannot be written the boot is still protected and the next one falls back to the installer's flag. A record from a *newer* schema, one whose version never existed, or one missing a core key such as `phase`, is still refused, so a corrupt file is an error and not a silent reset. 1→3 and 2→3 are tested offline; no device has carried a record across an upgrade |
 | Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) are installed and enabled on one Zero 2 W, and the unit has run as part of a boot, taking the online path. The access-point path has never run on a radio, and there is no image |
 | Raising the setup network | An explicit NetworkManager profile this code writes (`wifi.mode=ap`, `ipv4.method=shared`, `wifi-sec.key-mgmt` of `wpa-psk` or `none`), reloaded and activated | partial | Never executed on a radio. `nmcli device wifi hotspot` was the first mechanism and is **unusable**: its manual says a password is *generated* when none is given, so it cannot express an open setup network at all, and a password-less call would have raised a WPA2 network nobody could join. The password now lives in the profile file (`0600`), never in argv; the address the profile got is what the page is bound to. The mode is read back after activation and a mismatch removes the profile. `none` is the **current default** (`DEFAULT_SETUP_SECURITY`), and the page can switch modes without a reinstall. No idle timeout, no pinned channel |
@@ -334,11 +336,13 @@ was written; the rest are still open, so the coordinator can decide them.
 - What is the right check for "this network works"? A routable address is
   necessary and not sufficient; a LAN-only household with no internet is a valid
   outcome the current check cannot distinguish.
-- Does the hostname actually get applied on a device? The device run says yes
-  for the apply: `hostnamectl --static` reported the new name. What it also
-  showed is that the apply is only half the job - `/etc/hosts` and avahi kept the
-  old name until the next boot. Still open: does the DHCP client announce it, so
-  the router's client list shows it?
+- Does the hostname actually get applied on a device? Yes: `hostnamectl
+  --static` reported the new name, and the run showed the apply was only half the
+  job, because `/etc/hosts` and avahi kept the old name until the next boot. The
+  merged code repairs both as part of applying a name (atomic alias rewrite,
+  `try-restart` of the responder), but that mechanism has not run on a board.
+  Still open: does the DHCP client announce the new name, so the router's client
+  list shows it?
 - What does `resume()` do on a device that is deliberately offline, and should a
   device with a working Ethernet uplink stay quiet instead of raising a hotspot?
 - Which parts of the baseline can actually be restored, and what does a restore

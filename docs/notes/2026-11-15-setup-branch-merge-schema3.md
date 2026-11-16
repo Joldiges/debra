@@ -59,7 +59,11 @@ moved.
   `none` rewrites the note to say the network is open. No radio was involved:
   the devserver's NetworkManager is the double.
 - Schema migration checked on disk for schema 1 and schema 2, as above.
-- Not tested: any real NetworkManager, a phone, or a reboot.
+- Not tested by *that merge's offline checks*: any real NetworkManager, a
+  phone, or a reboot. A later device run did use a real NetworkManager on the
+  online path and did reboot the unit; a join on a real NetworkManager, a phone
+  joining either mode, and a boot that exercised this tree's baseline exclusions
+  are still untested.
 
 ## What the merge changed in the branch, and what it did not
 

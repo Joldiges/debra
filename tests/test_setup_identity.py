@@ -209,6 +209,21 @@ class SetHostnameTests(Temp):
         self.assertEqual(self.hosts.read_text(),
                          "127.0.1.1 debra-8518d6 debra-8518d6\n127.0.0.1 localhost\n")
 
+    def test_a_changed_alias_is_published_by_rename_not_written_in_place(self):
+        # An in-place write opens the file with O_TRUNC, so a power cut between
+        # the truncation and the write leaves a device that cannot resolve
+        # `localhost` - every `sudo` fails. The fixture therefore has to notice
+        # the *rename*: the inode changes on a rename and not on a rewrite, so
+        # replacing `os.replace` in `_replace_text` with `path.write_text(...)`
+        # fails here while every other test in this file still passes.
+        self.write_hosts("127.0.1.1 debra-8518d6 debra-lab\n127.0.0.1 localhost\n")
+        before = self.hosts.stat().st_ino
+        self.adapter(Recorder()).set_hostname("debra-8518d6")
+        self.assertEqual(self.hosts.read_text(),
+                         "127.0.1.1 debra-8518d6 debra-8518d6\n127.0.0.1 localhost\n")
+        self.assertNotEqual(self.hosts.stat().st_ino, before,
+                            "the alias was written in place; a cut there loses the file")
+
     def test_an_invalid_name_is_refused_before_anything_runs(self):
         self.write_hosts()
         recorder = Recorder()

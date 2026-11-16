@@ -161,6 +161,12 @@ def validate(data):
         raise ValueError(f"Setup state is missing keys: {', '.join(sorted(missing))}")
     schema = data.get("schema")
     # `True == 1`, so a JSON `true` would otherwise pass as schema 1.
+    #
+    # With `SCHEMA = 3` this guard cannot fire - `True != 3` refuses a bool
+    # anyway - and it is kept as future-proofing for a schema number that is
+    # again 1 or 0. The migration has its own guard and *that* one is
+    # reachable; it is the one `test_a_bool_is_not_a_schema_version` kills, by
+    # going through `read`. Deleting this one changes no behaviour today.
     if isinstance(schema, bool) or schema != SCHEMA:
         raise ValueError(f"Unsupported setup state schema: {schema!r}")
     if data.get("phase") not in PHASES:

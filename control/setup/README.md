@@ -275,8 +275,9 @@ it suppresses resolution errors and keeps normalizing — so comparing
 destinations accepted links the kernel could not open, and accepted a relative
 link that walked out to the preparing host's `/` and back into the card. On a
 running device, `systemctl enable` remains the right command: it also reloads
-the daemon. Neither route has been booted, and no real `systemctl enable` was run
-to confirm which link it writes.
+the daemon. The installer's route has been booted - the device run enabled the
+unit and rebooted - but no real `systemctl enable` was run, so which link that
+route writes is still unconfirmed.
 
 `setup.json` is migrated on read from schema 1 and from schema 2, because a
 device that already ran an earlier prototype must not be left with a state file
@@ -384,10 +385,13 @@ defects — `/etc/hosts` and `avahi-daemon` keeping the old name until the next
 boot — and `set_hostname` now repairs both, so the fix is here even though the
 run was not.
 
-What the run does not cover is this tree's baseline exclusions: that tree
-archived `setup.json`, and this one excludes the whole state directory. The list
-below is what this tree has not run; where the run has moved an item, the item
-says so, and everything left involves a radio.
+What the run does not cover is this tree's own code: that tree archived
+`setup.json` where this one excludes the whole state directory, and its identity
+apply was the draft the atomic rewrite later replaced. The list below is what
+this tree has not run; where the run has moved an item, the item says so. Not all
+of what is left is about a radio - it also includes the baseline exclusion list,
+the identity fix's atomic write, a boot partition that is not mounted, the unit
+as systemd renders it, and a cooldown that is words rather than a countdown.
 
 Ordered by how likely it is to bite on a real first boot.
 
@@ -420,9 +424,11 @@ Ordered by how likely it is to bite on a real first boot.
    `missing: []`), and its manifest says the archive holds the household
    passphrase. That tree did not exclude the setup state directory; this branch
    does, and that exclusion has still only ever run against a temporary root.
-6. **The device name has been applied once, but not by a first boot.** One Zero
-   2 W was renamed `debra-lab` → `debra-8518d6` on a live connection without
-   losing it, and a later boot re-applied the same name. The adapter refuses a
+6. **The device name has been applied, but never chosen by a first boot.** One
+   Zero 2 W was renamed `debra-lab` → `debra-8518d6` on a live connection
+   without losing it, a later boot re-applied the same name, and the run also
+   forced a rename and reverted it. What has not happened is a device choosing
+   its name on its first boot, or the shipped atomic write running on a board. The adapter refuses a
    name that would not resolve as `<name>.local`, rewrites the `/etc/hosts` alias
    and restarts the mDNS responder. Unproven: a rename performed by a *first*
    boot, where the name changes at the moment the device is deciding its own
