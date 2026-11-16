@@ -47,10 +47,20 @@ an observation time.
 
 ## What it changes
 
-- Moving the slider only previews. **Apply volume** writes the explicit native
-  PulseAudio/PipeWire sink, linking its channels. Mute is a separate write.
+- Moving the slider writes the explicit native PulseAudio/PipeWire sink a
+  moment after it stops moving, linking its channels. There is no Apply button:
+  a person who moves a slider expects the device to follow, and the extra press
+  is the one they forget. A drag is coalesced into one write with the newest
+  value winning, and a write already in flight defers rather than queueing
+  behind itself, so the last value is always the one the device ends up with.
+  Mute is a separate write.
+- **A write is never repeated by the page itself.** When a write's outcome is
+  unknown or was refused, **Send that level again** appears beside the control,
+  and only while there is something to retry. A level that could not be sent (no
+  usable output, a device that is not answering, a disconnected tab) is labelled
+  as not applied rather than left looking as if it were sent.
 - The outcome of a write is reported beside the control that caused it, under
-  Apply and the slider: a rejection or an unanswered change explains itself
+  the slider and mute: a rejection or an unanswered change explains itself
   where the person is looking. The page-level error region carries read
   failures; a refused key is named on the welcome card instead.
 - **A refused key is forgotten and named.** A key the device rejects (`401`) is
@@ -185,6 +195,9 @@ line. Neither dependency is installed by this installer.
    does not rename the device or configure DNS, mDNS or the firewall.
    The installer requires a listening port from 1024 to 65535, and every
    explicit `--host` authority must use that same port.
+   Add `--label 'Lab Pi 5'` to publish a friendly name that another Debra's
+   device list shows; without it the device publishes its hostname alone. The
+   label is one printable line of at most 80 characters.
    Loopback-only installation uses `--bind 127.0.0.1` and
    `--host 127.0.0.1:8787`. Never broaden firewall/network access to work around
    failure without separate agreement. The installer requires `--host` even for
@@ -306,6 +319,25 @@ physical device are not generally recognized as one identity.
 `configured+discovered`. Its `discovery` block reports `enabled`, `found`,
 `seconds_since_scan` and `error`. The configured list remains available without
 Avahi, even when discovery fails or cannot start.
+
+### This device publishes its own announcement
+
+The serving process publishes its own `_debra._tcp` record, so other Debras can
+find it. `avahi-publish-service` is an ordinary user program, so this needs no
+root and no second unit: it runs as a child of the server and dies with it, and
+a stopped server stops being advertised instead of leaving a record pointing at
+a port nothing answers. A server bound only to loopback is not advertised,
+because no other device could reach it; `--no-announce` switches it off
+deliberately. Both cases give a reason rather than leaving the page to guess
+from silence.
+
+`/api/devices` therefore also carries an `announcement` block: `enabled`,
+`running`, `instance`, `port`, `label`, `spawns`, `seconds_running`, `error`
+and `reason`. Failure is reported, never hidden. A missing publisher is not
+retried; a publisher that exits is retried every few seconds and its last line
+becomes the reported `error`. Before this existed, one device carried a
+hand-written `debra-advertise` user unit and every other device truthfully
+reported that it could find only that one device.
 
 `refused` is one entry per **refused record the scan returned**, not per distinct
 sentence and not a count of physical advertisements. The parser reports only an

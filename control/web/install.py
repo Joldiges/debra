@@ -126,9 +126,18 @@ def store_devices(state, devices):
     return stored
 
 
-def install(home, source, sink, bind, port, hosts, python, auth="key", devices=None):
+def install(home, source, sink, bind, port, hosts, python, auth="key", devices=None,
+            label=""):
     if auth not in ("key", "none"):
         raise ValueError("auth must be 'key' or 'none'")
+    # This is the name a person sees in another Debra's device list, and the
+    # publisher carries it as one TXT record, so it is one printable line or it is
+    # not written at all.
+    if not isinstance(label, str) or len(label) > LABEL_LIMIT:
+        raise ValueError(f"The label must be a string up to {LABEL_LIMIT} characters")
+    if any(ord(char) < 32 or ord(char) == 127 for char in label):
+        raise ValueError("The label cannot contain control characters")
+    label = label.strip()
     validate_listening_port(port)
     if not valid_hosts(hosts):
         raise ValueError("Use explicit hostname:port authorities and an unprivileged port")
@@ -181,6 +190,11 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
         # keeps the unit independent of wherever the operator kept the file.
         stored = store_devices(state, devices)
         args.extend(["--devices", str(stored)])
+    if label:
+        # Without this the server publishes its hostname alone, so retiring a
+        # hand-written advertisement unit would quietly lose the friendly name a
+        # person recognises in another device's list.
+        args.extend(["--label", label])
     for host in hosts:
         args.extend(["--host", host])
     text = MARKER + (
@@ -368,7 +382,12 @@ def service_commands(text):
     return [argv for argv in commands if argv]
 
 
-START_OPTIONS = ("--state-dir", "--bind", "--port", "--sink", "--auth", "--devices", "--host")
+START_OPTIONS = ("--state-dir", "--bind", "--port", "--sink", "--auth", "--devices",
+                 "--host", "--label")
+# The mDNS instance name is what other devices list, so the friendly label has to
+# fit one line and stay printable. The browser refuses a longer one when it reads
+# an advertisement, and the publisher cannot carry a newline.
+LABEL_LIMIT = 80
 
 
 def start_command_problem(argv):
@@ -523,6 +542,9 @@ def main():
                         help="key: require the device access key (default); none: development bypass")
     parser.add_argument("--devices", type=Path,
                         help="JSON list of known devices for the one-stop card")
+    parser.add_argument("--label", default="",
+                        help="Friendly name this device publishes with its mDNS "
+                             "advertisement, as another Debra's device list shows it")
     parser.add_argument("--restore", type=Path, metavar="PREVIOUS_UNIT",
                         help="atomically restore a unit preserved under "
                              "previous-units/, then stop")
@@ -560,7 +582,7 @@ def main():
     try:
         result = install(Path.home(), Path(__file__).resolve().parent, args.sink,
                          args.bind, args.port, args.host, sys.executable,
-                         auth=args.auth, devices=devices)
+                         auth=args.auth, devices=devices, label=args.label)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     for name, value in result.items():

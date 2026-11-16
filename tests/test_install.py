@@ -389,6 +389,26 @@ class InstalledArtifactTests(unittest.TestCase):
                          "the start limit belongs in [Unit]")
         self.assertIn("Restart=on-failure", service_section)
 
+    def test_the_advertised_name_is_written_into_the_unit_or_absent(self):
+        # Retiring a hand-written advertisement unit must not quietly lose the
+        # friendly name a person recognises in another device's list, so the
+        # installer can write it -- and writes nothing at all when not asked.
+        self.install()
+        self.assertNotIn("--label", self.unit.read_text())
+        self.install(label="Lab Pi 5")
+        self.assertIn('"--label" "Lab Pi 5"', self.unit.read_text())
+        # Padding around it is a typo, not a name.
+        self.install(label="  Lab Pi 5  ")
+        self.assertIn('"--label" "Lab Pi 5"', self.unit.read_text())
+
+    def test_an_unusable_label_is_refused_before_anything_is_written(self):
+        unit = self.unit
+        for bad in ("x" * 81, "Kitchen\nExecStart=evil", "Kitchen\tdownstairs", "a\x00b"):
+            with self.subTest(label=bad):
+                with self.assertRaises(ValueError):
+                    self.install(label=bad)
+                self.assertFalse(unit.exists(), "a refused label still wrote a unit")
+
     def test_interrupted_publication_leaves_the_old_version_runnable(self):
         first = self.install(hosts=["first.local:8787"])
         old_release = self.releases / first["release"]
@@ -646,6 +666,18 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(self.unit.read_text(encoding="utf-8"),
                          self.previous.read_text(encoding="utf-8"))
         self.assertEqual(stat.S_IMODE(self.unit.stat().st_mode), 0o600)
+
+    def test_a_restore_accepts_a_unit_that_publishes_a_name(self):
+        # Rollback goes one version back, and a version that carried a label is
+        # still a unit this installer wrote. Refusing it would make the newest
+        # unit the last one a person could return to.
+        installer.install(self.home, SOURCE, SINK, "127.0.0.1", 8787,
+                          ["lab.local:8787"], "/usr/bin/python3", label="Lab Pi 5")
+        labelled = self.home / "labelled.service"
+        labelled.write_bytes(self.unit.read_bytes())
+        self.assertIn('"--label" "Lab Pi 5"', labelled.read_text())
+        installer.restore_unit(self.home, labelled)
+        self.assertEqual(self.unit.read_bytes(), labelled.read_bytes())
 
     def test_an_interrupted_restore_leaves_the_old_unit_untouched(self):
         before = self.unit.read_bytes()
