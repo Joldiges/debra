@@ -38,8 +38,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `setup-r6` | — | `.local/reviews/setup-r6-20261115/` | independent, `gpt-6.1-sol`; frozen on `f9c5e7b`, running the full 38-row r5 sweep and judging the five r5 findings |
 | Acceptance review `code-r9` | — | `.local/reviews/code-r9-20261115/` | independent, `gpt-6.1-sol`; frozen on `e170448` (the `f974f7f` repair plus a setup-test flake fix), judging whether R8-01…R8-07 are closed and what the repairs broke |
+| Acceptance review `setup-r7` | — | `.local/reviews/setup-r7-20261115/` | independent, `gpt-6.1-sol`; to be frozen after this commit, judging the eight r6 findings and re-running the r6 survivor transforms |
 
 ## Done this round
 
@@ -53,6 +53,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Four installer gaps: retained releases re-verified, staging files created 0600, the device list validated in `install()`, and a start limit in `[Unit]` | B13, WEB03 | `6b762ba` — each checked by reverting it and watching a named test fail; `--restore` now refuses a unit whose release no longer matches its content address |
 | The r4 review's blockers | N02 | `a550a96` — a claim no longer survives a reboot, the failure rearm holds the admission lock, the setup password is generated once and reused, state schema 2 carries a monotonic revision and its consistency rules, baseline adoption is one bounded validator, a failed pointer write is adopted rather than re-captured, and the page accepts a newer answer and can leave the uncertain card. All six surviving r4 mutations plus a request-time status guard now fail a named test |
 | The r5 review's narrow findings | N02 | `f9c5e7b` — answers are now ordered against each other by revision, `do_POST` has a fixed-sentence boundary, and the three properties a revert could silently remove (rearm-in-lock, superseded failure, persisted capture error) have tests. Schema 2 is documented. R5-06 remains bounded and documented |
+| The r6 review's findings | N02 | this commit — the capture-failure record has its own second-process test (the r5 test reached only the pointer-write branch); `do_GET` has the POST boundary; the handler logs the exception's class and releases a reservation it cannot hand on; `--enable` accepts the absolute wants link systemd writes; the schema-1 migration fills every field the old record never wrote; the setup password and the `first-boot.md` rows are described as they are. Eight reversals all killed |
 | The r7 review's blockers | WEB03 | `709b3df` — the documented rollback command runs without `--host` and refuses an unstartable unit, the keyless dashboard carries its own warning, HAT detection needs a vendor and a two-mic word, parser refusals reach the page, a 390 px page holds a long sink identity, an oversized valid body is refused, same-device detection is the exact host or its `.local` alias, a Switch link is not refused as cross-site, and the labels name their sources |
 | The r8 review's blockers | WEB03 | `f974f7f` — restore reads `ExecStart` with a systemd decoder so a HOME with a space, `%` or `$` round-trips; the launchability guard reads only `[Service]`, honours a reset and `-`, and requires a complete release matching its content address; a write outcome sits beside Apply at 390 px; the No-HAT row reports no family verdict and `12-Mics` no longer matches two-mic; two equal advertisements count as two; a late Setup response cannot repaint cleared rows. Three test gaps closed, including labels beside disabled controls and pre-`app.js` request recording. 20 reversals all killed |
 | The r2 review's blockers | N02 | this round — the profile is written where NetworkManager keeps it and promoted to autoconnect only after the join is verified; a per-attempt token replaces the SSID check; the reservation is released when the reply cannot be written; the country is set after the AP is down; the portal prints the address it is served on; the baseline is never overwritten, never archives itself, and `latest()` verifies the hash; the page keeps what was typed across a poll and shows a baseline failure |
@@ -94,6 +95,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Item | Reviewer | Outcome |
 |---|---|---|
+| First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
 | Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
 | Setup-network secret behind a page toggle (branch `setup-ap-secret`) | N02 | **approved at `c0a9bcd`, not yet re-reviewed since `main` was merged into it** — the merge moved the state schema to 3 and adopted main's revision ordering, so the approval no longer covers the tree |
@@ -117,10 +119,10 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 136 onboarding tests
-and 28 installer tests) that has
+first baseline now have an implementation (`control/setup/`, 172 onboarding tests
+and 37 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 545 tests (33 skipped) plus 33 browser tests
+whole offline suite is 619 tests (41 skipped) plus 41 browser tests
 (`-p 'test_*browser.py'`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,

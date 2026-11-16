@@ -629,6 +629,30 @@ class EnableTests(Fixture):
         self.assertEqual(first, second)
         self.assertEqual(os.readlink(self.wants_link()), os.path.join("..", installer.UNIT_NAME))
 
+    def test_an_absolute_wants_link_to_the_same_unit_is_accepted(self):
+        # `systemctl enable` writes an absolute target for a unit under
+        # /etc/systemd/system. Refusing it made `--enable` refuse a tree systemd
+        # had already enabled, and exit 2 after installing the files.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.symlink_to("/" + installer.UNIT.as_posix())
+        self.assertEqual(installer.enable(self.root), str(link))
+        self.assertEqual(os.readlink(link), "/" + installer.UNIT.as_posix(),
+                         "enable replaced a link systemd had already made")
+
+    def test_a_wants_link_to_another_unit_is_still_refused(self):
+        # A link that resolves somewhere else is the operator's, not ours.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.symlink_to("/etc/systemd/system/something-else.service")
+        with self.assertRaisesRegex(ValueError, "different link"):
+            installer.enable(self.root)
+        self.assertEqual(os.readlink(link), "/etc/systemd/system/something-else.service")
+
     def test_enable_refuses_a_unit_the_installer_did_not_write(self):
         self.unit.parent.mkdir(parents=True, exist_ok=True)
         self.unit.write_text("[Unit]\nDescription=not ours\n", encoding="utf-8")

@@ -45,9 +45,9 @@ moved.
 ## Verification
 
 - Working directory: the branch worktree; `python3 -B -m unittest discover -s tests`
-  — 679 tests, 46 skipped, OK.
+  — 687 tests, 47 skipped, OK (231 onboarding, 40 installer cases in the files).
 - `DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'`
-  — 46 tests, OK, against an installed Chromium.
+  — 47 tests, OK, against an installed Chromium.
 - Devserver smoke, 2026-11-15: `GET /api/status` reports `security: none` and no
   password; `POST /api/security {"mode":"wpa"}` answers `202` with a 12-character
   password, writes `setup-secret` and `setup-security` `0600`, rewrites the card
@@ -64,8 +64,10 @@ moved.
   `/api/status`, the page's mode toggle, the `202`-before-the-radio rule, and
   the cleartext limit documented in the earlier note.
 - Kept from `main`: the `revision` counter and the page's ordering of answers by
-  it, the handler-wide failure boundary, the handler's `_json_body` framing
-  shared by both POST paths, the baseline failure remembered in memory, the
-  attempt claim cleared on boot, and the `--enable` install path.
+  it, the handler-wide failure boundary on GET and POST with a released
+  reservation, the handler's `_json_body` framing shared by both POST paths, the
+  baseline failure remembered in memory, the attempt claim cleared on boot, the
+  migration filling every field an older record did not write, and the
+  `--enable` install path that accepts the absolute link `systemctl` writes.
 - Removed: `hotspot_password` from the state and from every preset fixture, and
   `main`'s tests that asserted the password travels with the state.

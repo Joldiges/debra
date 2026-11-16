@@ -42,6 +42,12 @@ PHASES = ("unconfigured", "hotspot", "connecting", "online", "failed")
 # baseline cannot archive it. Older records are migrated on read rather than
 # refused - a device that already ran an earlier build must not be left with a
 # state file that stops the service and leaves it with no access point.
+#
+# The migration fills every field the record never wrote, because the prototype
+# revisions did not all carry the same keys: filling only the fields one earlier
+# schema added left three of the five records this repository wrote missing
+# `attempt_token`, `baseline_error` or `last_attempt`, and the validator refused
+# them before the service could even report why.
 SCHEMA = 3
 
 # Keys an earlier schema kept and this one does not. Dropped on read: `validate`
@@ -167,6 +173,12 @@ def migrate(data):
     or a negative one is a corrupt file, and filling it from `blank()` would
     silently reset a device that had already been configured, which `read`'s
     docstring promises never to do.
+
+    Every field the record did not write is filled from `blank()`. A missing
+    field has no value to lose: the prototype revisions added and removed keys
+    between themselves, so a record can lack `attempt_token`, `baseline_error`
+    or `last_attempt` and still be a record this repository wrote. Refusing it
+    on a missing key stopped the service on a device that had merely upgraded.
 
     Schema 1 stored no setup-network password, and may describe a hotspot that
     is not running after the upgrade. That description is dropped and the phase

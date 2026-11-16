@@ -54,11 +54,11 @@ does not restart the journey from nothing.
 
 | Phase | Entered when | What is recorded |
 | --- | --- | --- |
-| `unconfigured` | No state file exists yet, so a blank record is returned and written on first change | `schema: 3`, a `revision: 0`, an empty hostname, every other field null, `attempts: 0` |
+| `unconfigured` | No state file exists yet, so a blank record is returned and written on first change | `schema: 3`, `phase: unconfigured`, `revision: 0`, an empty hostname, `attempts: 0`, `attempt_claimed: false`, an `updated` timestamp; every other field null |
 | `hotspot` | `resume()` finds no routable Wi-Fi uplink, or a fresh start; also what a failed attempt falls back to | `phase`, `hotspot: {ssid, interface}`, `last_error: null`. The setup password is **not** here: it has its own owner-only file beside the state |
 | `connecting` | A submission was accepted by the page and the worker entered `join()` | `phase`, `ssid`, `attempts` incremented, `attempt_token`, `attempt_claimed`, `last_error: null` |
 | `online` | The adapter returned a Wi-Fi device with a routable IPv4 address | `phase`, `ssid`, `address`, `hotspot: null`, and `baseline` once the capture succeeds; `attempt_token` and `attempt_claimed` are cleared |
-| `failed` | The join raised; the setup network could not be raised; or a boot found the device was `online`/`connecting` and is not now | `phase`, a one-line `last_error`, and the `hotspot` record when the setup network came back |
+| `failed` | The join raised; the setup network could not be raised; or a boot found the device was `online`/`connecting` and is not now | `phase`, a one-line `last_error`, the advanced `revision`, `attempts` and `last_attempt` from the attempt, `attempt_token: null`, `attempt_claimed: false`, `baseline_error` when a baseline attempt failed, and the `hotspot` record when the setup network came back |
 
 Transitions, in full:
 
@@ -279,7 +279,7 @@ python3 -B -m unittest tests.test_onboarding -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-163 onboarding tests, 28 installer tests and 19 browser scenarios, all passing
+172 onboarding tests, 37 installer tests and 21 browser scenarios, all passing
 on 2026-11-15 against the then-current tree. They check the decisions and the
 HTTP contract against the fake NetworkManager, with the page driven in a real
 Chromium. They prove nothing about a radio, a real keyfile read, or systemd.

@@ -11,6 +11,7 @@ import hashlib
 import io
 import logging
 import os
+import socket
 import stat
 import sys
 import tempfile
@@ -229,6 +230,29 @@ class StateTests(Temp):
         # And the password did not survive into the record the status reports.
         self.assertNotIn("s3cretvalue", self.state_path.read_text(encoding="utf-8")
                          + json.dumps(data))
+
+    def test_a_schema_one_record_without_the_later_fields_is_migrated(self):
+        # The prototype revisions did not all carry the same keys: three of the
+        # five records this repository wrote lacked `attempt_token`,
+        # `baseline_error` or `last_attempt` as well as the fields added at
+        # schema 2. Filling only those refused those records and stopped the
+        # service on a device that had merely upgraded.
+        old = {"schema": 1, "phase": "hotspot", "hostname": "debra-1",
+               "country": "GB", "ssid": "HomeWiFi", "address": None,
+               "last_error": None, "attempts": 1,
+               "hotspot": {"ssid": "Debra-Setup-1", "interface": "wlan0"},
+               "baseline": None}
+        self.state_path.write_text(json.dumps(old))
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["schema"], state_module.SCHEMA)
+        self.assertEqual(data["country"], "GB")
+        self.assertIsNone(data["attempt_token"])
+        self.assertIsNone(data["baseline_error"])
+        self.assertIsNone(data["last_attempt"])
+        self.assertFalse(data["attempt_claimed"])
+        # The described hot spot had no stored password, so it is dropped.
+        self.assertIsNone(data["hotspot"])
+        self.assertEqual(data["phase"], "failed")
 
     def test_a_schema_two_record_loses_the_password_it_kept(self):
         # Schema 2 kept the setup password inside this record. It is migrated
@@ -3921,16 +3945,137 @@ class HandlerBoundaryTests(Temp):
                          "socketserver printed a traceback for a handled failure")
         self.assertEqual(state_module.read(self.state_path)["phase"], "hotspot")
 
+    def portal(self):
+        """A real portal on a loopback port, stopped by this test."""
+        onboarder = self.onboarder(FakeNetwork(), clock=lambda: 1000.0)
+        onboarder.start_hotspot()
+        server = onboarding.Portal(("127.0.0.1", 0), onboarder,
+                                   onboarding.ASSETS / "setup.html")
+        host = "127.0.0.1:%d" % server.server_port
+        server.host = host
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def stop():
+            server.shutdown()
+            thread.join()
+            server.server_close()
+
+        self.addCleanup(stop)
+        return server, onboarder, host
+
+    @staticmethod
+    def raw(server, request):
+        """One request on a fresh connection, read until the server closes."""
+        with socket.create_connection(("127.0.0.1", server.server_port),
+                                      timeout=10) as connection:
+            connection.sendall(request)
+            chunks = []
+            while True:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    return b"".join(chunks)
+                chunks.append(chunk)
+
+    @staticmethod
+    def join_request(host, ssid="HomeWiFi", psk="correct horse"):
+        body = json.dumps({"ssid": ssid, "psk": psk}).encode()
+        return (("POST /api/join HTTP/1.0\r\nHost: %s\r\n"
+                 "Content-Type: application/json\r\n"
+                 "Content-Length: %d\r\n\r\n" % (host, len(body))).encode() + body)
+
+    def test_a_state_read_failure_answers_the_poll_instead_of_tracebacking(self):
+        # `/api/status` is polled every fifteen seconds. The POST boundary did
+        # not cover it, so a failing read escaped socketserver, printed the
+        # state path to the journal and closed the connection with no reply.
+        server, onboarder, host = self.portal()
+        stderr = io.StringIO()
+        request = urllib.request.Request("http://" + host + "/api/status")
+        request.add_header("Host", host)
+        failure = OSError(5, "Input/output error: " + str(self.state_path))
+        with patch.object(onboarder, "status", side_effect=failure), \
+                redirect_stderr(stderr):
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    code, body = response.status, response.read()
+            except urllib.error.HTTPError as exc:
+                code, body = exc.code, exc.read()
+        self.assertEqual(code, 500)
+        self.assertIn(b"could not handle the request", body)
+        self.assertNotIn(str(self.state_path), stderr.getvalue(),
+                         "the journal received the state path")
+        self.assertNotIn("Traceback", stderr.getvalue(),
+                         "socketserver printed a traceback for a handled failure")
+
+    def test_a_failure_after_the_reservation_gives_it_back(self):
+        # `admit()` has already written `connecting` when `status()` is read for
+        # the reply. An exception there answers 500; it must also release the
+        # reservation, or every later submission is refused as busy until the
+        # process restarts.
+        server, onboarder, host = self.portal()
+        with patch.object(onboarder, "status",
+                          side_effect=OSError(5, "Input/output error")):
+            raw = self.raw(server, self.join_request(host))
+        self.assertIn(b"500", raw.split(b"\r\n", 1)[0], repr(raw[:500]))
+        stored = state_module.read(self.state_path)
+        self.assertEqual(stored["phase"], "hotspot",
+                         "a failed handler left the device connecting")
+        self.assertIsNone(stored["attempt_token"])
+
+    def test_a_worker_that_cannot_start_answers_once_and_gives_the_reservation_back(self):
+        # The 202 is already on the wire when the thread starts. If starting it
+        # raises, the boundary must not put a second response on the same
+        # connection, and the reservation must not be left behind.
+        server, onboarder, host = self.portal()
+        real_thread = threading.Thread
+
+        class Worker:
+            def start(self):
+                raise RuntimeError("the worker could not start")
+
+        def factory(*args, **kwargs):
+            if kwargs.get("name") == "debra-onboarding":
+                return Worker()
+            return real_thread(*args, **kwargs)
+
+        with patch.object(onboarding.threading, "Thread", factory):
+            raw = self.raw(server, self.join_request(host))
+        self.assertEqual(raw.count(b"HTTP/1."), 1,
+                         "a second response went out on one connection: "
+                         + repr(raw[:2000]))
+        self.assertIn(b"202 Accepted", raw)
+        stored = state_module.read(self.state_path)
+        self.assertEqual(stored["phase"], "hotspot",
+                         "a worker that never started left the attempt connecting")
+        self.assertIsNone(stored["attempt_token"])
+
 
 class PersistedBaselineFailureTests(Temp):
     """The recorded failure must outlive the process that saw it.
 
     The in-memory copy is what the running page shows. It is not what the next
     boot reads: without the persisted field the page says only "not captured
-    yet" after a reboot, with no reason, and nothing retries visibly.
+    yet" after a reboot, with no reason, and nothing retries visibly. There are
+    two ways a baseline attempt fails - the capture itself, and recording a
+    capture that succeeded - and each writes its own record, so each needs its
+    own test. A write filter keyed on `baseline` only reached the second.
     """
 
-    def test_the_next_process_sees_the_recorded_capture_failure(self):
+    def test_the_next_process_sees_a_capture_failure(self):
+        onboarder = self.onboarder(FakeNetwork())
+        failure = OSError(28, "No space left on device")
+        with patch.object(baseline_module, "capture", side_effect=failure):
+            onboarder._capture_baseline()
+        # The running page is told from memory, which is what hid the gap.
+        self.assertEqual(onboarder.status()["baseline_error"],
+                         "The device is out of disk space")
+        # A later process has no memory of the failure, only the file.
+        later = self.onboarder(FakeNetwork())
+        self.assertEqual(later.status()["baseline_error"],
+                         "The device is out of disk space",
+                         "the recorded capture failure did not survive the process")
+
+    def test_the_next_process_sees_a_pointer_write_failure(self):
         onboarder = self.onboarder(FakeNetwork())
         real_write = state_module.write
 

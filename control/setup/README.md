@@ -223,12 +223,16 @@ without a reinstall, and that choice is kept in
 
 A tree prepared from a host for a card has no running systemd to ask, so
 `--enable` also creates
-`/etc/systemd/system/multi-user.target.wants/debra-setup.service` as the
-relative link `systemctl enable` would make. That link is what makes the service
-start on the card's first boot, and nothing in this repository does it otherwise.
-It refuses a unit it did not write and refuses to replace anything already at
-that path. On a running device, `systemctl enable` remains the right command: it
-also reloads the daemon. Neither route has been booted.
+`/etc/systemd/system/multi-user.target.wants/debra-setup.service`. That link is
+what makes the service start on the card's first boot, and nothing in this
+repository does it otherwise. It refuses a unit it did not write and refuses to
+replace anything already at that path, but it accepts a link that resolves to
+the installed unit whether the text is the relative `../debra-setup.service` or
+the absolute `/etc/systemd/system/debra-setup.service` that `systemctl enable`
+writes, so a tree systemd already enabled is left alone. On a running device,
+`systemctl enable` remains the right command: it also reloads the daemon.
+Neither route has been booted, and no real `systemctl enable` was run to confirm
+which link it writes.
 
 ## What it writes
 
@@ -243,7 +247,7 @@ also reloads the daemon. Neither route has been booted.
 | `/etc/NetworkManager/system-connections/debra-setup.nmconnection` | `0600` | The setup access point's profile. In `wpa` mode this is a **second copy of the setup password** (`psk=`) for as long as the access point exists; the join deletes it, and it is excluded from every baseline |
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; this is where the passphrase is written (the baseline below archives a copy) |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
-| `/etc/systemd/system/multi-user.target.wants/debra-setup.service` | (link) | Only with `--enable`: a relative link to the unit, which starts it at the next boot |
+| `/etc/systemd/system/multi-user.target.wants/debra-setup.service` | (link) | Only with `--enable`: a link to the unit (relative, or the absolute one systemd writes), which starts it at the next boot |
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |
 
 `debra-setup.service` in this directory is the **template**: the installer
@@ -409,6 +413,8 @@ does not exercise the page at all.
 
 Guards in this subsystem have been checked by breaking them and watching a test
 fail, but that is evidence about the guards that were broken, not a proof of the
-whole subsystem. The mutated lines, the failing test for each, and the survivors
-are recorded in the review notes under `.local/reviews/`; earlier rounds found
-guards that no test covered at the time.
+whole subsystem. Each round's transforms, the failing test for each, and any
+survivors are recorded in that round's verdict under `.local/reviews/`
+(`setup-r6-20261115/verdict.md` is the current one); a survivor is a test gap,
+not a harmless change. Earlier rounds found guards that no test covered at the
+time.
