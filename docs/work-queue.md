@@ -43,7 +43,6 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
 | Acceptance review `code-r10` | WEB01 | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b16e0` (re-verified byte-identical), judging R9-01…R9-06, re-running the nine r9 survivor transforms and five new ones, and running the offline and browser suites in a scratch copy |
-| Re-review `docs-r4` | Z01, T01 | `.local/reviews/docs-r4-20261115/` | independent, `gpt-6.1-sol`; hash-bound on the repaired documents (`Z01-armv6.md` `d9f55d7b…`, `acceptance.md` `37cc1fc6…`, preimage = the r3 candidate), judging the eight docs-r3 findings and checking the new bubblewrap command for self-consistency |
 | Re-review `setup-r8` | N02 | `.local/reviews/setup-r8-20261115/` | independent, `gpt-6.1-sol`; frozen on `ccc2b42` with the six setup files byte-identical to `5956db4` (tree `a7885881…`), judging R7-01…R7-04, re-running the four repair reversals plus five new ones, and reproducing the round-7 failing scenarios in a scratch copy |
 
 ## Done this round
@@ -101,15 +100,15 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 ## In review
 
 Coordinator-assigned subagent work creates no claim, so the activity TUI's Todos
-tab still lists Z01 and T01 under "Spawnable now" until the coordinator advances
-those chains. They are not available for reassignment: their deliverables exist
-and are waiting for the review rows below.
+tab can list a chain as "Spawnable now" even while its deliverable is under
+review. Z01 is the remaining case: its deliverable exists and is waiting for the
+review row below, and it is not available for reassignment. T01's deliverable is
+accepted, so that chain is finished rather than waiting.
 
 | Item | Reviewer | Outcome |
 |---|---|---|
 | First-boot setup, r7 (`e4b3125`) | `gpt-6.1-sol`, independent | **changes requested** — seven of eight r6 findings closed and all nine supplied reversals killed, but three reproduced regressions: a schema-1 file that was never a record (`{"schema": 1}`) was filled into an unconfigured device that raised a fresh access point; `--enable` followed no symlinks, so `../jump/../debra-setup.service` was accepted while resolving to a foreign unit, and a host-prefixed absolute target was accepted too; a failed body write after a captive 302 appended a 500 on the same connection. Two behaviour-changing mutations survived every test. All repaired; awaits re-review. Verdict: `.local/reviews/setup-r7-20261115/verdict.md` |
-| T01 acceptance and test tiers (`docs/testing/acceptance.md`) | `gpt-6.1-sol`, independent | **changes requested, three times** — r1: browser scope and quick rollback; r2: labels/contrast, WEB07 inventory, recovery fields, and a failed run left `not-run`; r3: a stale B05 gate (the roadmap now says T03 does not gate on B05; I04 still does), an undefined contrast rule, and closure wording. All addressed: a recovery/report column, a proposed WCAG 2.2 AA contrast criterion, three distinct performance outcomes, and corrected gate text. Awaits re-review. Verdicts: `.local/reviews/docs-r1-20261115/`, `docs-r2-…`, `docs-r3-…` |
-| Z01 ARMv6 reconnaissance (`docs/research/Z01-armv6.md`) | `gpt-6.1-sol`, independent | **changes required, three times** — r1: blocker generalized to all 32-bit ARM, experiments could not produce their evidence, historical leads undisposed; r2: E1's second branch, chroot-as-confinement, E0's `readelf` shortcut, historical wording; r3: the retained ARMv6 binary was attributed to the 2.14.0 script without evidence, `get_platform()` was confused with pip selection, E3 confinement stayed optional, and E1 still offered E2 as target resolution. All addressed; the binary is now described as separately retained with unverified lineage, and E3 names a bubblewrap namespace. ARMv6 runtime stays unproven. Awaits re-review. Verdicts: `.local/reviews/docs-r1-20261115/`, `docs-r2-…`, `docs-r3-…` |
+| Z01 ARMv6 reconnaissance (`docs/research/Z01-armv6.md`) | `gpt-6.1-sol`, independent | **changes required, four times** — r1: blocker generalized to all 32-bit ARM, experiments could not produce their evidence, historical leads undisposed; r2: E1's second branch, chroot-as-confinement, E0's `readelf` shortcut, historical wording; r3: binary attributed to the 2.14.0 script without evidence, `get_platform()` confused with pip selection, E3 confinement optional, E1 still offering E2; r4: E3's emulator bind needs a writable mountpoint and is not read-only, E1's "real armhf" admits a Debian ARMv7 container, and the header overstated r3. All addressed; ARMv6 runtime stays unproven. Awaits a fifth round. Verdicts: `.local/reviews/docs-r1-20261115/`, `docs-r2-…`, `docs-r3-…`, `docs-r4-…` |
 | Browser control slice, r9 (`e170448`) | `gpt-6.1-sol`, independent | **changes requested** — the restore decoder accepted a larger language than it could reproduce (`\x20` read as `x20`), the release boundary was partial, four safety reversals survived every web test, an audio write could discard a valid Setup answer, and a write settling after Disconnect threw. All six repaired; `code-r10` reviews the repair. Verdict: `.local/reviews/code-r9-20261115/verdict.md` |
 | First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
@@ -121,6 +120,7 @@ and are waiting for the review rows below.
 |---|---|---|
 | Discovery contract, r2 (`5ff7ead`) | `openrouter/openai/gpt-6.1-sol#flex-high`, independent | **approve** — all three r1 blockers closed, no new blockers. 242 tests + 12 skipped, 12 browser tests, mutation proved the tests are sensitive. Verdict: `.local/reviews/discovery-r2-20261115/verdict.md` |
 | Activity TUI, r3 (`262daed`) | `openrouter/openai/gpt-6.1-sol#flex-high`, independent | **approve** — all four r2 blockers closed; Needs groups distinguishable at 100, 80 and 60 columns. 78 activity tests, 242 total. Verdict: `.local/reviews/tui-r3-20261115/verdict.md` |
+| T01 acceptance and test tiers (`37cc1fc6`) | `openrouter/openai/gpt-6.1-sol#flex-high`, independent | **accept as test-design evidence** after four rounds — the browser submap, the quick-rollback requirement, the WEB07/WEB09 references, the three performance outcomes and the B05 gate are all closed. It approves no threshold and proves no capability: every physical, privileged and fault-injection test in it is still `not-run`. Verdict: `.local/reviews/docs-r4-20261115/verdict.md` |
 
 ## Blocked
 

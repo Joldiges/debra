@@ -7,7 +7,7 @@ assigned by the coordinator. Nothing was installed, downloaded as a wheel, built
 or run, and no device was contacted: every runtime, performance and
 combined-operation row is **`not-run`**.
 
-Reviewed three times by `openrouter/openai/gpt-6.1-sol#flex-high`, 2026-11-15:
+Reviewed four times by `openrouter/openai/gpt-6.1-sol#flex-high`, 2026-11-15:
 **changes required** each time. docs-r1 raised seven findings against this
 document: the leading blocker generalized a broken piwheels artifact to all
 32-bit ARM, the experiments could not produce their promised evidence, and the
@@ -15,11 +15,15 @@ historical build leads had no disposition. The repairs below **address** those
 seven findings and are pending re-review. docs-r2, which re-read them, closed the
 High finding and three others (the quick-rollback finding was the acceptance
 document's), and rejected the repairs to E1, E3 and E0 plus the wording of the
-historical section. docs-r3 closed the E0 repair and the browser/performance
-work, and rejected E1 and E3 again, the binary's provenance claim, and two
-narrower source descriptions. This revision addresses all of those. Review records:
-`.local/reviews/docs-r1-20261115/verdict.md`,
-`docs-r2-20261115/verdict.md` and `docs-r3-20261115/verdict.md` (not in Git). The
+historical section. docs-r3 closed the E0 repair, the failed-performance-run wording
+and the browser recovery/report additions, and rejected E1 and E3 again, the
+binary's provenance claim, and two narrower source descriptions; it left the
+browser contrast criterion open, which the acceptance document's own record
+settles. docs-r4 closed five of its eight findings and rejected the repaired E3
+command, E1's notion of a target environment, and this header's claim that r3 had
+closed the browser work. This revision addresses those three. Review records:
+`.local/reviews/docs-r1-20261115/verdict.md`, `docs-r2-20261115/verdict.md`,
+`docs-r3-20261115/verdict.md` and `docs-r4-20261115/verdict.md` (not in Git). The
 repairs are the coordinator's, so nothing here is reviewed evidence yet.
 
 The reader should also know that the repair round added one piece of first-hand
@@ -294,13 +298,19 @@ household service.
        read `pyproject.toml`/`setup.py`, the declared build backend and its
        requirements. This says what a build would need; it does not say what a
        complete install on the target would choose;
-     - a source-aware target resolution, which needs a **real armhf
-       environment** (a disposable card, a container for that architecture, or a
-       separately reviewed build host) and a pip invocation there that is allowed
-       to consider sdists. It is not E2: E2 is a cross-target, binary-only report
-       and cannot show what a normal install would choose. The same
-       backend-isolation caution applies, because resolving a source candidate
-       prepares its metadata.
+     - a source-aware target resolution, which needs an environment that
+       **matches the target**, not merely any armhf one: Raspberry Pi OS trixie
+       armhf on ARMv6 (a disposable card on a Zero/Zero W, or an emulated
+       `linux/arm/v6` environment built the same way), because the compatible
+       platform tags are what pip chooses by, and a Debian ARMv7 armhf container
+       is a different tag set — Debian's armhf baseline is ARMv7 even when the
+       wheel is nominally 32-bit. Record `sysconfig.get_platform()`,
+       `python3 -m pip debug --verbose`'s compatible-tag list, the pip version and
+       the index configuration with the result; without them the run is not
+       reproducible and "armhf" on its own proves nothing. It is not E2: E2 is a
+       cross-target, binary-only report and cannot show what a normal install
+       would choose. The same backend-isolation caution applies, because
+       resolving a source candidate prepares its metadata.
      Two cautions to record with the result: preparing sdist metadata can execute
      build-backend code, so it belongs in a disposable, network-restricted
      environment rather than a scratch directory; and an arbitrary pip failure
@@ -321,27 +331,44 @@ household service.
 - **E3 — import probe under emulation.** One execution context, named before the
   run, with paths that make sense inside it. The proposed mechanism is a
   **bubblewrap mount namespace** (`bwrap`) whose root is the extracted image,
-  bound read-only, with the host's `qemu-arm-static` bound in:
+  bound read-only, with the host's `qemu-arm-static` bound in **read-only** at a
+  path that demonstrably exists before the image goes read-only:
 
   ```sh
   bwrap --ro-bind /mnt/raspios / \
-        --bind /usr/bin/qemu-arm-static /usr/bin/qemu-arm-static \
+        --tmpfs /run \
+        --ro-bind /usr/bin/qemu-arm-static /run/qemu-arm-static \
         --dev /dev --proc /proc --tmpfs /tmp --unshare-all \
-        qemu-arm-static -cpu arm1176 /usr/bin/python3 -c "import numpy; print(numpy.__file__)"
+        /run/qemu-arm-static -cpu arm1176 /usr/bin/python3 -c "import numpy; print(numpy.__file__)"
   ```
+
+  The ordering and the mountpoint are the point, not decoration. `bwrap` creates
+  a missing destination while setting up mounts, which needs a **writable parent
+  at that moment**; after `--ro-bind /mnt/raspios /` the image tree is read-only,
+  so binding the emulator to `/usr/bin/qemu-arm-static` would fail unless that
+  file already existed in the image, and creates a second failure mode the
+  document cannot assume away. `/run` is therefore a fresh `tmpfs` — writable, so
+  the mountpoint can be created — and the emulator sits on it **read-only**
+  (`--ro-bind`, not `--bind`), so nothing about the probe depends on the host
+  binary being writable. If a different destination is used, it must be a
+  prepared writable location, not a path that may not exist.
 
   Inside that namespace every path is a path in the image: the interpreter is
   `/usr/bin/python3`, the imported module reports a path under `/usr/lib/...`,
   and no `-L` prefix is needed because the dynamic loader is the image's own.
-  Prerequisites, each verified rather than assumed: (a) **read-only storage** —
-  a write attempt inside the namespace is observed to be refused; (b) **the
-  confinement itself** — a mount namespace (bwrap or `unshare --mount`). A
-  **chroot alone is refused** as insufficient: `chroot(2)` changes pathname
-  resolution and nothing else, so it is neither read-only storage nor a security
-  boundary. QEMU's `-L` is an ELF-interpreter prefix and confines nothing either,
-  so a bare `qemu-arm-static -L /mnt/raspios` invocation is not this experiment.
-  (c) the interpreter and search paths are recorded with the result, taken from
-  the probe's own output rather than assumed.
+  Prerequisites, each verified rather than assumed: (a) **the image tree is
+  read-only** — a write attempt under `/usr` is observed to be refused, and the
+  claim is about the image bind, not about every mount in the namespace: `/run`,
+  `/tmp`, `/dev` and `/proc` are deliberately writable exceptions, and the
+  emulator bind is read-only. (b) **the confinement itself** — a mount namespace
+  (bwrap or `unshare --mount`). A **chroot alone is refused** as insufficient:
+  `chroot(2)` changes pathname resolution and nothing else, so it is neither
+  read-only storage nor a security boundary. QEMU's `-L` is an ELF-interpreter
+  prefix and confines nothing either, so a bare `qemu-arm-static -L /mnt/raspios`
+  invocation is not this experiment. (c) the interpreter and search paths are
+  recorded with the result, taken from the probe's own output rather than
+  assumed. (d) the host permits the namespaces `--unshare-all` asks for; that is
+  an environment check, not something the command can assume.
 
   Probe each package in its own process — the command above, then the same for
   `webrtc_noise_gain`, then the TFLite load — because a combined import cannot

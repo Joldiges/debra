@@ -2,20 +2,23 @@
 
 This is T01's test design, based on the [project brief](../project-brief.md), [evidence rules](../evidence.md) and [roadmap](../roadmap.md), read 2026-11-15. Requirements describe the destination, not present capabilities. No test is run by this document; every physical, privileged and fault-injection test below is **not-run**. A future report must record its own results, including failures and skipped cases, rather than treating this plan as evidence.
 
-Reviewed three times by `openrouter/openai/gpt-6.1-sol#flex-high`, 2026-11-15:
-**changes required** each time. docs-r1 raised two findings against this
-document — the detailed browser scope from
-[web control](../design/web-control.md) was not mapped, and functional
+Reviewed four times by `openrouter/openai/gpt-6.1-sol#flex-high`, 2026-11-15.
+docs-r1 raised two findings against this document — the detailed browser scope
+from [web control](../design/web-control.md) was not mapped, and functional
 restoration could pass without the brief's quick-rollback requirement. The
 revision that followed **addressed** both; docs-r2 accepted the quickness repair
 but found the browser submap still short of the detailed accessibility,
 metric-inventory and recovery/report cases, and the new performance wording
 self-contradictory because it left an executed-but-failing run labelled
-`not-run`. This revision **addresses** those, plus docs-r3's three points here: a
+`not-run`. The next revision addressed those plus docs-r3's three points here: a
 stale B05 gate, an undefined contrast rule, and the closure wording itself.
-Nothing here is reviewed evidence yet. Review records:
-`.local/reviews/docs-r1-20261115/verdict.md`, `docs-r2-20261115/verdict.md` and
-`docs-r3-20261115/verdict.md`, which are not in Git.
+**docs-r4 accepted this document** as reviewed test-design evidence — five of its
+eight findings closed and the three that concerned this file closed — with the
+reviewer's own limits attached: it approves neither the proposed thresholds nor
+any physical support, and no test is run by the document. Review records:
+`.local/reviews/docs-r1-20261115/verdict.md`, `docs-r2-20261115/verdict.md`,
+`docs-r3-20261115/verdict.md` and `docs-r4-20261115/verdict.md`, which are not in
+Git.
 
 ## Test tiers
 
