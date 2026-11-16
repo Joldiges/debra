@@ -19,7 +19,8 @@ let token = sessionStorage.getItem("debra-key") || "";
 // running `--auth none`. It is never persisted; a reload asks again.
 let bypass = false;
 let bypassAvailable = false;
-// draft: the slider holds a value the user has not submitted.
+// draft: the slider holds a value the device has not confirmed, so a status
+// poll must not move it back under the person's finger.
 // volumeOp/muteOp: the last write for that control and what is known about it —
 // pending (sent, no answer yet), uncertain (may or may not have applied), or
 // rejected (the device refused before doing anything). They are separate so a
@@ -28,6 +29,15 @@ let draft = false;
 let currentAudio = null;
 let volumeOp = null;
 let muteOp = null;
+// The slider writes without an Apply button. `queuedVolume` is the level the
+// person last chose that the page has not sent yet: it replaces any earlier
+// queued level, so dragging across forty values sends one command rather than
+// forty, and the newest value is always the one that is sent.
+let queuedVolume = null;
+let volumeTimer = 0;
+// Long enough that a drag is one command, short enough that a person who let go
+// does not wonder whether it took.
+const VOLUME_SETTLE_MS = 120;
 let busy = false;
 let refreshing = false;
 let session = 0;
@@ -212,6 +222,12 @@ function showPairCheck(message) {
   const node = el("pair-check");
   if (node) node.textContent = message || "";
 }
+function forgetQueuedVolume() {
+  // A level queued for a device this tab no longer talks to must not be sent to
+  // whatever it connects to next.
+  queuedVolume = null;
+  if (volumeTimer) { clearTimeout(volumeTimer); volumeTimer = 0; }
+}
 function forgetKey(message) {
   // A key the device refused is not a key to retry on every reload. Clearing it
   // is what lets the keyless probe run and what stops a dead credential from
@@ -226,6 +242,7 @@ function forgetKey(message) {
   draft = false;
   volumeOp = null;
   muteOp = null;
+  forgetQueuedVolume();
   lastReadAt = null;
   el("error").textContent = "";
   el("stale-notice").textContent = "";
@@ -251,6 +268,7 @@ function revokeBypass(message) {
   el("audio-controls").setAttribute("aria-busy", "false");
   // Nothing read under the bypass is still current once the device wants a key.
   currentAudio = null;
+  forgetQueuedVolume();
   lastReadAt = null;
   el("stale-notice").textContent = "";
   el("retry").hidden = true;
@@ -274,6 +292,10 @@ function showNotices() {
   // established here.
   const message = notices();
   el("audio-notice").textContent = message;
+  // The deliberate retry exists only while there is a write to deliberately
+  // retry, so the card never carries a button that does nothing.
+  el("retry-volume").hidden = !(volumeOp &&
+    (volumeOp.status === "uncertain" || volumeOp.status === "rejected"));
 }
 function reconcile(data) {
   // An unanswered write is resolved only by a fresh reading that matches it.
@@ -288,7 +310,7 @@ function reconcile(data) {
 }
 function volumeLabel(data) {
   const selected = el("volume").value;
-  if (volumeOp?.status === "pending") return `${selected}% · applying…`;
+  if (queuedVolume !== null || volumeOp?.status === "pending") return `${selected}% · applying…`;
   if (volumeOp?.status === "uncertain") {
     return data.available
       ? `${selected}% selected · device reports ${data.percent}%`
@@ -306,7 +328,7 @@ function audio(data) {
   // disabled, and this tells assistive technology that the region is changing
   // rather than that the device is refusing input.
   el("audio-controls").setAttribute("aria-busy", busy ? "true" : "false");
-  for (const id of ["volume", "apply", "mute"]) el(id).disabled = !data.available || busy;
+  for (const id of ["volume", "mute"]) el(id).disabled = !data.available || busy;
   if (data.available) {
     el("output").textContent = data.description ? `${data.description} (${data.sink})` : data.sink;
     el("audio-status").textContent = data.muted ? "Muted" : "Output unmuted";
@@ -422,20 +444,91 @@ function render(data) {
     ["zswap enabled", data.zswap_enabled == null ? "Unavailable" : data.zswap_enabled ? "Yes" : "No"],
     ["Swap in / out", `${fmt(data.swap_io.pswpin_pages_per_s)} / ${fmt(data.swap_io.pswpout_pages_per_s)} pages/s`]
   ]);
-  el("component-list").replaceChildren();
-  for (const component of data.components) {
-    const row = document.createElement("div");
-    row.className = "component";
-    const name = document.createElement("strong");
-    name.textContent = component.name;
-    const badge = document.createElement("span");
-    badge.className = "badge";
-    badge.textContent = component.unit_found === false ? "Unit not found" : component.active || "Unknown";
-    const detail = document.createElement("small");
-    detail.textContent = `${component.enabled ? `Startup: ${component.enabled} · ` : ""}${component.configuration}`;
-    row.append(name, badge, detail);
-    el("component-list").append(row);
+  renderComponents(data.components);
+  renderProcesses(data.processes);
+}
+// Which of the three groups a component belongs in. The evidence is systemd's
+// own answer, and the three answers are genuinely different: a unit it does not
+// know is not installed, a unit it knows is installed whether or not it is
+// running right now, and a component with no detector at all is neither — which
+// is a real third answer, not a gap to paper over.
+function componentGroup(component) {
+  if (component.unit_found === false) return "missing";
+  if (component.unit_found === true) return "installed";
+  return "unknown";
+}
+function componentRow(component) {
+  const row = document.createElement("div");
+  row.className = "component";
+  const name = document.createElement("strong");
+  name.textContent = component.name;
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.textContent = component.unit_found === false ? "Unit not found"
+    : component.active || "Unknown";
+  const detail = document.createElement("small");
+  const parts = [];
+  if (component.enabled) parts.push(`Startup: ${component.enabled}`);
+  // What this utility is using, when systemd named its process and the sample
+  // contains it. An absent figure is left out rather than printed as zero: a
+  // stopped utility uses nothing, which is not the same as not being told.
+  if (typeof component.cpu_percent === "number") parts.push(`CPU ${component.cpu_percent}%`);
+  if (typeof component.memory_bytes === "number") parts.push(bytes(component.memory_bytes));
+  if (component.configuration) parts.push(component.configuration);
+  detail.textContent = parts.join(" · ");
+  row.append(name, badge, detail);
+  return row;
+}
+function renderComponents(components) {
+  const groups = {installed: [], missing: [], unknown: []};
+  for (const component of components || []) groups[componentGroup(component)].push(componentRow(component));
+  for (const [group, rows] of Object.entries(groups)) {
+    const title = el(`components-${group}-title`);
+    const list = el(`components-${group}`);
+    if (!title || !list) continue;
+    // The count is part of the answer: "Not installed (0)" says more than a
+    // heading over nothing, which reads as a failure to render.
+    const label = group === "missing" ? "Not installed" : group[0].toUpperCase() + group.slice(1);
+    title.textContent = `${label} (${rows.length})`;
+    list.replaceChildren(...rows);
   }
+  // Said once, here, instead of on every row it used to be attached to.
+  const total = (components || []).length;
+  const note = el("components-note");
+  if (note) {
+    note.textContent = total
+      ? `Systemd's own state for ${total} component${total === 1 ? "" : "s"}. A unit that is running does not mean the component is configured or working, and a unit that is present does not mean it is in use.`
+      : "This device did not report any components.";
+  }
+}
+function renderProcesses(processes) {
+  const list = el("processes");
+  if (!list) return;
+  const rows = Array.isArray(processes) ? processes : [];
+  if (!rows.length) {
+    // "Nothing is running" and "this device did not say" are different answers.
+    const line = document.createElement("p");
+    line.className = "detail";
+    line.textContent = "This device did not report process figures.";
+    list.replaceChildren(line);
+    return;
+  }
+  list.replaceChildren(...rows.map(entry => {
+    const row = document.createElement("div");
+    row.className = "process";
+    const name = document.createElement("span");
+    name.className = "process-name";
+    name.textContent = entry.pids > 1 ? `${entry.name} (${entry.pids})` : entry.name;
+    const cpu = document.createElement("span");
+    cpu.className = "process-cpu";
+    // A blank reading is a reading not yet available, not zero.
+    cpu.textContent = typeof entry.cpu_percent === "number" ? `${entry.cpu_percent}%` : "—";
+    const memory = document.createElement("span");
+    memory.className = "process-memory";
+    memory.textContent = bytes(entry.memory_bytes);
+    row.append(name, cpu, memory);
+    return row;
+  }));
 }
 // The Setup card reports the device's build choices. Everything on it is
 // read-only in this build, so each control is disabled and carries its reason
@@ -510,8 +603,10 @@ function observedLine(option) {
       + (state.enabled ? `, startup ${state.enabled}` : ""));
   }
   if (!parts.length) return null;
-  return `${option.label} on this device now — ${parts.join("; ")}.`
-    + " Service state is not proof it is configured or working.";
+  // The "service state is not proof it is configured" caveat used to be glued
+  // to every one of these rows. Said six times it stopped being read, so it is
+  // said once on the Components card, where the service list lives.
+  return `${option.label} on this device now — ${parts.join("; ")}.`;
 }
 function renderSetup(data) {
   const hardware = data?.hardware, settings = data?.settings, updates = data?.updates;
@@ -542,7 +637,9 @@ function renderSetup(data) {
       if (observed) observations.push(observationRow(setting.label, observed));
     }
   }
-  if (updates.reason) observations.push(observationRow("Updates", updates.reason));
+  // The updates reason is not repeated here: the Setup card's own Updates line
+  // says it in the same words, and a second copy in a different card's list is
+  // exactly the repetition this pass is removing.
   el("setup-observations").replaceChildren(...observations);
   el("setup-status").textContent = data.reason || "";
 }
@@ -644,7 +741,7 @@ async function refresh() {
       ? `The device is not answering. These are the last readings it sent — this page received them at ${
           new Date(lastReadAt).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} and the device does not report when it measured them.`
       : "";
-    for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
+    for (const id of ["volume", "mute"]) el(id).disabled = true;
     return false;
   } finally {
     refreshing = false;
@@ -653,7 +750,10 @@ async function refresh() {
   }
 }
 async function change(path, body) {
-  if (busy || !currentAudio?.available || (!token && !bypass)) return;
+  // Returns whether the write was actually sent. A caller that queued a value
+  // has to know the difference between "sent" and "declined because another
+  // write is in flight", or the newest level is silently dropped.
+  if (busy || !currentAudio?.available || (!token && !bypass)) return false;
   const started = session;
   const isVolume = path === "/api/audio/volume";
   const target = isVolume ? body.percent : body.muted;
@@ -663,7 +763,7 @@ async function change(path, body) {
   audio(currentAudio);
   try {
     const result = await api(path, body);
-    if (started !== session) return;
+    if (started !== session) return false;
     if (!result.available) {
       // The request was accepted but the device could not report the output,
       // so whether it took effect is unknown. Treating this as settled is how
@@ -677,7 +777,7 @@ async function change(path, body) {
     }
     audio(result);
   } catch (error) {
-    if (started !== session) return;
+    if (started !== session) return false;
     if (error.status === 401) revokeBypass("The device refused this tab's access. Enter its key again.");
     if (DEFINITE.has(error.status)) {
       setOp(isVolume, {status: "rejected", target,
@@ -701,11 +801,59 @@ async function change(path, body) {
     // TypeError on a legitimate Disconnect during an unanswered write.
     if (currentAudio) audio(currentAudio);
     if (!token && !bypass) {
-      for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
+      for (const id of ["volume", "mute"]) el(id).disabled = true;
     }
     showNotices();
     await refresh();
   }
+  return true;
+}
+// The slider's own writer. Moving it queues the newest level and restarts a
+// short timer; when the timer runs out, one change is sent. A write already in
+// flight defers rather than queues behind itself, so a fast drag produces a
+// handful of commands instead of one per pixel, and the last value is always
+// the one the device ends up with.
+function scheduleVolume(delay = VOLUME_SETTLE_MS) {
+  if (volumeTimer) clearTimeout(volumeTimer);
+  volumeTimer = setTimeout(() => { volumeTimer = 0; flushVolume(); }, delay);
+}
+async function flushVolume() {
+  if (queuedVolume === null) return;
+  if (busy) {
+    // Another write is running. Try again shortly rather than dropping the level
+    // the person chose, and rather than queueing a command behind it.
+    scheduleVolume(80);
+    return;
+  }
+  if (el("volume").disabled) {
+    // Nothing can be sent: no usable output, the device is not answering, or
+    // this tab is not connected. Drop the queued level and leave the slider
+    // where the person put it, marked as not applied. A control that looks
+    // dead but still writes is the one thing this page must not be.
+    queuedVolume = null;
+    draft = true;
+    if (currentAudio) {
+      el("volume-value").textContent = volumeLabel(currentAudio);
+      el("audio-controls").setAttribute("aria-busy", "false");
+    }
+    return;
+  }
+  const percent = queuedVolume;
+  queuedVolume = null;
+  if (currentAudio) {
+    el("volume-value").textContent = volumeLabel(currentAudio);
+    el("audio-controls").setAttribute("aria-busy", "true");
+  }
+  const sent = await change("/api/audio/volume", {percent});
+  if (!sent && queuedVolume === null && !el("volume").disabled) {
+    // The page declined to send it (another write started in the meantime).
+    // Keep the intent rather than pretending it went.
+    queuedVolume = percent;
+    scheduleVolume(400);
+    return;
+  }
+  // A newer level arrived while that write was in flight.
+  if (queuedVolume !== null) scheduleVolume(VOLUME_SETTLE_MS);
 }
 el("pair-form").addEventListener("submit", async event => {
   event.preventDefault();
@@ -763,6 +911,7 @@ el("disconnect").addEventListener("click", () => {
   volumeOp = null;
   muteOp = null;
   currentAudio = null;
+  forgetQueuedVolume();
   showPairStatus("");
   showNotices();
   // Clear the previous device's own answers so a reconnect cannot show them for
@@ -791,10 +940,20 @@ el("retry").addEventListener("click", async () => {
   try { await refresh(); } finally { el("retry").disabled = false; }
 });
 el("volume").addEventListener("input", () => {
+  // Marked as a draft so a status poll cannot drag the slider back under the
+  // person's finger, then queued: the write happens when they stop moving it.
   draft = true;
+  queuedVolume = Number(el("volume").value);
   el("volume-value").textContent = volumeLabel(currentAudio || {available: false});
+  scheduleVolume();
 });
-el("apply").addEventListener("click", () => change("/api/audio/volume", {percent: Number(el("volume").value)}));
+el("retry-volume").addEventListener("click", () => {
+  // Deliberate, and only ever this one value: a write whose outcome was unknown
+  // is never repeated by the page itself.
+  if (volumeOp?.target == null) return;
+  queuedVolume = volumeOp.target;
+  scheduleVolume(0);
+});
 el("mute").addEventListener("click", () => change("/api/audio/mute", {muted: !currentAudio.muted}));
 
 function canonicalDeviceUrl(url) {
@@ -899,15 +1058,37 @@ async function loadDevices() {
     if (Array.isArray(discovery.refused) && discovery.refused.length)
       summary += ` Refused ${discovery.refused.length} discovery record`
                  + `${discovery.refused.length === 1 ? "" : "s"}: ${discovery.refused.join("; ")}.`;
+    // The other half of the same question. A device that finds nobody is asked
+    // why, and "nobody else advertises" and "this device does not advertise
+    // either" are different answers to the same silence.
+    summary += ` ${announcementSummary(data.announcement)}`;
     el("devices-status").textContent = summary;
     // Keep the status visible even with no links: a hidden section with no
-    // explanation is the silent failure this replaces.
-    el("devices").hidden = list.children.length === 0 && !discovery.enabled && !discovery.error;
+    // explanation is the silent failure this replaces. An advertisement that
+    // failed is also worth showing before there is anything to switch to.
+    el("devices").hidden = list.children.length === 0 && !discovery.enabled
+      && !discovery.error && !data.announcement?.error;
   } catch {
     // Keep the last visible list on a temporary HTTP failure.
   } finally {
     loadingDevices = false;
   }
+}
+function announcementSummary(announcement) {
+  // Whether *this* device can be found by the others, in the device's own words
+  // where it gave a reason. Silence here would leave a person comparing two
+  // devices that each see only themselves with nothing to act on.
+  const period = text => {
+    const trimmed = String(text || "").trim();
+    return trimmed && !/[.!?]$/.test(trimmed) ? `${trimmed}.` : trimmed;
+  };
+  if (!announcement) return "";
+  if (announcement.error) {
+    return period(`This device is not announcing itself: ${String(announcement.error)}`);
+  }
+  if (announcement.running) return period(`This device announces itself as “${announcement.instance}”`);
+  if (announcement.reason) return period(`This device is not announcing itself: ${String(announcement.reason)}`);
+  return "This device is not announcing itself, and did not say why.";
 }
 
 async function probeKeyless() {

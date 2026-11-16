@@ -59,7 +59,10 @@
            first and it is never collapsed. -->
       <section id="audio" class="card">
         <p class="eyebrow">LIVE CONTROL</p><h2>Speaker volume</h2>
-        <p>Native device output · the sink this page controls. It is not proof that speech and music share it.</p>
+        <!-- What the control does, in one line. The old opening sentence ended
+             in "it is not proof that speech and music share it", which is a
+             caveat nobody acts on where it stood; it lives in the disclosure
+             below, which is where a person reads once. -->
         <p id="output" class="detail"></p>
         <!-- aria-busy marks the part of the page that is being rewritten by a
              write. #audio-notice sits outside it on purpose: a live region
@@ -67,20 +70,28 @@
              again, which is exactly when the notice is no longer news. -->
         <div id="audio-controls">
           <label for="volume">Output level <strong id="volume-value">—</strong></label>
+          <!-- No Apply button: a person who moves a slider expects the device to
+               follow, and an extra press is the thing they forget. The page waits
+               for the slider to stop moving, then sends one change. -->
           <input id="volume" type="range" min="0" max="100" step="1" disabled>
-          <div class="row"><button id="apply" disabled>Apply volume</button><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
+          <div class="row"><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
         </div>
         <!-- The outcome of a write sits here, beside the control that caused it.
              The global #error is at the top of the page, far from this control,
              so the two never compete for the same sentence. Polite: it follows
              the person's own action. -->
         <p id="audio-notice" class="action-notice" role="status" aria-live="polite"></p>
-        <p class="detail">Moving the slider previews a value. Apply volume changes it. No test sound plays.</p>
+        <!-- A write whose outcome is unknown must not be retried by itself, and
+             without a control there was no way to decide to retry it. This is
+             the deliberate retry, and it exists only while there is something
+             to retry. -->
+        <button id="retry-volume" class="secondary" type="button" hidden>Send that level again</button>
+        <p class="detail">Changes are sent as you stop moving the slider.</p>
         <!-- Explanations the person reads once. Collapsed so the controls are
              what meets the eye, expanded on request without leaving the page. -->
         <details id="audio-help" class="more">
           <summary>About this output</summary>
-          <p class="detail">Apply volume links all output channels. Mute is separate. Percent is a native control setting, not a loudness or safety measurement.</p>
+          <p class="detail">A level links all output channels. Mute is separate. Percent is a native control setting, not a loudness or safety measurement. This page controls this device’s own output; whether speech and music both use it is not something this page checks.</p>
         </details>
       </section>
       <!-- Readings second: they are what a person checks when the volume does
@@ -96,6 +107,13 @@
           <div class="choice"><div class="choice-head"><span class="choice-title">CPU-core voltage</span><span class="badge planned">Planned</span></div><p class="choice-detail">A collector will show CPU-core voltage; this reading is not implemented yet. The 5 V supply above is a different measurement.</p></div>
         </div>
         <p id="age-caveat" class="detail">Readings show what the device reported when it last answered. It does not report when it measured them, so reading age is unknown; showing observation times is <span class="badge planned">Planned</span>.</p>
+        <!-- "Which program is using the Pi?" is the question a slow dashboard,
+             a stuttering voice reply or a hot board sends a person to ask, and
+             a whole-device percentage cannot answer it. -->
+        <details id="processes-details" class="more"><summary>Heaviest processes</summary>
+          <div id="processes" class="processes"></div>
+          <p class="detail">CPU is a share of one core, so a program using several cores can report more than 100%. Each figure is the device’s own counters between two reads, and the first read has no earlier counters, so it leaves CPU blank rather than showing zero.</p>
+        </details>
         <details id="cores-details" class="more"><summary>Per-core CPU</summary><div id="cores" class="cores"></div></details>
         <details id="swap-details" class="more"><summary>Swap & compression</summary><dl id="swap-values"></dl>
           <p class="detail">Swap I/O is system-wide pages/second—not a zram/zswap benchmark. Counters need two samples. zswap pool statistics require a future permitted collector; no root access is requested.</p>
@@ -118,13 +136,23 @@
             </div>
           </details>
         </section>
-        <section id="components" class="card"><p class="eyebrow">SOFTWARE</p><h2>Components</h2><p>Service detection is separate from configuration and end-to-end health.</p>
-          <details id="components-details" class="more"><summary>View service detection</summary><div id="component-list"></div></details>
+        <section id="components" class="card"><p class="eyebrow">SOFTWARE</p><h2>Components</h2>
+          <!-- One flat list answered "what is on this device?" with a mixture of
+               installed, absent and undetectable rows, so a person had to read
+               every one. The same evidence, sorted into what is there, what is
+               not, and what this page cannot tell. -->
+          <details id="components-details" class="more"><summary>View service detection</summary>
+            <h3 id="components-installed-title">Installed</h3><div id="components-installed" class="components" aria-labelledby="components-installed-title"></div>
+            <h3 id="components-missing-title">Not installed</h3><div id="components-missing" class="components" aria-labelledby="components-missing-title"></div>
+            <h3 id="components-unknown-title">Unknown</h3><div id="components-unknown" class="components" aria-labelledby="components-unknown-title"></div>
+            <p id="components-note" class="detail"></p>
+            <div class="choices"><div class="choice"><div class="choice-head"><span class="choice-title">Update, install or remove a component</span><span class="badge planned">Planned</span></div><p class="choice-detail">Each component gets its own update, and an install or removal where that makes sense. No update source, version manifest or package operation exists yet.</p></div></div>
+          </details>
         </section>
       </div>
       <section id="setup" class="card">
         <p class="eyebrow">BUILD CHOICES</p><h2>Setup</h2>
-        <p>These are planned setup choices, not controls. This page cannot change them. Anything marked <span class="badge planned">Planned</span> is shown so the intended shape is visible and testable.</p>
+        <p>Planned setup choices. Anything marked <span class="badge planned">Planned</span> cannot be changed from this page.</p>
         <!-- The status line stays outside the disclosure: a failure to read the
              build choices must not be hidden inside a panel that is closed by
              default. -->
@@ -149,11 +177,11 @@
             <div class="choice"><div class="choice-head"><span class="choice-title">Update policy</span><span class="badge planned">Planned</span></div><p class="choice-detail">Choose when component versions change; this page has no update-policy operation yet.</p></div>
           </div>
           <h3>Updates</h3>
-          <div id="setup-updates" class="choices">
-            <div class="choice"><div class="choice-head"><span class="choice-title">Check for updates</span><span class="badge planned">Planned</span></div><p class="choice-detail">Check for available versions; this page has no update source yet.</p></div>
-            <div class="choice"><div class="choice-head"><span class="choice-title">Install updates</span><span class="badge planned">Planned</span></div><p class="choice-detail">Install reviewed component versions; this page has no update operation yet.</p></div>
-            <div class="choice"><div class="choice-head"><span class="choice-title">Roll back the last change</span><span class="badge planned">Planned</span></div><p class="choice-detail">Return to an earlier working setup; this page has no rollback operation yet.</p></div>
-          </div>
+          <!-- One sentence where there used to be three buttons. "Check for
+               updates", "Install updates" and "Roll back" all described the
+               same missing mechanism, and each component now says what its own
+               update would be in the Components card. -->
+          <p id="setup-updates" class="detail">There is no update source, version manifest or rollback yet, so nothing on this page can change a component’s version. A rollback of the web service itself can be done by hand with the previous unit the installer keeps.</p>
         </details>
       </section>
       <!-- The tasks a person will come to this page for, in the order the

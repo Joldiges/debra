@@ -192,7 +192,8 @@ class SetupPayloadTests(unittest.TestCase):
         self.assertTrue(self.commands.calls)
         for call in self.commands.calls:
             self.assertEqual(call[0], "systemctl")
-            self.assertEqual(call[-1], "--property=Id,LoadState,ActiveState,UnitFileState")
+            self.assertEqual(call[-1],
+                             "--property=Id,LoadState,ActiveState,UnitFileState,MainPID")
             self.assertIn("show", call)
             self.assertFalse({"start", "stop", "restart", "enable", "disable"} & set(call))
         self.assertFalse(any("pactl" in call for call in self.commands.calls))
@@ -327,15 +328,17 @@ class PageTests(unittest.TestCase):
         # has to explain itself, and any handler on it runs the moment anything
         # enables it. The eight planned rows live in the markup and carry a
         # badge and a sentence; the renderer builds none of them.
+        # The three update rows became one sentence and one component-level
+        # row: "Check for updates", "Install updates" and "Roll back" all
+        # described the same absent mechanism, and none of them was per
+        # component, which is where a person looks for it.
         rows = [
             "Select this HAT for the setup",
             "Select a jack or USB output for the setup",
             "Choose the music receiver",
             "Choose whether music becomes quieter or pauses",
             "Choose when component versions change",
-            "Check for available versions",
-            "Install reviewed component versions",
-            "Return to an earlier working setup",
+            "Each component gets its own update",
         ]
         chunks = self.html.split('<div class="choice">')
         for sentence in rows:
@@ -367,7 +370,8 @@ class PageTests(unittest.TestCase):
         self.assertNotIn("setup-update-check", self.html)
         # And the notice that a planned row cannot be used is still visible
         # without opening anything.
-        self.assertIn("These are planned setup choices, not controls", self.html)
+        self.assertIn("Planned setup choices", self.html)
+        self.assertIn("cannot be changed from this page", self.html)
 
 
 if __name__ == "__main__":

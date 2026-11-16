@@ -75,8 +75,19 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 .core-track { display: block; height: 9px; background: #22303a; border-radius: 5px; overflow: hidden; }
 .core-bar { display: block; height: 100%; background: var(--accent); border-radius: 5px; transition: width .25s ease; }
 .core-value { color: var(--accent); text-align: right; font-variant-numeric: tabular-nums; }
+/* One program per row: name, share of a core, resident memory. The columns are
+   fixed so two rows can be compared by eye down the page. */
+.processes { display: grid; gap: 7px; margin-top: 16px; }
+.process { display: grid; grid-template-columns: 1fr minmax(3.4rem, auto) minmax(4.6rem, auto);
+  gap: 10px; align-items: baseline; font-size: 13px; }
+.process-name { color: #d5e4e0; overflow-wrap: anywhere; }
+.process-cpu { color: var(--accent); text-align: right; font-variant-numeric: tabular-nums; }
+.process-memory { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .component { display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; border-bottom: 1px solid #2b3a3e; padding: 16px 0; }
 .component small { grid-column: 1 / -1; color: var(--muted); }
+/* A group with nothing in it is an answer, not a hole: the heading carries the
+   count, so an empty list needs no placeholder text. */
+.components:empty { display: none; }
 .badge { color: var(--accent); font-size: 13px; }
 .device-links { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 .device { display: flex; align-items: center; gap: 14px; border: 1px solid #3b514c; border-radius: 11px; padding: 12px 14px; }
@@ -110,6 +121,8 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 .action-notice { margin: 12px 0 0; padding: 10px 14px; border: 1px solid #7a4a3c;
   border-radius: 11px; background: #2a1c18; color: #ffc8b8; font-size: 13px; }
 .action-notice:empty { margin: 0; padding: 0; border: 0; }
+#retry-volume { margin: 12px 0 0; }
+#retry-volume[hidden] { display: none; }
 /* The keyless warning is a security statement, not a caption. It is read
    before the controls it describes, so it gets its own band. */
 #auth-mode-warning {

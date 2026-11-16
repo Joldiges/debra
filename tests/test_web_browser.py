@@ -20,6 +20,14 @@ from control.web import server as web
 CHROMIUM = shutil.which("chromium-browser") or shutil.which("chromium")
 FIXTURE = r"""
 "use strict";
+// The page sends the slider's level a moment after it stops moving, rather
+// than waiting for an Apply press, so a check "applies" by waiting for the page
+// to do what it now does. Long enough to cover the settle delay, short enough
+// that a check stays quick.
+window.settleVolume = async () => {
+  await new Promise(resolve => setTimeout(resolve, 200));
+  await new Promise(resolve => setTimeout(resolve, 40));
+};
 window.testState = {
   posts: [], percent: 36, muted: false,
   // `?delay=1` holds every status read until the check releases it, so a check
@@ -272,9 +280,12 @@ window.addEventListener("load", async () => {
     await refresh();
     assert(volume.value === "24", "poll discarded volume preview");
     assert(testState.posts.length === 0, "slider preview wrote audio");
-    document.getElementById("apply").click();
-    await wait();
-    assert(testState.posts.length === 1 && testState.posts[0].body.percent === 24, "apply not explicit");
+    await settleVolume();
+    assert(testState.posts.length === 1 && testState.posts[0].body.percent === 24,
+           "the slider did not write on its own");
+    // Moving the slider once must not become a stream of commands.
+    await settleVolume();
+    assert(testState.posts.length === 1, "the same level was written twice");
     assert(testState.muted === false, "volume unexpectedly unmuted or muted");
     volume.value = "23";
     volume.dispatchEvent(new Event("input"));
@@ -283,11 +294,11 @@ window.addEventListener("load", async () => {
     assert(testState.posts.length === 2 && testState.muted, "mute did not work");
     assert(testState.percent === 24, "mute changed level");
     assert(volume.value === "23", "mute discarded volume preview");
-    assert(document.getElementById("volume-value").textContent.includes("not applied"), "preview label lost");
+    assert(document.getElementById("volume-value").textContent.startsWith("23%"),
+           "the slider\'s own level was replaced by the device\'s");
     // Finish this local preview before checking external changes.
-    document.getElementById("apply").click();
-    await wait();
-    assert(testState.posts.length === 3 && testState.percent === 23, "preview did not apply");
+    await settleVolume();
+    assert(testState.posts.length === 3 && testState.percent === 23, "the slider level was not sent");
     testState.percent = 19;
     await refresh();
     assert(volume.value === "19", "external volume change hidden");
@@ -296,8 +307,7 @@ window.addEventListener("load", async () => {
     await wait();
     volume.value = "18";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     testState.delay = false;
     testState.release();
     await stale;
@@ -306,8 +316,7 @@ window.addEventListener("load", async () => {
     testState.dropAfterApply = true;
     volume.value = "31";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     testState.dropAfterApply = false;
     assert(volume.value === "31", "applied change lost after a dropped response");
     assert(!document.getElementById("volume-value").textContent.includes("not applied"),
@@ -317,8 +326,7 @@ window.addEventListener("load", async () => {
     testState.dropWrite = true;
     volume.value = "42";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     testState.dropWrite = false;
     assert(volume.value === "42", "preview lost after an unanswered write");
     assert(document.getElementById("volume-value").textContent.includes("device reports 31%"),
@@ -330,18 +338,19 @@ window.addEventListener("load", async () => {
            "the write outcome is not inside the Audio card it belongs to");
     assert(document.getElementById("audio-notice").getBoundingClientRect().height > 0,
            "the write outcome has no visible box");
-    assert(!document.getElementById("apply").disabled, "cannot deliberately retry after an unanswered write");
+    const retryButton = document.getElementById("retry-volume");
+    assert(!retryButton.hidden && !retryButton.disabled,
+           "cannot deliberately retry after an unanswered write");
     assert(testState.posts.filter(p => p.body.percent === 42).length === 1, "unanswered write replayed itself");
-    document.getElementById("apply").click();
-    await wait();
+    retryButton.click();
+    await settleVolume();
     assert(testState.percent === 42 && volume.value === "42", "deliberate retry after an unanswered write failed");
     assert(document.getElementById("audio-notice").textContent === "", "retry left the unanswered notice behind");
     // A refusal is definite: it must stay readable across the next status poll.
     testState.reject = true;
     volume.value = "55";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"),
            "rejection not shown");
     await refresh();
@@ -352,16 +361,15 @@ window.addEventListener("load", async () => {
            "rejected write was not marked as not applied");
     assert(testState.posts.filter(p => p.body.percent === 55).length === 1, "rejected write replayed itself");
     testState.reject = false;
-    document.getElementById("apply").click();
-    await wait();
+    document.getElementById("retry-volume").click();
+    await settleVolume();
     assert(testState.percent === 55, "deliberate retry after a rejection failed");
     assert(document.getElementById("audio-notice").textContent === "", "successful retry left the rejection notice behind");
     // 503 after the command ran may mean applied: never claim otherwise.
     testState.failStatus = 503;
     volume.value = "24";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     testState.failStatus = 0;
     assert(testState.percent === 24, "503 fixture did not apply the change");
     assert(volume.value === "24", "applied change hidden after a 503");
@@ -372,8 +380,7 @@ window.addEventListener("load", async () => {
     testState.reject = true;
     volume.value = "30";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     testState.reject = false;
     assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"), "rejection lost");
     const wasMuted = testState.muted;
@@ -384,16 +391,15 @@ window.addEventListener("load", async () => {
            "an unrelated mute cleared the volume rejection");
     assert(document.getElementById("volume-value").textContent.includes("not applied"),
            "rejected volume no longer marked as not applied");
-    document.getElementById("apply").click();
-    await wait();
+    document.getElementById("retry-volume").click();
+    await settleVolume();
     assert(testState.percent === 30, "volume retry after rejection failed");
     assert(document.getElementById("audio-notice").textContent === "", "volume retry left the rejection notice");
     // A submitted write must not keep claiming "not applied" while pending.
     testState.holdWrite = true;
     volume.value = "40";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     assert(document.getElementById("volume-value").textContent.includes("applying"),
            "pending write still claimed not applied");
     assert(volume.disabled, "controls active while a write is pending");
@@ -415,8 +421,7 @@ window.addEventListener("load", async () => {
     testState.sinkGone = true;
     volume.value = "45";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     assert(!document.getElementById("volume-value").textContent.includes("not applied"),
            "unavailable readback claimed the change was not applied");
     assert(/not confirmed|outcome unknown/.test(document.getElementById("volume-value").textContent),
@@ -428,8 +433,7 @@ window.addEventListener("load", async () => {
     testState.fail = true;
     volume.value = "24";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     testState.reject = false;
     testState.fail = false;
     const settled = document.getElementById("volume-value").textContent;
@@ -453,8 +457,7 @@ window.addEventListener("load", async () => {
     testState.dropWrite = true;
     volume.value = "24";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     testState.dropWrite = false;
     assert(document.getElementById("volume-value").textContent.includes("device reports 45%"),
            "unanswered write did not show the device reading");
@@ -467,7 +470,7 @@ window.addEventListener("load", async () => {
            "newer preview not shown after reconciliation");
     testState.fail = true;
     await refresh();
-    assert(volume.disabled && document.getElementById("apply").disabled, "offline controls active");
+    assert(volume.disabled && document.getElementById("mute").disabled, "offline controls active");
     testState.fail = false;
     testState.delay = true;
     const pending = refresh();
@@ -478,7 +481,7 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("dashboard").hidden, "late poll reconnected after disconnect");
     assert(!sessionStorage.getItem("debra-key"), "disconnect retained key");
     assert(testState.posts.length === 17, "read/disconnect restored volume");
-    result.textContent = "PASS: browser native-volume UI, preview/apply, mute, external changes, lost responses, rejections, 503 uncertainty, pending and unavailable states, offline and disconnect races";
+    result.textContent = "PASS: browser native-volume UI, automatic writes after the slider settles, mute, external changes, lost responses, deliberate retries, rejections, 503 uncertainty, pending and unavailable states, offline and disconnect races";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -540,8 +543,13 @@ window.addEventListener("load", async () => {
     // without a control that would imply the page can change it.
     assert(observations.some(row => /service:/.test(row.textContent)),
            "no observed service state was reported");
-    assert(observations.some(row => row.textContent.includes("Updates")),
-           "the update reason was not reported as an observation");
+    // The update reason is no longer repeated as an observation row: the Setup
+    // card states it once, in its own words, and a copy in a second card was
+    // exactly the repetition this pass removed.
+    assert(document.getElementById("setup-updates").textContent.includes("no update source"),
+           "the update reason is not stated anywhere in the Setup card");
+    assert(!observations.some(row => row.textContent.includes("No update, version manifest")),
+           "the update reason is still repeated in the observation list");
     assert(document.getElementById("setup-hardware-source").textContent.includes("seeed2micvoicec"),
            "the ALSA card list is not shown");
     assert(document.getElementById("setup-status").textContent.includes("cannot change"),
@@ -550,7 +558,11 @@ window.addEventListener("load", async () => {
     // A disabled control is still a control: it promises a shape the page
     // cannot honour, and a handler on it runs the moment it is enabled.
     const staticRows = [...document.querySelectorAll("#setup-hats .choice, #setup-settings .choice, #setup-updates .choice")];
-    assert(staticRows.length === 8, "expected eight planned setup rows, saw " + staticRows.length);
+    // Five, not eight: the three update rows (check/install/roll back) each
+    // described the same absent mechanism, and none was per component. They are
+    // one sentence in this card plus one row in Components, where a person looks
+    // for a single component's version.
+    assert(staticRows.length === 5, "expected five planned setup rows, saw " + staticRows.length);
     for (const row of staticRows) {
       assert(row.querySelector(".badge.planned"), "a planned setup row is not labelled: " + row.textContent.slice(0, 40));
       assert((row.querySelector(".choice-detail")?.textContent || "").length > 30,
@@ -693,7 +705,7 @@ window.addEventListener("load", async () => {
            "the stale notice does not say when the last answer was: " + notice);
     assert(document.getElementById("volume-value").textContent === before,
            "the stale state changed the reading instead of labelling it");
-    assert(document.getElementById("apply").disabled && document.getElementById("mute").disabled,
+    assert(document.getElementById("volume").disabled && document.getElementById("mute").disabled,
            "the controls stayed usable against a device that is not answering");
     // A failure a person can only read is one they cannot act on.
     const retry = document.getElementById("retry");
@@ -713,7 +725,7 @@ window.addEventListener("load", async () => {
            "the stale notice stayed after the device answered again");
     assert(document.getElementById("retry").hidden,
            "the retry control stayed after the device answered again");
-    assert(!document.getElementById("apply").disabled,
+    assert(!document.getElementById("volume").disabled && !document.getElementById("mute").disabled,
            "the controls stayed disabled after the device returned");
     result.textContent = "PASS: old readings are labelled as old, and the label clears when the device returns";
   } catch (error) {
@@ -762,7 +774,7 @@ window.addEventListener("load", async () => {
     // the whole point of the reorder, and it is measured, not assumed.
     assert(!document.getElementById("page-footer").hidden,
            "the page footer never appeared after the dashboard opened");
-    for (const id of ["volume", "apply", "mute"]) {
+    for (const id of ["volume", "mute"]) {
       const box = document.getElementById(id).getBoundingClientRect();
       assert(box.height > 0, id + " is not rendered");
       assert(box.bottom <= height + 0.5,
@@ -937,7 +949,7 @@ window.addEventListener("load", async () => {
     // Every control is disabled because the device named a sink it cannot use.
     // Before, the only sign of that was a small line beside a dead button, and
     // the sink was still presented as if it were the output in use.
-    for (const id of ["volume", "apply", "mute"]) {
+    for (const id of ["volume", "mute"]) {
       assert(document.getElementById(id).disabled, id + " is usable with no usable output");
     }
     const output = document.getElementById("output").textContent;
@@ -1637,32 +1649,32 @@ window.addEventListener("load", async () => {
     for (let i = 0; i < 80 && !document.querySelector("#setup-observations .choice"); i++) await wait();
     const width = document.documentElement.clientWidth, height = window.innerHeight;
     assert(width === 390, "the harness did not emulate a 390 px phone: " + width);
-    const apply = document.getElementById("apply");
+    const mute = document.getElementById("mute");
     // Scroll Audio into view the way a person following the section link does,
-    // then apply a volume the device never answers.
+    // then move the slider to a level the device never answers.
     document.getElementById("audio").scrollIntoView();
     const volume = document.getElementById("volume");
     testState.dropWrite = true;
     volume.value = "42";
     volume.dispatchEvent(new Event("input"));
-    apply.click();
+    await settleVolume();
     const notice = document.getElementById("audio-notice");
     for (let i = 0; i < 80 && !notice.textContent; i++) await wait();
     testState.dropWrite = false;
     assert(notice.textContent.includes("did not confirm this volume change"),
            "the unanswered volume change was not explained: " + notice.textContent);
     assert(notice.closest("#audio"), "the notice is not inside the Audio card");
-    const applyBox = apply.getBoundingClientRect();
+    const applyBox = document.getElementById("audio-controls").getBoundingClientRect();
     const noticeBox = notice.getBoundingClientRect();
     assert(applyBox.top >= 0 && applyBox.bottom <= height,
-           "Apply is not on screen after scrolling to Audio: "
+           "the volume control is not on screen after scrolling to Audio: "
            + [applyBox.top, applyBox.bottom, height].join(", "));
     assert(noticeBox.height > 0, "the notice has no visible box");
     assert(noticeBox.top >= 0 && noticeBox.bottom <= height,
            "the notice is outside the phone viewport: "
            + [noticeBox.top, noticeBox.bottom, height].join(", "));
     assert(noticeBox.top >= applyBox.top && noticeBox.top - applyBox.bottom < 180,
-           "the notice is not beside the Apply button: "
+           "the notice is not beside the volume control: "
            + [applyBox.bottom, noticeBox.top].join(" -> "));
     // The point of moving it: the global line that used to carry this text is
     // more than one screen away from the control it explains.
@@ -1701,8 +1713,7 @@ window.addEventListener("load", async () => {
     const volume = document.getElementById("volume");
     volume.value = "21";
     volume.dispatchEvent(new Event("input"));
-    document.getElementById("apply").click();
-    await wait();
+    await settleVolume();
     assert(testState.posts.length === 1 && testState.percent === 21,
            "the audio write did not run while Setup was held: " + JSON.stringify(testState.posts));
     testState.releaseSetup();
@@ -1744,7 +1755,9 @@ window.addEventListener("load", async () => {
     // Disconnect sets the current audio state to null, and the repaint in the
     // write's `finally` used to read it unconditionally.
     testState.holdWrite = true;
-    document.getElementById("apply").click();
+    const volume = document.getElementById("volume");
+    volume.value = "37";
+    volume.dispatchEvent(new Event("input"));
     for (let i = 0; i < 40 && !testState.releaseWrite; i++) await wait();
     assert(testState.releaseWrite, "the held audio write never started");
     document.getElementById("disconnect").click();
@@ -1959,8 +1972,16 @@ window.addEventListener("load", async () => {
            "the Wi-Fi row does not qualify its unit");
     assert(!/dBm/.test(health.textContent),
            "a unit is still claimed for the driver's Wi-Fi number");
-    assert(/not proof that speech and music share it/.test(document.body.textContent),
-           "the audio card still claims a shared output path");
+    // The page must not claim this output is the one speech and music share.
+    // That caveat is still made, but once, inside the disclosure a person opens
+    // to read about the output -- not as a sentence above the controls, where it
+    // was the first thing on the card and read as boilerplate.
+    const audioHelp = document.getElementById("audio-help");
+    assert(/whether speech and music both use it is not something this page checks/
+           .test(audioHelp.textContent),
+           "the audio card claims a shared output path");
+    assert(!/speech and music/.test(document.getElementById("audio").querySelector("p").textContent),
+           "the shared-output caveat is back in the always-visible paragraph");
     result.textContent = "PASS: labels name the source and the estimate, not more";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
@@ -2349,7 +2370,10 @@ class BrowserTests(unittest.TestCase):
         self.run_browser("?auth=none&noabort=1", "check-timeout.js", budget=6000)
 
     def test_real_browser_interactions_with_no_native_audio(self):
-        self.run_browser("#key=" + "x" * 40, "check.js")
+        # Every volume change now waits for the slider to settle before the page
+        # sends it, so this check spends much more of the virtual-time budget
+        # than the Apply button did. The budget is time, not wall clock.
+        self.run_browser("#key=" + "x" * 40, "check.js", budget=20000)
 
 
 if __name__ == "__main__":
