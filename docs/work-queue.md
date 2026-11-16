@@ -39,7 +39,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
 | Acceptance review `setup-r7` | — | `.local/reviews/setup-r7-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b3125` (the r6 repair, the boundary that must not raise, and the narrowed baseline-validator sentence), judging the eight r6 findings and re-running the r6 survivor transforms |
-| Acceptance review `code-r10` | — | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; to be frozen after this commit, judging R9-01…R9-06 and re-running the nine r9 survivor transforms |
+| Acceptance review `code-r10` | — | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; frozen on `7cf32ae`, judging R9-01…R9-06 and re-running the nine r9 survivor transforms |
 
 ## Done this round
 
