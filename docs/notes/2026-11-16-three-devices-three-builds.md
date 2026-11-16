@@ -71,10 +71,10 @@ happened next:
 
 | Endpoint | Release now | Note |
 | --- | --- | --- |
-| `debra-3c6b3f` (Pi 5) | `80108697c869…` | Updated to branch `web/version-id`; `/api/status` reports `version.short` and `restart_required: false`. |
-| `debra-f943dc` | `9f532517e4fe…` | Untouched. Already at committed `main`. |
+| `debra-3c6b3f` (Pi 5) | `293f4e001c84…` | Updated twice: first to branch `web/version-id`, then to merged `ea825e5`. `/api/status` reports `version.short` and `restart_required: false`. |
+| `debra-f943dc` | `9f532517e4fe…` | Untouched. At the `main` of the time; now behind the merge. |
 | `debra-8518d6` | `054631e3a7ab…` | Untouched. Changed under this session during the work: the other session redeployed it twice. |
-| host `127.0.0.1:8787` | runs the working tree | Restarted from the shared checkout, so `/index.html` is 200 instead of 404. It carries no version report until `web/version-id` merges, because it runs code that predates it. |
+| host `127.0.0.1:8787` | `293f4e001c84…` | Restarted twice from the shared checkout: first to make it coherent with its own tree, then after the merge, which is what put the build line on it. |
 
 `debra-f943dc` is a **Raspberry Pi Zero W Rev 1.1, `armv6l`**, running the web
 server on Raspbian 13 with Python 3.13.5. That is the first evidence that this
@@ -100,7 +100,9 @@ every remaining check: *whose* payload does it assume?
 ### Limits
 
 No rollback was performed, only shown to be permitted. Nothing was installed on
-`debra-f943dc` or `debra-8518d6`. The version report is on the Pi 5 only until
-`web/version-id` merges, which it cannot do while another session holds
-uncommitted changes in the same files.
+`debra-f943dc` or `debra-8518d6`; both are now behind the merge and one command
+away. The version report was checked on the Pi 5 and the host through
+`/api/status`; the footer line was seen rendering only against the synthetic
+fixture, because the device page opens on its key card and nothing here clicked
+through it.
 
