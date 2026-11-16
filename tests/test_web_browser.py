@@ -720,6 +720,64 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_FIRST_SCREEN = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+// Document order, not a list in a comment. Returns true when `a` precedes `b`.
+const before = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // Before access: the card that lets a person in comes before a list of
+    // other devices. A phone used to open on "switch to another Debra".
+    const pair = document.getElementById("pair"), devices = document.getElementById("devices");
+    assert(before(pair, devices), "the network switcher is listed before the welcome card");
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    const height = innerHeight;
+    assert(innerHeight === 844, "the harness did not emulate a phone viewport: " + innerHeight);
+    assert(before(document.getElementById("dashboard"), devices),
+           "the device dashboard is not before the network switcher");
+    // The security warning describes the controls below it, so it is read
+    // first. Moving it under them would let a person change volume before
+    // learning the device has no key.
+    assert(!document.getElementById("auth-mode-warning").hidden,
+           "the keyless warning is hidden on a keyless device");
+    assert(before(document.getElementById("auth-mode-warning"), document.getElementById("audio")),
+           "the keyless warning is below the controls it describes");
+    // The first screen has to carry the control the person came for. This is
+    // the whole point of the reorder, and it is measured, not assumed.
+    for (const id of ["volume", "apply", "mute"]) {
+      const box = document.getElementById(id).getBoundingClientRect();
+      assert(box.height > 0, id + " is not rendered");
+      assert(box.bottom <= height + 0.5,
+             id + " is below the first screen (bottom " + Math.round(box.bottom)
+             + " of " + height + ")");
+    }
+    // The heading is what tells a person which device they are looking at.
+    const host = document.getElementById("hostname").getBoundingClientRect();
+    assert(host.bottom <= height + 0.5, "the device name is below the first screen");
+    // Sections are anchors. A duplicate id would send the navigation somewhere
+    // arbitrary, which is worse than a broken link.
+    const ids = [...document.querySelectorAll("[id]")].map(node => node.id);
+    const seen = new Set(), dupes = new Set();
+    for (const id of ids) (seen.has(id) ? dupes : seen).add(id);
+    assert(dupes.size === 0, "duplicate ids: " + [...dupes].join(", "));
+    for (const anchor of document.querySelectorAll("nav a")) {
+      assert(document.getElementById(anchor.getAttribute("href").slice(1)),
+             "navigation points at a missing section: " + anchor.getAttribute("href"));
+    }
+    result.textContent = "PASS: the device and its volume come first, before switching or diagnostics";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_NOAUTH = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -1846,7 +1904,7 @@ class BrowserTests(unittest.TestCase):
                                    "/check-pair-busy.js",
                                    "/check-refused-keyless.js", "/check-timeout.js",
                                    "/check-unverified-key.js", "/check-checking.js",
-                                   "/check-stale.js"):
+                                   "/check-stale.js", "/check-first-screen.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -1870,7 +1928,8 @@ class BrowserTests(unittest.TestCase):
                               "/check-timeout.js": CHECK_TIMEOUT_FALLBACK,
                               "/check-unverified-key.js": CHECK_UNVERIFIED_KEY,
                               "/check-checking.js": CHECK_CHECKING,
-                              "/check-stale.js": CHECK_STALE}[self.path]
+                              "/check-stale.js": CHECK_STALE,
+                              "/check-first-screen.js": CHECK_FIRST_SCREEN}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -1903,6 +1962,12 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
             self.assertIn('<pre id="browser-test-result">PASS:', result.stdout,
                           result.stdout[-3000:] + result.stderr[-1000:])
+
+    def test_the_device_and_its_volume_come_first_on_a_phone(self):
+        # The order a person meets this page in, measured on the phone it is
+        # meant to be used on. Before the reorder the volume slider sat 1262 px
+        # down a 6733 px document, behind "switch to another Debra".
+        self.run_browser("?auth=none", "check-first-screen.js", wrapper=True, budget=12000)
 
     def test_a_slow_device_says_it_is_checking(self):
         # The device has not answered, so the page must not look like it has

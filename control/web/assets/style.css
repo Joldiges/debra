@@ -1,12 +1,17 @@
 :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101619; color: #e6eeed; --muted: #a4b8b5; --accent: #9ddbc7; }
 * { box-sizing: border-box; }
 body { margin: 0; }
-header { max-width: 1080px; margin: auto; padding: 28px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+/* A compact header: on a phone every pixel above the first control is a pixel
+   between the person and what they came for. */
+header { max-width: 960px; margin: auto; padding: 18px 24px 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+/* Keyboard entry that skips the header. Visible only when focused. */
+.skip { position: absolute; left: -9999px; top: 0; background: var(--accent); color: #10251d; padding: 12px 18px; border-radius: 0 0 9px 0; font-weight: 650; z-index: 10; }
+.skip:focus { left: 0; }
 a { color: var(--accent); text-decoration: none; }
 .brand { color: #f4f7f6; font-size: 30px; font-weight: 750; letter-spacing: -1px; }
 .brand span { display: block; font-size: 9px; letter-spacing: 2px; color: var(--muted); }
 #connection, .detail, footer { color: var(--muted); font-size: 13px; line-height: 1.6; }
-main { max-width: 1080px; margin: 12px auto 48px; padding: 0 24px; }
+main { max-width: 960px; margin: 4px auto 48px; padding: 0 24px; }
 .heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 18px 0; }
 h1 { font-size: clamp(28px, 5vw, 42px); letter-spacing: -1px; margin: 8px 0; }
 h2 { font-size: 22px; letter-spacing: -.4px; margin: 6px 0 12px; }
@@ -14,7 +19,10 @@ p { color: var(--muted); line-height: 1.6; }
 .eyebrow { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 2px; margin: 0; }
 nav { display: flex; gap: 24px; padding: 12px 0 24px; flex-wrap: wrap; font-size: 14px; }
 .card { background: #192226; border: 1px solid #2b3a3e; border-radius: 18px; padding: 26px; margin-bottom: 20px; scroll-margin-top: 16px; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+/* One reading column at every width. A second desktop column put two sections
+   side by side and made the reading order of a long page ambiguous, for the
+   sake of horizontal space nobody needs. */
+.grid { display: grid; grid-template-columns: 1fr; gap: 0; }
 label { display: block; margin: 16px 0 10px; color: #d5e4e0; font-size: 14px; }
 #volume-value { float: right; font-size: 22px; color: var(--accent); }
 /* The number is the tallest thing on this line. Floating it out of a 14 px
@@ -100,8 +108,23 @@ h3 { color: #d5e4e0; font-size: 15px; font-weight: 650; letter-spacing: .01em; m
 .choice input[type=radio]:disabled { opacity: .8; }
 .choice button:disabled { opacity: .6; }
 .badge.planned { color: #eac88a; border: 1px solid #6b5a34; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-@media (max-width: 650px) { .grid { grid-template-columns: 1fr; gap: 0; } header, main { padding-left: 16px; padding-right: 16px; } .card { padding: 20px; } .heading { align-items: start; flex-direction: column; } #connection { max-width: 145px; text-align: right; } }
+@media (max-width: 650px) { header, main { padding-left: 16px; padding-right: 16px; } .card { padding: 20px; } .heading { align-items: start; flex-direction: column; } .brand { font-size: 26px; } }
 /* Five section links do not fit one phone line at the desktop gap, and
    wrapping left "Components" alone on a second row. Tighter spacing keeps
    the whole nav on one line, which is what it is for. */
 @media (max-width: 520px) { nav { gap: 13px; font-size: 13px; } nav a { white-space: nowrap; } }
+
+/* Disclosures. A <details> shows or hides text; it is not a simulated control.
+   The summary is a full-width row so it is a comfortable thumb target, and the
+   marker is drawn here because the native one is small and easy to miss. */
+details.more { margin: 18px 0 0; border-top: 1px solid #2b3a3e; }
+details.more > summary {
+  list-style: none; cursor: pointer; padding: 14px 0; min-height: 44px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: #d5e4e0; font-size: 14px; font-weight: 600;
+}
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::after { content: "＋"; color: var(--accent); font-size: 16px; font-weight: 400; }
+details.more[open] > summary::after { content: "−"; }
+details.more > summary:hover { color: #f4f7f6; }
+details.more > summary:focus-visible { outline: 3px solid #eac88a; outline-offset: 4px; border-radius: 6px; }

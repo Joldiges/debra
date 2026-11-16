@@ -8,14 +8,13 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <a class="skip" href="#main-content">Skip to device controls</a>
   <header><a class="brand" href="/">debra<span>DEVICE CONTROL</span></a><span id="connection" role="status">Connect to your device</span></header>
-  <main>
-    <section id="devices" class="card" hidden>
-      <p class="eyebrow">THIS NETWORK</p><h2>Switch to another Debra</h2>
-      <p>Every Debra serves its own page. Switching opens that device’s page in this tab, and it asks for <em>its</em> access key once — keys are per device, so they are not carried across. Discovery is a claim, not authentication: read the address before entering a key.</p>
-      <div id="device-links" class="device-links"></div>
-      <p id="devices-status" class="detail" role="status"></p>
-    </section>
+  <main id="main-content">
+    <!-- A read failure is named near the top of the page, not several screens
+         below the readings it concerns. It sits outside the dashboard so a
+         refusal on the welcome card has somewhere to appear too. -->
+    <p id="error" role="alert"></p>
     <section id="pair" class="card">
       <p class="eyebrow">WELCOME</p><h1>Your device, within reach.</h1>
       <p>Enter this device’s access key. It stays in this browser tab. Use this prototype only on a trusted local network.</p>
@@ -37,8 +36,10 @@
            person reading "36%" further down needs the warning next to it. Empty
            is the normal state; `:empty` removes the box. -->
       <p id="stale-notice" class="action-notice" role="status"></p>
-      <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div><button id="disconnect" class="secondary">Disconnect this tab</button></div>
+      <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div></div>
       <nav aria-label="Sections"><a href="#audio">Audio</a><a href="#setup">Setup</a><a href="#device">Device</a><a href="#health">Health</a><a href="#components">Components</a></nav>
+      <!-- Audio is the one thing a person opens this page to change, so it is
+           first and it is never collapsed. -->
       <section id="audio" class="card">
         <p class="eyebrow">LIVE CONTROL</p><h2>Speaker volume</h2>
         <p>Native device output · the sink this page controls. It is not proof that speech and music share it.</p>
@@ -47,24 +48,65 @@
         <input id="volume" type="range" min="0" max="100" step="1" disabled>
         <div class="row"><button id="apply" disabled>Apply volume</button><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
         <!-- The outcome of a write sits here, beside the control that caused it.
-             The global #error is at the end of the page, several screens below
-             Audio on a phone. Polite: it follows the person's own action. -->
+             The global #error is at the top of the page, far from this control,
+             so the two never compete for the same sentence. Polite: it follows
+             the person's own action. -->
         <p id="audio-notice" class="action-notice" role="status" aria-live="polite"></p>
-        <p class="detail">Moving the slider previews a value; Apply changes it. No test sound plays. Apply links all output channels; mute is separate. Percent is a native control setting, not a loudness or safety measurement.</p>
+        <p class="detail">Moving the slider previews a value. Apply volume changes it. No test sound plays.</p>
+        <!-- Explanations the person reads once. Collapsed so the controls are
+             what meets the eye, expanded on request without leaving the page. -->
+        <details id="audio-help" class="more">
+          <summary>About this output</summary>
+          <p class="detail">Apply volume links all output channels. Mute is separate. Percent is a native control setting, not a loudness or safety measurement.</p>
+        </details>
       </section>
+      <!-- Readings second: they are what a person checks when the volume does
+           not respond, and the main numbers stay visible without an extra tap. -->
+      <section id="health" class="card"><p class="eyebrow">READ-ONLY</p><h2>Health & resources</h2><dl id="health-values"></dl>
+        <details id="cores-details" class="more"><summary>Per-core CPU</summary><div id="cores" class="cores"></div></details>
+        <details id="swap-details" class="more"><summary>Swap & compression</summary><dl id="swap-values"></dl>
+          <p class="detail">Swap I/O is system-wide pages/second—not a zram/zswap benchmark. Counters need two samples. zswap pool statistics require a future permitted collector; no root access is requested.</p>
+        </details>
+      </section>
+      <div class="grid">
+        <section id="device" class="card"><p class="eyebrow">IDENTITY</p><h2>Hardware & system</h2>
+          <details id="hardware-details" class="more"><summary>View hardware and system details</summary><dl id="device-values"></dl>
+            <p class="detail">Selected HAT/speaker labels are retained information, not automatic compatibility checks.</p>
+          </details>
+          <!-- Access to this page belongs here rather than beside the device
+               name: disconnecting is a page action, not a device task, and it
+               is not what a person comes to this page to do. -->
+          <details id="access-details" class="more"><summary>Browser access</summary>
+            <p class="detail">Disconnect clears this tab only. It does not remove access from other tabs or cancel changes already sent.</p>
+            <button id="disconnect" class="secondary">Disconnect this tab</button>
+            <div class="choices">
+              <div class="choice"><div class="choice-head"><span class="choice-title">Browser enrollment</span><span class="badge planned">Planned</span></div><p class="choice-detail">Choose a device password during setup; setup and this page do not share a credential store yet.</p></div>
+              <div class="choice"><div class="choice-head"><span class="choice-title">Remove browser access</span><span class="badge planned">Planned</span></div><p class="choice-detail">Remove a browser’s access on the device; per-browser credentials and revocation are not implemented yet.</p></div>
+            </div>
+          </details>
+        </section>
+        <section id="components" class="card"><p class="eyebrow">SOFTWARE</p><h2>Components</h2><p>Service detection is separate from configuration and end-to-end health.</p>
+          <details id="components-details" class="more"><summary>View service detection</summary><div id="component-list"></div></details>
+        </section>
+      </div>
       <section id="setup" class="card">
         <p class="eyebrow">BUILD CHOICES</p><h2>Setup</h2>
-        <p>What this device is built to do. Anything marked <span class="badge planned">Planned</span> is shown so the intended shape is visible and testable, but it cannot change anything yet.</p>
-        <h3>Audio hardware</h3>
-        <p id="setup-hardware-source" class="detail"></p>
-        <p class="detail">The EEPROM product string can name a board family only: nothing this page reads establishes an exact model or revision, and an alternative that is not a board — the jack or USB output — is not something it can name.</p>
-        <div id="setup-hats" class="choices"></div>
-        <p id="setup-hardware-note" class="detail"></p>
-        <h3>Tools and settings</h3>
-        <div id="setup-settings" class="choices"></div>
-        <h3>Updates</h3>
-        <div id="setup-updates" class="choices"></div>
+        <p>These are planned setup choices, not controls. This page cannot change them. Anything marked <span class="badge planned">Planned</span> is shown so the intended shape is visible and testable.</p>
+        <!-- The status line stays outside the disclosure: a failure to read the
+             build choices must not be hidden inside a panel that is closed by
+             default. -->
         <p id="setup-status" class="detail" role="status"></p>
+        <details id="setup-details" class="more"><summary>View setup choices</summary>
+          <h3>Audio hardware</h3>
+          <p id="setup-hardware-source" class="detail"></p>
+          <p class="detail">The EEPROM product string can name a board family only: nothing this page reads establishes an exact model or revision, and an alternative that is not a board — the jack or USB output — is not something it can name.</p>
+          <div id="setup-hats" class="choices"></div>
+          <p id="setup-hardware-note" class="detail"></p>
+          <h3>Tools and settings</h3>
+          <div id="setup-settings" class="choices"></div>
+          <h3>Updates</h3>
+          <div id="setup-updates" class="choices"></div>
+        </details>
       </section>
       <!-- The tasks a person will come to this page for, in the order the
            appliance needs them (roadmap N02/WEB02, C02/WEB08, B01/B02, C04,
@@ -75,24 +117,29 @@
            built. -->
       <section id="planned" class="card">
         <p class="eyebrow">NOT YET AVAILABLE</p><h2>Device tasks</h2>
-        <p>The jobs a person will come to this page for. Every row is <span class="badge planned">Planned</span>: nothing here can be used, and none of it changes the device. They are listed so the intended shape of the appliance is visible and can be tested against.</p>
-        <div id="planned-actions" class="choices">
-          <div class="choice"><div class="choice-head"><span class="choice-title">Change the Wi-Fi network</span><span class="badge planned">Planned</span></div><p class="choice-detail">Join a different network from this page instead of a terminal. The onboarding service can raise its own access point and join a network, but it is not connected to this page and has never run on a device (roadmap N02, WEB02).</p></div>
-          <div class="choice"><div class="choice-head"><span class="choice-title">Restart speech or music</span><span class="badge planned">Planned</span></div><p class="choice-detail">Restart a service without opening a terminal. Nothing on the device can start, stop or restart a service yet (roadmap C02, WEB08).</p></div>
-          <div class="choice"><div class="choice-head"><span class="choice-title">Keep a known-good copy</span><span class="badge planned">Planned</span></div><p class="choice-detail">Take a snapshot of the working setup and go back to it. A first baseline can be captured and inspected; nothing restores from one, so recovery in that direction is unproven (roadmap B01, B02).</p></div>
-          <div class="choice"><div class="choice-head"><span class="choice-title">Maintenance over SSH</span><span class="badge planned">Planned</span></div><p class="choice-detail">A text menu for the same tasks when this page cannot be reached. That maintenance menu does not exist (roadmap C04).</p></div>
-          <div class="choice"><div class="choice-head"><span class="choice-title">Speak through the device</span><span class="badge planned">Planned</span></div><p class="choice-detail">Ask the assistant something and hear the answer from this page. The voice assistant runs as its own service and this page has no channel to it (roadmap V01, V03).</p></div>
-        </div>
+        <p>Every task is <span class="badge planned">Planned</span>; nothing here can be used yet. They are listed so the intended shape of the appliance is visible and can be tested against.</p>
+        <details id="tasks-details" class="more"><summary>View planned device tasks</summary>
+          <div id="planned-actions" class="choices">
+            <div class="choice"><div class="choice-head"><span class="choice-title">Change the Wi-Fi network</span><span class="badge planned">Planned</span></div><p class="choice-detail">Join a different Wi-Fi network from this page; no Wi-Fi-change operation is available here yet (roadmap N02, WEB02). The onboarding service can raise its own access point and join a network, but it is not connected to this page and has never run on a device.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Restart speech or music</span><span class="badge planned">Planned</span></div><p class="choice-detail">Restart speech or music from this page; no service-restart operation is available here yet (roadmap C02, WEB08). Nothing on the device can start, stop or restart a service.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Keep a known-good copy</span><span class="badge planned">Planned</span></div><p class="choice-detail">Keep and restore a working setup; this page has no snapshot or restore operation yet (roadmap B01, B02). A first baseline can be captured and inspected; nothing restores from one, so recovery in that direction is unproven.</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Maintenance menu</span><span class="badge planned">Planned</span></div><p class="choice-detail">Use a text maintenance menu when this page cannot be reached; that menu does not exist yet (roadmap C04).</p></div>
+            <div class="choice"><div class="choice-head"><span class="choice-title">Speak through the device</span><span class="badge planned">Planned</span></div><p class="choice-detail">Send a question through this page and hear a reply on the device; this page has no connection to the voice assistant yet (roadmap V01, V03).</p></div>
+          </div>
+        </details>
       </section>
-      <div class="grid">
-        <section id="device" class="card"><p class="eyebrow">IDENTITY</p><h2>Hardware & system</h2><dl id="device-values"></dl><p class="detail">Selected HAT/speaker labels are retained information, not automatic compatibility checks.</p></section>
-        <section id="health" class="card"><p class="eyebrow">RIGHT NOW</p><h2>Health & resources</h2><dl id="health-values"></dl><div id="cores" class="cores"></div></section>
-      </div>
-      <section class="card"><p class="eyebrow">MEMORY EFFICIENCY</p><h2>Swap & compression</h2><dl id="swap-values"></dl><p class="detail">Swap I/O is system-wide pages/second—not a zram/zswap benchmark. Counters need two samples. zswap pool statistics require a future permitted collector; no root access is requested.</p></section>
-      <section id="components" class="card"><p class="eyebrow">SOFTWARE</p><h2>Components</h2><p>Service detection is separate from configuration and end-to-end health.</p><div id="component-list"></div></section>
       <footer>Early reusable prototype · No updates, installs, restarts, Wi-Fi changes, LED writes, or automatic volume restoration.<br><span id="build">Build: unknown</span></footer>
     </div>
-    <p id="error" role="alert"></p>
+    <!-- Switching device is a rare action on a page about this device, so it
+         comes last, behind a disclosure, and never before the welcome card. -->
+    <section id="devices" class="card" hidden>
+      <p class="eyebrow">THIS NETWORK</p><h2>Switch to another Debra</h2>
+      <details id="network-details" class="more"><summary>Show devices on this network</summary>
+        <p>Switching opens that device’s page in this tab. Each device checks its own access. This tab does not send your key to it. Discovery is a claim, not authentication. Read the address before entering a key.</p>
+        <div id="device-links" class="device-links"></div>
+        <p id="devices-status" class="detail" role="status"></p>
+      </details>
+    </section>
   </main>
 </body>
 </html>

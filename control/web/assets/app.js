@@ -221,7 +221,9 @@ function render(data) {
   el("build").title = (data.version && data.version.release) || "";
   el("hostname").textContent = data.hostname;
   el("model").textContent = data.model || "Board model unavailable";
-  el("connection").textContent = "Connected · updates every 3 seconds";
+  // The polling interval is not state a person needs, and it made the header
+  // taller than the brand at phone width. The state is the word.
+  el("connection").textContent = "Connected";
   // The warning must not live only on the pairing card: that card is hidden as
   // soon as the dashboard opens, so a person could believe the live controls
   // were protected by the key they may never have been asked for.
