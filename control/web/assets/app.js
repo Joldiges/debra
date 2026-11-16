@@ -88,7 +88,9 @@ function showNotices() {
   // below Apply: a beginner could retry an unanswered change without ever
   // seeing why it may not have applied. #error keeps the read/pairing failures
   // it is the only home for. The element is never hidden, only emptied, so the
-  // live region exists when its text changes and is announced.
+  // live region exists when its text changes. It is assigned on every refresh,
+  // including when the text is unchanged; whether a screen reader announces an
+  // identical re-assignment is not established here.
   const message = notices();
   el("audio-notice").textContent = message;
 }
