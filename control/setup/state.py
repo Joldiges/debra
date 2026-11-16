@@ -240,12 +240,16 @@ def migrate(data):
     service before it could raise an access point - which is the failure this
     migration exists to prevent.
 
-    Schema 1 stored no setup-network password, and may describe a hotspot that
-    is not running after the upgrade. That description is dropped and the phase
-    becomes `failed` with a reason, because a described access point with no
-    credential is one nothing can join. Schema 2 held the password itself; it is
-    dropped here (the secret moves to its own file), and the description is kept
-    because the next raise generates the password and rewrites the card note.
+    Schema 1 is usually passwordless, and a described access point it leaves
+    behind is then one nothing can join: the description is dropped and the
+    phase becomes `failed` with a reason. Two prototype revisions (`5c8fde4`
+    and `9c802e1`) did write a password while still calling themselves schema
+    1, and `adopt_legacy_secret` carries that one into `setup-secret` before
+    this runs; the description is still dropped, and the next boot raises a
+    network with that same carried password rather than the open one the
+    installed default would otherwise ask for. Schema 2 held the password in the
+    record the same way, and the description is kept for it because the boot
+    that follows finds the access point already described.
     """
     if not isinstance(data, dict):
         return data

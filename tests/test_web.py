@@ -1692,7 +1692,8 @@ class RestoreCommandTests(unittest.TestCase):
         previous = self.home / "previous.service"
         command = " ".join(installer.quoted(part) for part in
                            ("/usr/bin/python3", "-B",
-                            "/not/installed/releases/abc/server.py", "serve"))
+                            "/not/installed/releases/abc/server.py", "serve",
+                            "--sink", "s"))
         previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
         with self.assertRaisesRegex(ValueError, "not a release this installer keeps"):
             installer.restore_unit(self.home, previous)
@@ -1707,7 +1708,8 @@ class RestoreCommandTests(unittest.TestCase):
         first = self.install()
         previous = self.home / "previous.service"
         command = " ".join(installer.quoted(part) for part in
-                           ("/usr/bin/python3", "-B", "not-installed/server.py", "serve"))
+                           ("/usr/bin/python3", "-B", "not-installed/server.py", "serve",
+                            "--sink", "s"))
         previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
         before = self.unit.read_bytes()
         with self.assertRaisesRegex(ValueError, "not a release this installer keeps"):
@@ -1793,7 +1795,8 @@ class RestoreCommandTests(unittest.TestCase):
         release = self.home / ".local/share/debra/web/releases" / first["release"]
         command = " ".join(installer.quoted(part)
                            for part in ("/usr/bin/python3", "-B",
-                                        str(release / "server.py"), "serve"))
+                                        str(release / "server.py"), "serve",
+                                        "--sink", "s"))
         previous = self.home / "previous.service"
         previous.write_text(installer.MARKER + f"[Service]\nExecStart=-{command}\n")
         self.assertEqual(installer.restore_unit(self.home, previous), self.unit)
@@ -1913,6 +1916,69 @@ class RestoreCommandTests(unittest.TestCase):
         self.assertEqual(self.unit.read_bytes(), before,
                          "a refusal still changed the unit")
 
+    def rewrite(self, source, mutate):
+        """A preserved unit whose start command is `mutate(argv)` of the original."""
+        text = Path(source).read_text()
+        line = next(line for line in text.splitlines() if line.startswith("ExecStart="))
+        argv = mutate(list(installer.service_commands(text.encode())[0]))
+        command = " ".join(installer.quoted(part) for part in argv)
+        previous = self.home / "previous.service"
+        previous.write_text(text.replace(line, f"ExecStart={command}", 1))
+        return previous
+
+    def test_a_restore_refuses_a_command_with_no_audio_sink(self):
+        # The installed server refuses a missing --sink before it opens a socket
+        # ("--sink is required"), so publishing such a unit reported a successful
+        # rollback for a service that cannot start.
+        _, second, _ = self.upgraded()
+
+        def drop_sink(argv):
+            index = argv.index("--sink")
+            return argv[:index] + argv[index + 2:]
+
+        previous = self.rewrite(second["previous_unit"], drop_sink)
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", previous)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("names no audio sink", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+
+    def test_a_restore_refuses_an_auth_mode_the_server_does_not_have(self):
+        _, second, _ = self.upgraded()
+
+        def bad_auth(argv):
+            argv[argv.index("--auth") + 1] = "invalid"
+            return argv
+
+        previous = self.rewrite(second["previous_unit"], bad_auth)
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", previous)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not a mode the installed server accepts", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+
+    def test_a_restore_refuses_a_non_server_payload_entrypoint(self):
+        # The entry point must be `server.py`, not merely "one of the five
+        # payload files". `discovery.py` defines functions and serves nothing, so
+        # a unit that ran it would be published as a working rollback and start
+        # no listener at all.
+        first, second, _ = self.upgraded()
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+
+        def use_discovery(argv):
+            argv[2] = str(release / "discovery.py")
+            return argv
+
+        previous = self.rewrite(second["previous_unit"], use_discovery)
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", previous)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not the server.py of a release", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+
     def test_a_restore_refuses_a_start_command_that_is_not_the_installed_shape(self):
         # The command line itself is checked, not only the paths that happen to
         # appear in it. Each of these is a unit this installer never writes.
@@ -1926,6 +1992,16 @@ class RestoreCommandTests(unittest.TestCase):
             "option without value": ["/usr/bin/python3", "-B", release, "serve", "--port"],
             "relative state directory": ["/usr/bin/python3", "-B", release, "serve",
                                          "--state-dir", "state"],
+            "no sink": ["/usr/bin/python3", "-B", release, "serve", "--auth", "key"],
+            "empty sink": ["/usr/bin/python3", "-B", release, "serve", "--sink", ""],
+            "unknown auth": ["/usr/bin/python3", "-B", release, "serve",
+                             "--sink", "s", "--auth", "open"],
+            "unprivileged port": ["/usr/bin/python3", "-B", release, "serve",
+                                  "--sink", "s", "--port", "80"],
+            "non-numeric port": ["/usr/bin/python3", "-B", release, "serve",
+                                 "--sink", "s", "--port", "http"],
+            "malformed host": ["/usr/bin/python3", "-B", release, "serve",
+                               "--sink", "s", "--host", "not-a-host"],
         }
         for name, argv in refusals.items():
             with self.subTest(name):
@@ -1947,7 +2023,8 @@ class RestoreCommandTests(unittest.TestCase):
         previous = self.home / "previous.service"
         command = " ".join(installer.quoted(part)
                            for part in ("/usr/bin/python3", "-B",
-                                        str(release / "helper.sh"), "serve"))
+                                        str(release / "helper.sh"), "serve",
+                                        "--sink", "s"))
         # Keep the release the retained unit names, so completeness alone would
         # not refuse it.
         retained = second["previous_unit"]
@@ -1967,7 +2044,7 @@ class RestoreCommandTests(unittest.TestCase):
         command = " ".join(installer.quoted(part)
                            for part in ("/usr/bin/python3", "-B",
                                         str(releases / first["release"] / ".." / "elsewhere.py"),
-                                        "serve"))
+                                        "serve", "--sink", "s"))
         previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
         with self.assertRaisesRegex(ValueError, "leaves the release"):
             installer.restore_unit(self.home, previous)

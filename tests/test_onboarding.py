@@ -303,6 +303,42 @@ class StateTests(Temp):
         self.assertEqual(data["phase"], "failed")
         self.assertIn("did not finish", data["last_error"])
 
+    def test_a_schema_one_record_missing_any_one_mandatory_field_is_refused(self):
+        # R8-03, from the other line's review. The cases above remove several
+        # fields at once, so deleting one field from the floor survived every
+        # test in this module. The field names are written out here rather than
+        # read from `MANDATORY_1`, or a mutated floor would shrink the test's
+        # own expectations with it.
+        required = ("phase", "hostname", "country", "ssid", "address", "last_error",
+                    "attempts", "hotspot", "baseline", "updated")
+        for field in required:
+            with self.subTest(missing=field):
+                record = {"schema": 1, "phase": "online", "hostname": "debra-1",
+                          "country": "GB", "ssid": "HomeWiFi", "address": None,
+                          "last_error": None, "attempts": 0, "hotspot": None,
+                          "baseline": None, "updated": "2026-11-01T00:00:00Z"}
+                del record[field]
+                self.state_path.write_text(json.dumps(record))
+                before = self.state_path.read_bytes()
+                with self.assertRaisesRegex(ValueError, "not a setup record"):
+                    state_module.read(self.state_path)
+                self.assertEqual(self.state_path.read_bytes(), before,
+                                 f"a record refused for a missing {field} was rewritten")
+
+    def test_a_schema_one_hotspot_is_dropped_so_it_can_be_raised_again(self):
+        # The ordinary schema 1 wrote no password, so the described access point
+        # cannot be joined. It is dropped and the next boot raises it again,
+        # instead of refusing the file and stopping the service.
+        old = state_module.blank("debra-1")
+        del old["attempt_claimed"], old["revision"]
+        old.update(schema=1, phase="hotspot",
+                   hotspot={"ssid": "Debra-Setup-1", "interface": "wlan0"})
+        self.state_path.write_text(json.dumps(old))
+        data = state_module.read(self.state_path)
+        self.assertIsNone(data["hotspot"])
+        self.assertEqual(data["phase"], "failed")
+        self.assertIn("raised again", data["last_error"])
+
     def test_a_hotspot_phase_with_no_described_network_is_resolved(self):
         # `validate` refuses a `hotspot` phase with no access point described.
         # A record can be left that way by a build that dropped the description
@@ -1505,7 +1541,14 @@ class SetupPasswordTests(Temp):
         stored = self.state_path.read_text(encoding="utf-8")
         password = onboarding.setup_secret(onboarder.secret_path)
         self.assertNotIn(password, stored)
-        self.assertNotIn("password", stored)
+        # The setup password is a separate, deliberately random credential, and
+        # one full run generated `fpskukbbdwfz` - which contains "psk" and so
+        # failed a substring check that was meant to say "no household key was
+        # stored". The key is what matters, so the JSON is parsed.
+        record = json.loads(stored)
+        self.assertNotIn("psk", record)
+        self.assertNotIn("wifi_psk", record)
+        self.assertNotIn("password", record)
 
     def test_the_password_is_not_served_by_the_status_page(self):
         # The status response is read by anything that has joined the network,
@@ -1629,6 +1672,34 @@ class LegacySecretAdoptionTests(Temp):
         # password, rather than the open one the installed default asks for.
         status = onboarder.resume()
         self.assertEqual(status["phase"], "hotspot")
+        self.assertEqual(network.hotspot["password"], "abcdefghjk2m")
+
+    def test_a_password_written_under_schema_one_is_carried_too(self):
+        # Schema 1 is not uniform. Two prototype revisions (`5c8fde4` and
+        # `9c802e1`) wrote `hotspot_password` while still calling the record
+        # schema 1, and no `setup-security` file existed yet, so the installer's
+        # `none` is the only other thing that would decide this boot. Refusing
+        # schema 1 here opened the network on the first boot after that upgrade.
+        self.legacy(schema=1)
+        network = FakeNetwork()
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(network, security="none")
+        self.assertEqual(onboarder.adopted_security, "wpa")
+        self.assertEqual(onboarder.security, "wpa")
+        secret = self.state_path.with_name("setup-secret")
+        self.assertEqual(secret.read_text(encoding="utf-8").strip(), "abcdefghjk2m")
+        self.assertEqual(
+            self.state_path.with_name("setup-security").read_text().strip(), "wpa")
+        # Schema 1's description is dropped, so this boot raises the access
+        # point again - with the carried password, not a fresh one and not none.
+        # The re-raise reports `failed` because it carries the reason the last
+        # one stopped, which is this branch's shape for every retry; the access
+        # point itself is up and protected, and that is what this asserts.
+        status = onboarder.resume()
+        self.assertEqual(status["phase"], "failed")
+        self.assertEqual(status["security"], "wpa")
+        self.assertIn("raised again", status["last_error"])
+        self.assertEqual(status["hotspot"]["ssid"], "Debra-Setup-345678")
         self.assertEqual(network.hotspot["password"], "abcdefghjk2m")
 
     def test_the_password_is_not_left_in_the_state_after_the_upgrade(self):

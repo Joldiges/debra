@@ -308,26 +308,32 @@ can already write to the account's files. Within that form it checks:
   (`python3 -B -c 'print(1)'`), or an unknown option is refused instead of being
   checked vacuously — the earlier check skipped every argument that did not
   start with `/`, so those commands passed with nothing examined;
+- the options are ones the installed server would accept, because it refuses
+  these before it opens a socket: an audio sink is named (it never follows a
+  default or a hotplugged device), `--auth` is `key` or `none`, `--port` is an
+  unprivileged number, `--state-dir` and `--devices` are absolute, and every
+  `--host` is a `hostname:port` the server accepts. A rollback that published a
+  command the server rejects reported success for a service that cannot start;
 - the entry point is `server.py` at the top of a release under the managed tree,
   and every ancestor of that tree is a real directory. Renaming
   `~/.local/share` and pointing the name at a preserved copy repoints every
-  release at once without changing a byte inside one;
+  release at once without changing a byte inside one. The entry point must be
+  `server.py` itself, not merely one of the five payload files: `discovery.py`
+  defines functions and serves nothing;
 - every payload file inside that release is a real file, reached through real
   directories without `..` — a link under the release would let the digested
   files be replaced without changing the name the unit is checked against;
 - that release is complete (all five fixed payload files) and still matches the
-  content address it is named by;
-- nothing else named by the command is a Python file outside the managed
-  releases tree.
+  content address it is named by.
 
 **It restores the file. It does not recover the service.** Nothing is started,
 and no check here proves the restored unit starts and stays up — that takes the
 `daemon-reload` and `start` steps above and then a check that the service is
 active, and a rollback to a release that imports is what the checks are for, not
 a substitute for them.
-Acceptance by the decoder is not proof of startup either: the installed entry
-point is `0600`, so a unit that ran it directly would be refused by the kernel
-even though the release checks pass.
+Acceptance by the decoder is not proof of startup either. The installed entry
+point is `0600`, and the shape check already refuses a command that runs it
+directly; if it were accepted, the kernel would refuse to execute it.
 
 The old unit references the retained old release and its own device list, if any.
 Units created by older installers may instead reference a shared `devices.json`;

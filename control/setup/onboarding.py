@@ -250,10 +250,15 @@ def adopt_legacy_secret(state_path, secret_path, security_path):
         return None
     if not isinstance(data, dict):
         return None
-    # Only schema 2 kept a password in the record, and exactly 2: schema 1 never
-    # had one, and a newer record's key is not ours to guess at.
+    # Schemas 1 and 2 could both carry one. Schema 1 usually did not - it only
+    # describes the access point it raised - but two prototype revisions
+    # (`5c8fde4` and `9c802e1`) added `hotspot_password` while still writing
+    # schema 1, and this record is indistinguishable from theirs except by that
+    # key. Refusing schema 1 here would open those devices' networks on the
+    # first boot after the upgrade, which is the one direction this function
+    # exists to prevent. A newer record's key is still not ours to guess at.
     schema = data.get("schema")
-    if isinstance(schema, bool) or schema != 2:
+    if isinstance(schema, bool) or schema not in (1, 2):
         return None
     legacy = data.get("hotspot_password")
     if not isinstance(legacy, str) or not legacy:
