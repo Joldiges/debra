@@ -38,8 +38,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `code-r9` | — | `.local/reviews/code-r9-20261115/` | independent, `gpt-6.1-sol`; frozen on `e170448` (the `f974f7f` repair plus a setup-test flake fix), judging whether R8-01…R8-07 are closed and what the repairs broke |
 | Acceptance review `setup-r7` | — | `.local/reviews/setup-r7-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b3125` (the r6 repair, the boundary that must not raise, and the narrowed baseline-validator sentence), judging the eight r6 findings and re-running the r6 survivor transforms |
+| Acceptance review `code-r10` | — | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; frozen on `c08d82c`, judging R9-01…R9-06 and re-running the nine r9 survivor transforms |
 
 ## Done this round
 
@@ -56,6 +56,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | The r6 review's findings | N02 | this commit — the capture-failure record has its own second-process test (the r5 test reached only the pointer-write branch); `do_GET` has the POST boundary; the handler logs the exception's class and releases a reservation it cannot hand on; `--enable` accepts the absolute wants link systemd writes; the schema-1 migration fills every field the old record never wrote; the setup password and the `first-boot.md` rows are described as they are. Eight reversals all killed |
 | The r7 review's blockers | WEB03 | `709b3df` — the documented rollback command runs without `--host` and refuses an unstartable unit, the keyless dashboard carries its own warning, HAT detection needs a vendor and a two-mic word, parser refusals reach the page, a 390 px page holds a long sink identity, an oversized valid body is refused, same-device detection is the exact host or its `.local` alias, a Switch link is not refused as cross-site, and the labels name their sources |
 | The r8 review's blockers | WEB03 | `f974f7f` — restore reads `ExecStart` with a systemd decoder so a HOME with a space, `%` or `$` round-trips; the launchability guard reads only `[Service]`, honours a reset and `-`, and requires a complete release matching its content address; a write outcome sits beside Apply at 390 px; the No-HAT row reports no family verdict and `12-Mics` no longer matches two-mic; two equal advertisements count as two; a late Setup response cannot repaint cleared rows. Three test gaps closed, including labels beside disabled controls and pre-`app.js` request recording. 20 reversals all killed |
+| The r9 review's findings | WEB03 | this commit — restore now accepts **only** a unit this installer wrote (marker line, one `ExecStart` in `[Service]`, every argument double-quoted with only `\\`, `\"`, `%%`, `$$`), so it can no longer validate a path systemd would not start (`he\x20home`); the release boundary refuses a linked release, a linked payload file or directory, a traversing or non-payload entry point, and a release whose content no longer matches its name; four safety tests that only looked like tests now fail their reversals (digest compare, linked release, linked named file, unit absent at publication); the control sweep reads the pre-wrapper request log, so a captured `fetch` cannot hide a write; a Setup read is bound to the session only (an audio write no longer discards a valid answer, a pending read no longer blocks a re-pair) and the held-*error* arm is tested; an audio write settling after Disconnect no longer throws on the null state; the refusal count is described as refused records. Nine reversals all killed |
 | The r2 review's blockers | N02 | this round — the profile is written where NetworkManager keeps it and promoted to autoconnect only after the join is verified; a per-attempt token replaces the SSID check; the reservation is released when the reply cannot be written; the country is set after the AP is down; the portal prints the address it is served on; the baseline is never overwritten, never archives itself, and `latest()` verifies the hash; the page keeps what was typed across a poll and shows a baseline failure |
 | Browser proof of the device list | — | `test_development_bypass_and_device_links` already drives the configured and discovered badges, the same-device case, a literal label, a discovery start failure, an empty scan and a refused advertisement |
 | Browser proof of the setup page | N02 | `508a7f9` — 7 Chromium scenarios; the page was unreachable and the tests caught it |
@@ -95,6 +96,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Item | Reviewer | Outcome |
 |---|---|---|
+| Z01 ARMv6 reconnaissance (`docs/research/Z01-armv6.md`) | — | **not yet reviewed**; unreviewed evidence from a research subagent (`deepseek-v4.1-flash-1017#high`). It claims no artifact was installed or run, so a review should check the primary-source citations rather than re-run anything |
+| Browser control slice, r9 (`e170448`) | `gpt-6.1-sol`, independent | **changes requested** — the restore decoder accepted a larger language than it could reproduce (`\x20` read as `x20`), the release boundary was partial, four safety reversals survived every web test, an audio write could discard a valid Setup answer, and a write settling after Disconnect threw. All six repaired; `code-r10` reviews the repair. Verdict: `.local/reviews/code-r9-20261115/verdict.md` |
 | First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
 | Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
@@ -122,8 +125,9 @@ features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
 first baseline now have an implementation (`control/setup/`, 255 onboarding tests
 and 40 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 711 tests (47 skipped) plus 47 browser tests
-(`-p 'test_*browser.py'`).
+whole offline suite is 726 tests (49 skipped) plus 49 browser tests, which are
+opt-in and skip in an ordinary run (`-p 'test_*browser.py'` with
+`DEBRA_BROWSER_TEST=1`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,
 and the browser setup card (in progress). See the [first-boot design

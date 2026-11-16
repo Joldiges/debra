@@ -22,6 +22,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [SolidCraft enclosure requirements](design/enclosures.md) | Candidate dimensions, reusable parts, case variants, wiring/card/power access, lids and speaker grilles/cloth |
 | [Corrected preliminary research](research/2026-11-14-preliminary-findings.md) | Useful mechanical, ARMv6, onboarding, recovery and reuse findings; not completed packets |
 | [ARMv6 wheel availability](research/2026-11-15-armv6-wheels.md) | 35-package instruction-set and packaging matrix for original Pi Zero W: the `armv6l` tag is not a promise, and both wake-word engines ship an x86-64 TensorFlow Lite library |
+| [Z01 ARMv6 dependency reconnaissance](research/Z01-armv6.md) | The Z01 deliverable: per-component ARMv6/ARMv7/AArch64 artifacts, ranked blockers (no ARMv6 TensorFlow Lite C runtime; no armhf LVA image), offload options that keep full support, and bounded experiments E0–E6. Unreviewed; nothing was run |
 | [First-boot trial plan](testing/first-boot-trial-plan.md) | What one card/Pi run would prove, the missing card-preparation step, the run sheet and recovery; a plan, not authorization |
 | [F01/F05 readiness](testing/results/2026-11-14-ai-readiness.md) | Baseline closure, partial permission evidence, unresolved extra file and closed dispatch |
 | [F05 source-test feasibility](testing/results/2026-11-15-f05-source-feasibility.md) | Version-pinned upstream test helpers, interception pitfalls and missing isolated runtime; no new executed permission coverage |

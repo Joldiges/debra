@@ -58,7 +58,8 @@ HAT_OPTIONS = (
                # Matched as a pattern, with a number boundary either side of the
                # 2: plain substring matching read `2-mic` inside `12-Mics` and
                # reported a twelve-microphone board as this two-microphone one.
-               "model": (r"(?<![0-9])2[-\s]?mics?\b",)},
+               # `2-microphone` is the same board described in full.
+               "model": (r"(?<![0-9])2[-\s]?(?:mics?|microphones?)(?![a-z0-9])",)},
      "card": "seeed2micvoicec",
      "caveats": (
          "Microphone and LED positions are an estimate, not a measurement of this board: "
@@ -89,24 +90,27 @@ class DiscoveryCache:
         self.devices = ()
         self.last_scan = None      # monotonic; None means no scan has finished yet
         self.last_error = None
-        # One entry per refused advertisement, as "name: reason". Reasons are
-        # what a person needs; the count is advertisements, which is what the
-        # page says it is. Keeping only the display string merged two different
-        # devices that happened to be refused for the same reason.
+        # One entry per refused record the scan returned, as "name: reason".
+        # Reasons are what a person needs, and the count is records, which is
+        # what the page says it is. Keeping only the display string merged two
+        # different devices that happened to be refused for the same reason.
         self.refused = ()
         self.thread = None
 
     def scan(self):
         # Each entry is (identity, "name: reason"). The parser reports one
-        # refusal per advertisement it dropped but carries only the instance
-        # name and the reason, and two advertisements can share both (one port
-        # 0 and one port 65536, for example), so its position in the reported
-        # list is the identity that survives. This hub's own revalidation still
-        # has the record, so it is keyed by the name and URL it refused and a
-        # repeated scan cannot multiply it. The cost is honest: avahi reports a
+        # refusal per record it dropped but carries only the instance name and
+        # the reason, and two records can share both (one port 0 and one port
+        # 65536, for example), so its position in the reported list is the
+        # identity that survives. This hub's own revalidation still has the
+        # record, so it is keyed by the name and URL it refused and a repeated
+        # scan cannot multiply it. The limits are honest: avahi reports a
         # resolved record once per interface and address family, so one refused
-        # advertisement seen twice is counted twice. A count that can be high is
-        # better than silently dropping a device from the page.
+        # advertisement seen twice is counted twice, and two malformed records
+        # with the same name and URL merge into one entry. The count is
+        # therefore refused records, not proven distinct advertisements, and
+        # the page says so. A count that can be high is better than silently
+        # dropping a device from the page.
         refused = []
 
         def note(identity, name, reason):
@@ -282,8 +286,11 @@ def hat_family_match(product, option):
 
     A family match is all this can establish. Two independent words are
     required - one vendor and one model - so a different ReSpeaker board or an
-    unrelated Seeed HAT is not reported as this one. The revision is still
-    unknown: an EEPROM product string does not carry one.
+    unrelated Seeed HAT is not reported as this one. Each vendor word has to
+    stand on its own: a substring match read `respeaker` inside `NotReSpeaker`
+    and `seeed` inside `Unseeeded`, which made any string containing those
+    letters this family. The revision is still unknown: nothing this page reads
+    establishes one.
 
     An option with no `match` (the alternative below) is not a board the EEPROM
     could name, so this is never the question to ask about it: `None` here.
@@ -294,7 +301,18 @@ def hat_family_match(product, option):
     if not vendor or not model:
         return None
     words = (product or "").lower()
-    return any(word in words for word in vendor) and any(re.search(word, words) for word in model)
+
+    def names_vendor(word):
+        # A vendor word has to stand on its own. A plain substring matched
+        # `respeaker` inside `NotReSpeaker` and `seeed` inside `Unseeeded`, so an
+        # unrelated board was reported as this family. Letters and digits are
+        # the boundary; an underscore or hyphen is not one, so `ReSpeaker_2-Mics`
+        # and `seeed-2mic` still match.
+        return re.search(r"(?<![a-z0-9])" + re.escape(word) + r"(?![a-z0-9])",
+                         words) is not None
+
+    return (any(names_vendor(word) for word in vendor)
+            and any(re.search(word, words) for word in model))
 
 
 def alsa_cards(root):

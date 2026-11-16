@@ -24,7 +24,7 @@ window.testState = {
   posts: [], percent: 36, muted: false, delay: false, release: null, fail: false,
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
-  holdSetup: false, releaseSetup: null,
+  holdSetup: false, releaseSetup: null, failSetup: false,
   // Every request the page makes, recorded at the entry point it calls. This
   // fixture script runs before app.js, so startup attempts are included, not
   // only what arrives after a check has installed a wrapper of its own.
@@ -43,6 +43,10 @@ window.testState = {
   discovery: {enabled: false, found: 0, seconds_since_scan: null, error: null, refused: []}
 };
 const state = window.testState;
+// `?hold=setup` holds the page's first Setup read, so a check can prove what
+// happens to a valid answer that is already in flight when something else
+// changes. The read is held once, not for every request.
+if (new URLSearchParams(location.search).get("hold") === "setup") state.holdSetup = true;
 const setupPayload = () => ({
   writable: false,
   reason: "This page reports what the device is built to do; it cannot change any of it yet.",
@@ -100,7 +104,13 @@ window.fetch = async (path, options) => {
     if (options && options.method && options.method !== "GET") {
       throw new Error("the page must not write to /api/setup");
     }
-    if (state.holdSetup) await new Promise(resolve => { state.releaseSetup = resolve; });
+    // One read is held, not every read: a check that holds a read, disconnects
+    // and re-pairs needs the new session's read to answer.
+    if (state.holdSetup) {
+      state.holdSetup = false;
+      await new Promise(resolve => { state.releaseSetup = resolve; });
+    }
+    if (state.failSetup) throw new Error("old setup failure");
     return {ok: true, status: 200, json: async () => setupPayload()};
   }
   if (path === "/api/devices") {
@@ -496,6 +506,12 @@ window.addEventListener("load", async () => {
     assert(planned.length === 8, "expected eight planned controls, saw " + planned.length);
     const before = testState.posts.length;
     const beforeSent = sent.length;
+    // The fixture's own log, written at the entry point the page calls, is the
+    // one a captured pre-wrapper `fetch` cannot evade. The label sweep below
+    // already reads it; this sweep read only the late wrapper, so a handler
+    // holding the function from before that wrapper was installed wrote and
+    // nothing here noticed.
+    const beforeEarly = testState.requests.length;
     for (const control of planned) {
       // `.click()` is a no-op on a disabled control, and so is a real click,
       // so the event is dispatched directly: a handler that exists still runs.
@@ -511,6 +527,11 @@ window.addEventListener("load", async () => {
     const writes = sent.slice(beforeSent).filter(([, method]) => method !== "GET");
     assert(writes.length === 0,
            "a planned control sent a request that is not a read: " + JSON.stringify(writes));
+    const earlyWrites = testState.requests.slice(beforeEarly)
+      .filter(request => request.method !== "GET");
+    assert(earlyWrites.length === 0,
+           "a planned control sent a request the page's own log saw but the "
+           + "wrapper did not: " + JSON.stringify(earlyWrites));
     assert(testState.posts.length === before,
            "a planned control wrote to the device: "
            + JSON.stringify(testState.posts.slice(before)));
@@ -1007,6 +1028,92 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_SETUP_CURRENT = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  const rows = () => ["setup-hats", "setup-settings", "setup-updates"]
+    .map(id => document.getElementById(id).children.length);
+  try {
+    // `?hold=setup` holds the page's first Setup read, the one start() makes.
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    for (let i = 0; i < 40 && !testState.releaseSetup; i++) await wait();
+    assert(testState.releaseSetup, "the first setup read was not held");
+    assert(rows().every(count => count === 0),
+           "the setup rows rendered before the read settled: " + rows());
+    // An audio write advances the page's revision. It says nothing about the
+    // device's build choices, so the answer already in flight is still valid.
+    const volume = document.getElementById("volume");
+    volume.value = "21";
+    volume.dispatchEvent(new Event("input"));
+    document.getElementById("apply").click();
+    await wait();
+    assert(testState.posts.length === 1 && testState.percent === 21,
+           "the audio write did not run while Setup was held: " + JSON.stringify(testState.posts));
+    testState.releaseSetup();
+    for (let i = 0; i < 40 && !rows().every(count => count > 0); i++) await wait();
+    assert(rows().every(count => count > 0),
+           "an audio write discarded a valid setup answer: " + rows());
+    assert(document.getElementById("setup-status").textContent.includes("cannot change"),
+           "the read-only reason is missing: "
+           + document.getElementById("setup-status").textContent);
+    result.textContent = "PASS: an audio write does not discard a Setup answer already in flight";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_DISCONNECT_WRITE = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  // An exception thrown inside the write handler's `finally` becomes an
+  // unhandled rejection: nothing displays it, so only a listener sees it.
+  const failures = [];
+  window.addEventListener("unhandledrejection", event => {
+    failures.push(String((event.reason && event.reason.message) || event.reason));
+  });
+  window.addEventListener("error", event => failures.push(String(event.message)));
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "bypass did not connect");
+    assert(failures.length === 0, "connecting raised: " + JSON.stringify(failures));
+    // Hold the write, disconnect while it is unanswered, then let it settle.
+    // Disconnect sets the current audio state to null, and the repaint in the
+    // write's `finally` used to read it unconditionally.
+    testState.holdWrite = true;
+    document.getElementById("apply").click();
+    for (let i = 0; i < 40 && !testState.releaseWrite; i++) await wait();
+    assert(testState.releaseWrite, "the held audio write never started");
+    document.getElementById("disconnect").click();
+    testState.releaseWrite();
+    await wait();
+    await wait();
+    assert(failures.length === 0,
+           "an audio write settling after Disconnect raised: " + JSON.stringify(failures));
+    assert(document.getElementById("dashboard").hidden, "the dashboard reopened after disconnect");
+    assert(document.getElementById("pair").hidden === false, "the pairing card did not return");
+    assert(document.getElementById("volume").disabled,
+           "the volume control is still live after disconnect");
+    result.textContent = "PASS: an audio write settling after Disconnect raises nothing and stays disconnected";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_SETUP_RACE = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -1043,7 +1150,50 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("dashboard").hidden, "a late setup response reopened the dashboard");
     assert(!sessionStorage.getItem("debra-key"), "disconnect retained the key");
     assert(testState.posts.length === 0, "the setup race wrote to the device");
-    result.textContent = "PASS: a late setup response cannot repopulate cleared rows after disconnect";
+    // A read left pending by the old session must not block the new session's
+    // read. One global loading flag did, and because the old answer is
+    // correctly discarded, the card stayed empty until the 15-second poll.
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    assert(rows().every(count => count > 0), "re-pairing did not render the setup rows: " + rows());
+    testState.holdSetup = true;
+    const stale = loadSetup();
+    for (let i = 0; i < 40 && !testState.releaseSetup; i++) await wait();
+    assert(testState.releaseSetup, "the held setup read never started");
+    document.getElementById("disconnect").click();
+    assert(rows().every(count => count === 0), "disconnect did not clear the setup rows: " + rows());
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    assert(rows().every(count => count > 0),
+           "a new session could not read while an old read was pending: " + rows());
+    testState.releaseSetup();
+    await stale;
+    await wait();
+    assert(rows().every(count => count > 0),
+           "the old session's answer cleared the new session's rows: " + rows());
+    testState.releaseSetup();
+    await stale;
+    await wait();
+    assert(rows().every(count => count > 0),
+           "the old session's answer cleared the new session's rows: " + rows());
+    // The error arm of the same guard. The success arm above passes even when
+    // only the success path is bound to the session, so a held failure is its
+    // own case: it must not write the old device's reason after a disconnect.
+    testState.holdSetup = true;
+    testState.failSetup = true;
+    const failing = loadSetup();
+    for (let i = 0; i < 40 && !testState.releaseSetup; i++) await wait();
+    assert(testState.releaseSetup, "the held failing setup read never started");
+    document.getElementById("disconnect").click();
+    testState.releaseSetup();
+    await failing;
+    await wait();
+    assert(document.getElementById("setup-status").textContent === "",
+           "a late setup failure wrote its reason after disconnect: "
+           + document.getElementById("setup-status").textContent);
+    assert(testState.posts.length === 0, "the setup error arm wrote to the device");
+    result.textContent = "PASS: a late setup response cannot repopulate cleared rows after disconnect, "
+      + "and neither a pending read nor a late failure blocks or paints a new session";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -1186,7 +1336,7 @@ class BrowserTests(unittest.TestCase):
                 time.sleep(0.5 * attempt)
         return result
 
-    def run_browser(self, suffix, check_name, window=None, wrapper=False):
+    def run_browser(self, suffix, check_name, window=None, wrapper=False, budget=None):
         class Handler(web.Handler):
             def do_GET(self):
                 path = self.path.split("?")[0]
@@ -1235,7 +1385,8 @@ class BrowserTests(unittest.TestCase):
                                    "/check-auth-badge.js", "/check-phone-width.js",
                                    "/check-self.js", "/check-labels.js",
                                    "/check-token-none.js", "/check-audio-notice.js",
-                                   "/check-setup-race.js"):
+                                   "/check-setup-race.js", "/check-setup-current.js",
+                                   "/check-disconnect-write.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -1248,7 +1399,9 @@ class BrowserTests(unittest.TestCase):
                               "/check-labels.js": CHECK_LABELS,
                               "/check-token-none.js": CHECK_TOKEN_NONE,
                               "/check-audio-notice.js": CHECK_AUDIO_NOTICE,
-                              "/check-setup-race.js": CHECK_SETUP_RACE}[self.path]
+                              "/check-setup-race.js": CHECK_SETUP_RACE,
+                              "/check-setup-current.js": CHECK_SETUP_CURRENT,
+                              "/check-disconnect-write.js": CHECK_DISCONNECT_WRITE}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -1266,9 +1419,11 @@ class BrowserTests(unittest.TestCase):
                 try:
                     # A framed run loads the page twice (wrapper and frame) and
                     # the check itself waits for the dashboard, so it needs a
-                    # larger virtual-time budget than a plain page.
+                    # larger virtual-time budget than a plain page. A check that
+                    # waits out several held requests needs a larger one still:
+                    # the budget is virtual time, and every `wait()` spends it.
                     result = self.dump_dom(directory, host, suffix, window=window,
-                                           budget=8000 if wrapper else 3000)
+                                           budget=budget or (8000 if wrapper else 3000))
                 finally:
                     server.shutdown()
                     thread.join()
@@ -1322,8 +1477,15 @@ class BrowserTests(unittest.TestCase):
     def test_a_late_setup_response_cannot_repopulate_cleared_rows(self):
         # Setup reads were not bound to the session, so a response already in
         # flight when the tab disconnected painted the old device's choices back
-        # into the rows disconnect had just cleared.
-        self.run_browser("?auth=none", "check-setup-race.js")
+        # into the rows disconnect had just cleared. The check also holds a read
+        # across a re-pair and a late failure, so it needs more virtual time.
+        self.run_browser("?auth=none", "check-setup-race.js", budget=12000)
+
+    def test_an_audio_write_does_not_discard_a_setup_answer_in_flight(self):
+        # The page's global revision was compared as well, so an audio Apply
+        # made a valid Setup answer look stale: the card stayed empty until the
+        # next 15-second poll.
+        self.run_browser("?hold=setup#key=" + "x" * 40, "check-setup-current.js")
 
     def test_a_token_held_against_a_keyless_device_writes_nothing_at_startup(self):
         # The mode where a "write only if a key is present" handler hides: the
@@ -1335,6 +1497,12 @@ class BrowserTests(unittest.TestCase):
 
     def test_non_json_post_401_revokes_bypass(self):
         self.run_browser("?auth=none", "check-post-401.js")
+
+    def test_an_audio_write_settling_after_disconnect_raises_nothing(self):
+        # Disconnect clears the current audio state; the write's `finally`
+        # repainted it unconditionally and threw a TypeError, which nothing
+        # displays because the handler is an event listener.
+        self.run_browser("?auth=none", "check-disconnect-write.js")
 
     def test_browser_and_server_url_contract_and_literal_labels(self):
         for url, expected in URL_CASES.items():

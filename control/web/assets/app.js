@@ -88,7 +88,9 @@ function showNotices() {
   // below Apply: a beginner could retry an unanswered change without ever
   // seeing why it may not have applied. #error keeps the read/pairing failures
   // it is the only home for. The element is never hidden, only emptied, so the
-  // live region exists when its text changes and is announced.
+  // live region exists when its text changes. It is assigned on every refresh,
+  // including when the text is unchanged; whether a screen reader announces an
+  // identical re-assignment is not established here.
   const message = notices();
   el("audio-notice").textContent = message;
 }
@@ -380,27 +382,34 @@ function renderSetup(data) {
   el("setup-updates").replaceChildren(...rows);
   el("setup-status").textContent = data.reason || "";
 }
-let setupLoading = false;
+// The session whose Setup read is in flight, or null. It is per session rather
+// than one global flag: a read left pending by a session that ended must not
+// block the new session's read, which is the only way the card gets filled.
+let setupLoading = null;
 async function loadSetup() {
   // Separate from the status poll: a failed read here must not look like a
   // device with no choices, and must not disturb the audio notices.
-  if ((!token && !bypass) || setupLoading) return;
-  // Bound to the same session/revision discipline as status and audio: a
-  // response that was already in flight when the person disconnected used to
-  // paint the previous device's build choices back into the rows that
-  // disconnect had just cleared.
+  if ((!token && !bypass) || setupLoading === session) return;
+  // Bound to the session only. A response that was already in flight when the
+  // person disconnected used to paint the previous device's build choices back
+  // into the rows that disconnect had just cleared, so the session is checked.
+  // The page's global revision is deliberately not: an audio write advances it,
+  // and a valid answer to a Setup read that was already in flight is still this
+  // device's build choices. Rejecting it left the card empty until the next
+  // 15-second poll.
   const started = session;
-  const startedRevision = revision;
-  setupLoading = true;
+  setupLoading = started;
   try {
     const result = await api("/api/setup");
-    if (started !== session || startedRevision !== revision) return;
+    if (started !== session) return;
     renderSetup(result);
   } catch (error) {
-    if (started !== session || startedRevision !== revision) return;
+    if (started !== session) return;
     el("setup-status").textContent = `Build choices unavailable: ${error.message}`;
   } finally {
-    setupLoading = false;
+    // Only the session that started this read clears it; a newer session has
+    // already replaced the marker with its own.
+    if (setupLoading === started) setupLoading = null;
   }
 }
 async function refresh() {
@@ -473,7 +482,11 @@ async function change(path, body) {
     // The POST has settled: repaint the controls from the state we now know,
     // before the follow-up read. A failed read must not leave "applying…"
     // standing on a write that has already finished.
-    audio(currentAudio);
+    //
+    // Disconnect clears `currentAudio` and bumps the session, so a write that
+    // settles afterwards has no state to repaint: `audio(null)` threw a
+    // TypeError on a legitimate Disconnect during an unanswered write.
+    if (currentAudio) audio(currentAudio);
     if (!token && !bypass) {
       for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
     }
@@ -639,7 +652,7 @@ async function loadDevices() {
     else summary = `Discovery found ${discovery.found || 0} device${(discovery.found || 0) === 1 ? "" : "s"},`
                    + ` last scan ${discovery.seconds_since_scan}s ago.`;
     if (Array.isArray(discovery.refused) && discovery.refused.length)
-      summary += ` Refused ${discovery.refused.length} advertisement`
+      summary += ` Refused ${discovery.refused.length} discovery record`
                  + `${discovery.refused.length === 1 ? "" : "s"}: ${discovery.refused.join("; ")}.`;
     el("devices-status").textContent = summary;
     // Keep the status visible even with no links: a hidden section with no
