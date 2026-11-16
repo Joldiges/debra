@@ -122,8 +122,8 @@ working audio session. No dependency manager is needed for this stdlib slice.
    ```sh
    systemctl --user daemon-reload
    systemctl --user enable --now debra-web.service
-    systemctl --user is-active debra-web.service
-    ```
+   systemctl --user is-active debra-web.service
+   ```
 
     **For an upgrade**, `enable --now` does not restart an already-running old
     release. After reviewing the replacement unit, explicitly activate it:
@@ -232,14 +232,16 @@ physical device are not generally recognized as one identity.
 `seconds_since_scan` and `error`. The configured list remains available without
 Avahi, even when discovery fails or cannot start.
 
-`refused` is one entry per **refused advertisement**, not per distinct sentence.
-The parser reports only an instance name and a reason, and two advertisements can
-share both (port 0 and port 65536 are refused for the same stated reason), so a
-per-list-entry identity is kept until the count is made; the hub's own
-revalidation is keyed by the record it refused. The cost is that avahi reports a
-resolved record once per interface and address family, so one refused
-advertisement seen on two families is counted twice. The count is what the page
-prints, and naming a refused device twice is better than dropping it.
+`refused` is one entry per **refused record the scan returned**, not per distinct
+sentence and not a count of physical advertisements. The parser reports only an
+instance name and a reason, and two records can share both (port 0 and port 65536
+are refused for the same stated reason), so a per-list-entry identity is kept
+until the count is made; the hub's own revalidation is keyed by the record it
+refused. Two limits follow: avahi reports a resolved record once per interface
+and address family, so one refused advertisement seen twice is counted twice;
+and two malformed records with the same name and URL merge into one entry. The
+page prints that count as refused records rather than as distinct devices.
+Naming a refused device twice is better than dropping it.
 
 Discovery is a convenience, **never authentication or proof of reachability**:
 any local peer can make an announcement, and plain HTTP cannot authenticate the
@@ -274,22 +276,36 @@ interruption leaves either the old unit or the new one and never a truncated
 file that cannot start. A `cp` would truncate the destination before writing,
 which is why it is not used here.
 
-What it checks, reading the unit the way systemd does (systemd quoting, not a
-shell: `%%` and `$$` are the installer's spellings of `%` and `$`, and a path
-with a space, a percent or a dollar round-trips only if both are decoded):
+**`--restore` accepts only a unit this installer wrote** — it must carry the
+installer's marker line and its `ExecStart` must use the installer's own quoting
+(every argument double-quoted, with only `\\`, `\"`, `%%` and `$$` escaped). A
+hand-written unit is refused rather than half-understood: systemd accepts a
+larger language (`\x20`, single quotes, `$VAR`), and a decoder that accepts more
+than it can reproduce has already validated a different path from the one
+systemd would start. Within that form it checks:
 
 - an `ExecStart` inside `[Service]` — systemd ignores one in `[Unit]`, and an
   empty `ExecStart=` resets the list, so neither unit has a start command;
+- exactly one start command, because `Type=simple` runs one and this installer
+  writes one;
 - a leading `-` is "ignore failure", not part of the executable path;
-- every file the command names inside `~/.local/share/debra/web/releases/`
-  exists, in a release directory that exists;
+- every file the command names is one of the five payload files, reached inside
+  a release directory without `..`, through real directories and as a real file
+  — a link under the release would let the digested files be replaced without
+  changing the name the unit is checked against;
 - that release is complete (all five fixed payload files) and still matches the
-  content address it is named by.
+  content address it is named by;
+- nothing else named by the command is a Python file outside the managed
+  releases tree.
 
 **It restores the file. It does not recover the service.** Nothing is started,
 and no check here proves the restored unit starts and stays up — that takes the
-`daemon-reload`, `start` and `is-active` steps above, and a rollback to a
-release that imports is what the checks are for, not a substitute for them.
+`daemon-reload` and `start` steps above and then a check that the service is
+active, and a rollback to a release that imports is what the checks are for, not
+a substitute for them.
+Acceptance by the decoder is not proof of startup either: the installed entry
+point is `0600`, so a unit that ran it directly would be refused by the kernel
+even though the release checks pass.
 
 The old unit references the retained old release and its own device list, if any.
 Units created by older installers may instead reference a shared `devices.json`;

@@ -24,6 +24,9 @@ PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css",
 MARKER = "# Managed by Debra web prototype\n"
 HEADING = re.compile(r"\[([^]]+)\]")
 EXEC_START = re.compile(r"ExecStart\s*=\s*(.*)")
+UNSUPPORTED_EXEC = ("That unit's ExecStart is not in the form this installer writes "
+                    "(every argument double-quoted, only \\\\, \\\", %% and $$ escaped); "
+                    "restore only accepts a unit it installed")
 
 
 def quoted(value):
@@ -240,9 +243,17 @@ def restore_unit(home, source):
     unit = home / ".config" / "systemd" / "user" / "debra-web.service"
     source = Path(source)
     text = source.read_bytes()
+    if not text.startswith(MARKER.encode()):
+        # The source is a snapshot this installer wrote. An arbitrary unit may
+        # use systemd syntax this decoder does not reproduce, and accepting it
+        # on a best effort is how a wrong path gets validated.
+        raise ValueError("Restore only accepts a unit this installer wrote")
     commands = service_commands(text)
     if not commands:
         raise ValueError("That file is not a service unit: it has no ExecStart line in [Service]")
+    if len(commands) > 1:
+        raise ValueError("That unit has more than one start command; Type=simple runs one, "
+                         "and this installer writes one")
     problem = release_problem(home, commands)
     if problem is not None:
         raise ValueError(problem + "; install instead of restoring it")
@@ -266,56 +277,70 @@ def restore_unit(home, source):
     return unit
 
 
-def systemd_argv(value):
-    """Split one ExecStart value into arguments the way systemd does.
+def exec_arguments(value):
+    """Turn one ExecStart value back into argv, strictly.
 
-    Not `shlex`: systemd and a shell disagree about `$` and `%`, and only a
-    decoder that reverses `quoted()` exactly turns a generated unit back into
-    the paths it was written from. `quoted()` writes double quotes, a doubled
-    backslash for one backslash, a backslash before a quote for a quote, `%%`
-    for a percent and `$$` for a dollar. Splitting happens first and the
-    `%%`/`$$` decoding second, because that is the order systemd applies them.
-    An unterminated quote is not repaired: the path it leaves fails the release
-    checks rather than becoming some other path that happens to exist.
+    Only the form `quoted()` writes is accepted: every argument in double
+    quotes, separated by one space, and the only escapes are a doubled
+    backslash, a backslash before a quote, and a doubled percent or dollar.
+    Anything else is refused: single quotes, unquoted text, a C escape, a lone
+    percent or dollar, a missing closing quote, a glued quote, a trailing
+    space.
+
+    This is deliberately not a systemd parser. systemd accepts far more, and a
+    decoder that accepts more than it can reproduce has already restored a unit
+    whose command line systemd reads as a different path: the r9 review showed
+    `he\\x20home` becoming `hex20home`, so restore checked a release that exists
+    while the unit started one that does not. Restore exists for the units this
+    installer wrote; a hand-written unit is refused rather than half-understood.
     """
-    arguments, current, quote, escaped = [], [], None, False
-    for char in value:
-        if escaped:
-            current.append(char)
-            escaped = False
-        elif char == "\\" and quote != "'":
-            # Inside single quotes systemd takes every character literally.
-            escaped = True
-        elif quote is not None:
-            if char == quote:
-                quote = None
-            else:
+    arguments = []
+    index, length = 0, len(value)
+    while True:
+        if index >= length or value[index] != '"':
+            raise ValueError(UNSUPPORTED_EXEC)
+        index += 1
+        current = []
+        while True:
+            if index >= length:
+                # An unterminated quote used to be silently closed, so a
+                # truncated unit could pass every check and be published.
+                raise ValueError(UNSUPPORTED_EXEC)
+            char = value[index]
+            if char == '"':
+                index += 1
+                break
+            if char == "\\":
+                if index + 1 >= length or value[index + 1] not in ("\\", '"'):
+                    raise ValueError(UNSUPPORTED_EXEC)
+                current.append(value[index + 1])
+                index += 2
+                continue
+            if char in "%$":
+                if index + 1 >= length or value[index + 1] != char:
+                    raise ValueError(UNSUPPORTED_EXEC)
                 current.append(char)
-        elif char in "\"'":
-            quote = char
-        elif char.isspace():
-            if current:
-                arguments.append("".join(current))
-                current = []
-        else:
+                index += 2
+                continue
             current.append(char)
-    if escaped:
-        current.append("\\")
-    if current:
+            index += 1
         arguments.append("".join(current))
-    return [argument.replace("%%", "%").replace("$$", "$") for argument in arguments]
+        if index == length:
+            return arguments
+        if value[index] != " " or index + 1 >= length:
+            raise ValueError(UNSUPPORTED_EXEC)
+        index += 1
 
 
 def service_commands(text):
-    """The argv lists systemd would start for this unit, in file order.
+    """The argv lists this installer would have written, in file order.
 
     Only an `ExecStart` inside `[Service]` is a start command: systemd ignores
     one in `[Unit]`, so a unit that has only that has no start command at all,
     and restoring it would report success for a rollback that starts nothing.
-    An empty `ExecStart=` resets the list, so a trailing empty assignment leaves
-    no command. `ExecStart =` with spaces around `=` is the same assignment, and
-    a leading `-` means "ignore failure", not part of the executable path. A
-    commented-out line never matches the assignment pattern.
+    An empty `ExecStart=` resets the list. `ExecStart =` with spaces around `=`
+    is the same assignment, and a leading `-` means "ignore failure", not part
+    of the executable path. A commented-out line never matches.
     """
     commands, section = [], None
     for raw in text.decode("utf-8", "replace").splitlines():
@@ -335,7 +360,7 @@ def service_commands(text):
             continue
         if value.startswith("-"):
             value = value[1:]
-        commands.append(systemd_argv(value))
+        commands.append(exec_arguments(value))
     return [argv for argv in commands if argv]
 
 
@@ -346,14 +371,30 @@ def release_problem(home, commands):
     immediately, which looks like a rollback that worked. Existing is not proof
     either: an interrupted copy leaves a release holding only part of the
     payload, and the entry point alone does not show that `discovery.py` and the
-    assets beside it are there — the import fails before anything listens. The
+    assets beside it are there - the import fails before anything listens. The
     directory name is the digest of the payload, so changed content is
-    detectable as well. Every argument naming a file inside the managed
-    releases directory is checked, not only the first `server.py`.
+    detectable as well.
+
+    The boundary is the tree this installer manages. Every argument naming a
+    Python file outside `releases/` is refused, because it is not code this
+    installer wrote; every file named inside a release must be one of the five
+    payload files, reached without `..`, through real directories and as a real
+    file - a link under the release would let the digested files be replaced
+    without changing the name the unit is checked against.
     """
-    releases = Path(home) / ".local/share/debra/web/releases"
+    home = Path(home)
+    releases = home / ".local/share/debra/web/releases"
+    for managed in (releases.parent, releases):
+        if managed.is_symlink():
+            return f"The managed tree {managed} is a link; restore cannot vouch for what it reaches"
     named = {}
     for argv in commands:
+        if not argv:
+            continue
+        executable = argv[0]
+        if "/" in executable and not executable.startswith("/"):
+            return (f"That unit's start command {executable} is not an absolute path, "
+                    "which systemd would refuse")
         for argument in argv:
             if not argument.startswith("/"):
                 continue
@@ -361,29 +402,36 @@ def release_problem(home, commands):
             try:
                 inside = path.relative_to(releases)
             except ValueError:
-                # A Python entry point outside the managed releases is not a
-                # unit this installer can vouch for. A plain executable such as
-                # the interpreter is not a release and is left alone.
-                if path.name.endswith(".py") and "/releases/" in argument:
+                if path.suffix == ".py":
                     return f"That unit runs {argument}, which is not a release this installer keeps"
                 continue
             parts = inside.parts
-            if not parts:
-                continue
-            named.setdefault(parts[0], set())
-            if len(parts) > 1:
-                named[parts[0]].add(Path(*parts[1:]))
+            if ".." in parts:
+                return f"That unit runs {argument}, which leaves the release it names"
+            if len(parts) < 2:
+                return f"That unit runs {argument}, which is not a file in a release"
+            name = Path(*parts[1:]).as_posix()
+            if name not in PAYLOAD:
+                return (f"That unit runs {argument}, which is not one of the files this "
+                        "installer writes into a release")
+            named.setdefault(parts[0], set()).add(name)
     for release_id, files in sorted(named.items()):
         release = releases / release_id
-        script = release / sorted(files)[0] if files else release
+        script = release / sorted(files)[0]
         if release.is_symlink() or not release.is_dir():
             return f"That unit runs {script}, which is not installed"
-        for name in sorted(files):
+        missing = []
+        for name in PAYLOAD:
             target = release / name
-            if target.is_symlink() or not target.is_file():
-                return (f"That unit runs {script}, whose {target.name} is missing from the "
-                        "release it names")
-        missing = [name for name in PAYLOAD if not (release / name).is_file()]
+            for part in (target, *target.parents):
+                if part == release:
+                    break
+                if part.is_symlink():
+                    return (f"That unit runs the release in {release}, where {part.name} "
+                            "is a link; the content it is named by no longer describes "
+                            "what starts")
+            if not target.is_file():
+                missing.append(name)
         if missing:
             return (f"That unit runs the release in {release}, which is incomplete: "
                     f"{', '.join(missing)} missing, so the service would fail to import")

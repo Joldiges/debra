@@ -1352,40 +1352,60 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             installer.quoted("arg\nExecStart=bad")
 
-    def test_the_unit_round_trips_through_the_systemd_decoder(self):
+    def test_the_unit_round_trips_through_the_installers_own_quoting(self):
         # The installer's own quoting has to survive the decoder that restore
         # reads with. Restore used to split on whitespace and strip double
         # quotes, so a HOME holding a space, a percent or a dollar decoded into
         # a path that does not exist.
         for value in ("/home/a b/.local", "/home/100%/.local", "/home/cost$5/.local",
-                      '/home/quote"back\\slash/.local', "plain"):
+                      '/home/quote"back\\slash/.local', "plain", ""):
             with self.subTest(value=value):
-                self.assertEqual(installer.systemd_argv(installer.quoted(value)), [value])
-        self.assertEqual(installer.systemd_argv("a  'b c' \"d e\" f"), ["a", "b c", "d e", "f"])
-        self.assertEqual(installer.systemd_argv("100%% 5$$"), ["100%", "5$"])
+                self.assertEqual(installer.exec_arguments(installer.quoted(value)), [value])
+        self.assertEqual(installer.exec_arguments('"a" "b c" "d e" "f"'),
+                         ["a", "b c", "d e", "f"])
+
+    def test_an_exec_start_this_installer_did_not_write_is_refused(self):
+        # Everything below is valid systemd that `quoted()` never emits. A
+        # decoder that accepts more than it can reproduce has already checked
+        # a different path from the one systemd would start: the r9 review
+        # showed `he\x20home` read as `hex20home`, with only the wrong release
+        # present, and restore exited 0.
+        for value in ("/usr/bin/true one two", "\"a\"b", '"a""b"', "'a b'",
+                      '"a\\x20b"', '"a\\nb"', '"a%i"', '"a$HOME"', '"a" ',
+                      '"unterminated'):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "not in the form this installer writes"):
+                    installer.exec_arguments(value)
+        # Single quotes are refused even though systemd accepts them: the
+        # installer never writes one, so restore will not guess at its C
+        # escapes and expansion rules.
+        self.assertEqual(installer.exec_arguments('"-a" ""'), ["-a", ""])
 
     def test_the_start_command_is_read_from_the_service_section_only(self):
         # systemd ignores ExecStart in [Unit] and treats an empty ExecStart= as
         # a reset, so neither unit has a start command. Finding the first
         # literal ExecStart anywhere reported both as restorable.
+        true = installer.quoted("/usr/bin/true")
         cases = {
-            "plain": installer.MARKER + "[Service]\nExecStart=/usr/bin/true\n",
-            "spaced": installer.MARKER + "[Service]\nExecStart = /usr/bin/true\n",
-            "ignore-failure": installer.MARKER + "[Service]\nExecStart=-/usr/bin/true\n",
+            "plain": installer.MARKER + f"[Service]\nExecStart={true}\n",
+            "spaced": installer.MARKER + f"[Service]\nExecStart = {true}\n",
+            "ignore-failure": installer.MARKER + f"[Service]\nExecStart=-{true}\n",
         }
         for name, text in cases.items():
             with self.subTest(case=name):
                 self.assertEqual(installer.service_commands(text.encode()), [["/usr/bin/true"]])
+        one, two = installer.quoted("one"), installer.quoted("two")
         for name, text in {
-            "commented": installer.MARKER + "[Service]\n# ExecStart=/usr/bin/true\n",
-            "wrong-section": installer.MARKER + "[Unit]\nExecStart=/usr/bin/true\n",
-            "reset": installer.MARKER + "[Service]\nExecStart=/usr/bin/true\nExecStart=\n",
+            "commented": installer.MARKER + f"[Service]\n# ExecStart={true}\n",
+            "wrong-section": installer.MARKER + f"[Unit]\nExecStart={true}\n",
+            "reset": installer.MARKER + f"[Service]\nExecStart={true}\nExecStart=\n",
             "empty": installer.MARKER + "[Service]\nExecStart=\n",
-            "two-arguments": installer.MARKER + "[Service]\nExecStart=/usr/bin/true one two\n",
         }.items():
             with self.subTest(case=name):
-                expected = [["/usr/bin/true", "one", "two"]] if name == "two-arguments" else []
-                self.assertEqual(installer.service_commands(text.encode()), expected)
+                self.assertEqual(installer.service_commands(text.encode()), [])
+        self.assertEqual(installer.service_commands(
+            (installer.MARKER + f"[Service]\nExecStart={true} {one} {two}\n").encode()),
+            [["/usr/bin/true", "one", "two"]])
 
     def test_interrupted_release_publish_can_retry_without_overwrite(self):
         with patch.object(Path, "rename", side_effect=OSError("simulated interruption")):
@@ -1650,11 +1670,64 @@ class RestoreCommandTests(unittest.TestCase):
         # Any recognisable `server.py` under `releases/` used to be accepted, so
         # a unit naming a release this installer never wrote restored happily.
         previous = self.home / "previous.service"
-        previous.write_text(installer.MARKER + "[Service]\nExecStart="
-                            "/usr/bin/python3 '/not/installed/releases/abc/server.py' serve\n")
+        command = " ".join(installer.quoted(part) for part in
+                           ("/usr/bin/python3", "/not/installed/releases/abc/server.py",
+                            "serve"))
+        previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
         with self.assertRaisesRegex(ValueError, "not a release this installer keeps"):
             installer.restore_unit(self.home, previous)
         self.assertFalse(self.unit.exists())
+
+    def test_a_restore_refuses_a_unit_without_the_installer_marker(self):
+        # Restore is for a snapshot this installer wrote. An arbitrary unit may
+        # use systemd syntax the decoder does not reproduce, and accepting it
+        # on a best effort is how a wrong path gets validated.
+        previous = self.home / "previous.service"
+        command = " ".join(installer.quoted(part)
+                           for part in ("/usr/bin/python3", "/etc/hosts", "serve"))
+        previous.write_text(f"[Service]\nExecStart={command}\n")
+        with self.assertRaisesRegex(ValueError, "unit this installer wrote"):
+            installer.restore_unit(self.home, previous)
+        self.assertFalse(self.unit.exists())
+
+    def test_a_generated_unit_with_a_missing_closing_quote_is_refused(self):
+        # The old decoder silently closed an unterminated quote. A unit
+        # truncated at its last quote therefore passed the release check and
+        # replaced the working unit, contrary to its own docstring.
+        self.install()
+        text = self.unit.read_text()
+        line = next(line for line in text.splitlines() if line.startswith("ExecStart="))
+        previous = self.home / "previous.service"
+        previous.write_text(text.replace(line, line[:-1], 1))
+        before = self.unit.read_bytes()
+        with self.assertRaisesRegex(ValueError, "not in the form this installer writes"):
+            installer.restore_unit(self.home, previous)
+        self.assertEqual(self.unit.read_bytes(), before)
+
+    def test_a_c_escape_is_refused_rather_than_read_as_a_different_path(self):
+        # systemd decodes `\x20` to a space. A decoder that leaves the text as
+        # `x20` checks a path systemd will not start; the r9 review showed that
+        # restore then exited 0 because only the misread release existed.
+        previous = self.home / "previous.service"
+        command = '"' + "/usr/bin/python3" + '" ' + '"he\\x20home/server.py"'
+        previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
+        with self.assertRaisesRegex(ValueError, "not in the form this installer writes"):
+            installer.restore_unit(self.home, previous)
+        self.assertFalse(self.unit.exists())
+
+    def test_a_restore_refuses_more_than_one_start_command(self):
+        # Type=simple runs one ExecStart. The installer writes one, so a unit
+        # with two is not a unit it wrote.
+        first = self.install()
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        command = " ".join(installer.quoted(part)
+                           for part in ("/usr/bin/python3", str(release / "server.py"),
+                                        "serve"))
+        previous = self.home / "previous.service"
+        previous.write_text(installer.MARKER
+                            + f"[Service]\nExecStart={command}\nExecStart={command}\n")
+        with self.assertRaisesRegex(ValueError, "more than one start command"):
+            installer.restore_unit(self.home, previous)
 
     def test_a_dash_prefixed_start_command_is_checked_without_the_dash(self):
         # `-` means "ignore failure" to systemd, not part of the executable: the
@@ -1662,8 +1735,120 @@ class RestoreCommandTests(unittest.TestCase):
         # release that was present.
         first = self.install()
         release = self.home / ".local/share/debra/web/releases" / first["release"]
+        command = " ".join(installer.quoted(part)
+                           for part in (str(release / "server.py"), "serve"))
         previous = self.home / "previous.service"
-        previous.write_text(installer.MARKER + "[Service]\nExecStart=-"
-                            + str(release / "server.py") + " serve\n")
+        previous.write_text(installer.MARKER + f"[Service]\nExecStart=-{command}\n")
         self.assertEqual(installer.restore_unit(self.home, previous), self.unit)
         self.assertEqual(self.unit.read_bytes(), previous.read_bytes())
+
+    def test_a_restore_refuses_a_release_whose_content_changed(self):
+        # The directory name is the digest of its five files. A file edited in
+        # place keeps the name and every file present, so only the digest says
+        # the restored unit would start different code.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        changed = release / "server.py"
+        changed.write_bytes(changed.read_bytes() + b"\n# changed\n")
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no longer match", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before, "a refusal still changed the unit")
+
+    def test_a_restore_refuses_a_linked_release(self):
+        # A release directory that is a link can be repointed after the check;
+        # the five files still hash correctly through it.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        releases = self.home / ".local/share/debra/web/releases"
+        release = releases / first["release"]
+        preserved = release.with_name(release.name + ".preserved")
+        release.rename(preserved)
+        release.symlink_to(preserved)
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not installed", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before)
+        self.assertTrue(release.is_symlink(), "the fixture replaced the release")
+
+    def test_a_restore_refuses_a_linked_payload_file(self):
+        # `is_file()` follows a link, so the digest could be satisfied by a
+        # copy while the file that starts is somewhere else.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        (release / "server.py").rename(release / "server-real.py")
+        (release / "server.py").symlink_to(release / "server-real.py")
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is a link", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before)
+
+    def test_a_restore_refuses_a_linked_payload_directory(self):
+        # The leaf is a real file; its parent is the link. Checking only the
+        # leaf proves nothing about the path the service reaches.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        (release / "assets").rename(release / "assets-real")
+        (release / "assets").symlink_to(release / "assets-real")
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is a link", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before)
+
+    def test_a_restore_refuses_an_entrypoint_that_is_not_payload(self):
+        # The five files hash correctly, so the release check passes, while the
+        # unit starts a different script that is not covered by that digest.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        (release / "helper.sh").write_text("#!/bin/sh\nexit 0\n")
+        previous = self.home / "previous.service"
+        command = " ".join(installer.quoted(part)
+                           for part in ("/bin/sh", str(release / "helper.sh")))
+        # Keep the release the retained unit names, so completeness alone would
+        # not refuse it.
+        retained = second["previous_unit"]
+        text = Path(retained).read_text()
+        line = next(line for line in text.splitlines() if line.startswith("ExecStart="))
+        previous.write_text(text.replace(line, f"ExecStart={command}", 1))
+        with self.assertRaisesRegex(ValueError, "not one of the files"):
+            installer.restore_unit(self.home, previous)
+
+    def test_a_restore_refuses_a_traversing_entrypoint(self):
+        # `relative_to()` is lexical: `releases/<id>/../elsewhere.py` is inside
+        # the releases spelling and outside the release it names.
+        first = self.install()
+        releases = self.home / ".local/share/debra/web/releases"
+        (releases / "elsewhere.py").write_text("print('not in a release')\n")
+        previous = self.home / "previous.service"
+        command = " ".join(installer.quoted(part)
+                           for part in ("/usr/bin/python3",
+                                        str(releases / first["release"] / ".." / "elsewhere.py"),
+                                        "serve"))
+        previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
+        with self.assertRaisesRegex(ValueError, "leaves the release"):
+            installer.restore_unit(self.home, previous)
+
+    def test_the_unit_is_never_absent_while_being_replaced(self):
+        # Renaming the current unit aside before the rename leaves a window in
+        # which neither version is loadable. The final bytes are identical, so
+        # only interception at the publication can see it.
+        first, second, _ = self.upgraded()
+        seen = []
+        real_replace = installer.os.replace
+
+        def watching(source, destination):
+            seen.append(Path(destination).exists())
+            return real_replace(source, destination)
+
+        with patch.object(installer.os, "replace", watching):
+            installer.restore_unit(self.home, second["previous_unit"])
+        self.assertEqual(seen, [True],
+                         "the unit was absent when the new file was published")

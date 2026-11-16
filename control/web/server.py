@@ -89,24 +89,27 @@ class DiscoveryCache:
         self.devices = ()
         self.last_scan = None      # monotonic; None means no scan has finished yet
         self.last_error = None
-        # One entry per refused advertisement, as "name: reason". Reasons are
-        # what a person needs; the count is advertisements, which is what the
-        # page says it is. Keeping only the display string merged two different
-        # devices that happened to be refused for the same reason.
+        # One entry per refused record the scan returned, as "name: reason".
+        # Reasons are what a person needs, and the count is records, which is
+        # what the page says it is. Keeping only the display string merged two
+        # different devices that happened to be refused for the same reason.
         self.refused = ()
         self.thread = None
 
     def scan(self):
         # Each entry is (identity, "name: reason"). The parser reports one
-        # refusal per advertisement it dropped but carries only the instance
-        # name and the reason, and two advertisements can share both (one port
-        # 0 and one port 65536, for example), so its position in the reported
-        # list is the identity that survives. This hub's own revalidation still
-        # has the record, so it is keyed by the name and URL it refused and a
-        # repeated scan cannot multiply it. The cost is honest: avahi reports a
+        # refusal per record it dropped but carries only the instance name and
+        # the reason, and two records can share both (one port 0 and one port
+        # 65536, for example), so its position in the reported list is the
+        # identity that survives. This hub's own revalidation still has the
+        # record, so it is keyed by the name and URL it refused and a repeated
+        # scan cannot multiply it. The limits are honest: avahi reports a
         # resolved record once per interface and address family, so one refused
-        # advertisement seen twice is counted twice. A count that can be high is
-        # better than silently dropping a device from the page.
+        # advertisement seen twice is counted twice, and two malformed records
+        # with the same name and URL merge into one entry. The count is
+        # therefore refused records, not proven distinct advertisements, and
+        # the page says so. A count that can be high is better than silently
+        # dropping a device from the page.
         refused = []
 
         def note(identity, name, reason):
