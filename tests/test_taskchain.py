@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -49,11 +50,21 @@ class DispatcherTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SOURCE / name, target)
         (self.repo / ".gitignore").write_text("/.local/\n")
-        # The dispatcher tests need one eligible starter, and packet states move
-        # as work lands. Pin R01 to `ready` in the fixture so these tests check
-        # the mechanism rather than the project's live review state.
+        # The dispatcher tests need eligible starters, and packet states move as
+        # work lands. Pin them in the fixture so these tests check the mechanism
+        # rather than the project's live review state. R01 is the chain the
+        # tests claim by name; Z01 is a second one, because `--chain any` has to
+        # be able to find a chain other than the claimed one - it was the only
+        # other `ready` starter by accident until Z01 was accepted, and that made
+        # this file fail as a side effect of a documentation commit.
         roadmap = self.repo / "docs/roadmap.md"
-        roadmap.write_text(roadmap.read_text().replace("| R01 / review |", "| R01 / ready |", 1))
+        text = roadmap.read_text()
+        for packet in ("R01", "Z01"):
+            # Set the state whatever it happens to be now, so accepting a packet
+            # in the live roadmap cannot silently unpin the fixture.
+            text = re.sub(rf"^\| {packet} / \w+ \|", f"| {packet} / ready |",
+                          text, count=1, flags=re.MULTILINE)
+        roadmap.write_text(text)
         pilot = self.repo / "docs/testing/pilot-fixture.md"
         pilot.parent.mkdir(parents=True)
         pilot.write_text("SYNTHETIC TEST ONLY: not real role/permission verification.\n")

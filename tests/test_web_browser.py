@@ -25,6 +25,7 @@ window.testState = {
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
   holdSetup: false, releaseSetup: null, failSetup: false,
+  holdAllSetup: false, heldSetup: [],
   // Every request the page makes, recorded at the entry point it calls. This
   // fixture script runs before app.js, so startup attempts are included, not
   // only what arrives after a check has installed a wrapper of its own.
@@ -109,6 +110,12 @@ window.fetch = async (path, options) => {
     if (state.holdSetup) {
       state.holdSetup = false;
       await new Promise(resolve => { state.releaseSetup = resolve; });
+    }
+    // `holdAllSetup` holds every read and keeps its resolver, so a check can
+    // hold both an old session's read and the new session's read, then release
+    // them in either order.
+    if (state.holdAllSetup) {
+      await new Promise(resolve => { state.heldSetup.push(resolve); });
     }
     if (state.failSetup) throw new Error("old setup failure");
     return {ok: true, status: 200, json: async () => setupPayload()};
@@ -518,6 +525,11 @@ window.addEventListener("load", async () => {
       control.dispatchEvent(new Event("click", {bubbles: true}));
       control.dispatchEvent(new Event("change", {bubbles: true}));
       control.dispatchEvent(new Event("input", {bubbles: true}));
+      // A phone generates touch events, and a delegated `touchend` handler on
+      // a planned control is a write path this sweep could not see until the
+      // r10 review built one and it survived every web test.
+      control.dispatchEvent(new Event("touchstart", {bubbles: true}));
+      control.dispatchEvent(new Event("touchend", {bubbles: true}));
       if (control.form) {
         control.form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
       }
@@ -1227,6 +1239,67 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_SETUP_MARKER = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  const rows = () => ["setup-hats", "setup-settings", "setup-updates"]
+    .map(id => document.getElementById(id).children.length);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    assert(rows().every(count => count > 0), "the setup rows never rendered: " + rows());
+    // Hold both reads: the old session's, and the new session's after a
+    // re-pair. Releasing only the old one is the case the supplied re-pair test
+    // cannot see, because it lets the new read finish first. A `finally` that
+    // clears the marker without checking ownership then lets a third read start
+    // while the second is still in flight.
+    testState.holdAllSetup = true;
+    const oldRead = loadSetup();
+    for (let i = 0; i < 40 && testState.heldSetup.length < 1; i++) await wait();
+    assert(testState.heldSetup.length === 1, "the old session's read was not held");
+    document.getElementById("disconnect").click();
+    assert(rows().every(count => count === 0), "disconnect did not clear the setup rows: " + rows());
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 40 && testState.heldSetup.length < 2; i++) await wait();
+    assert(testState.heldSetup.length === 2,
+           "the new session's read was not held: " + testState.heldSetup.length);
+    testState.heldSetup[0]();
+    await oldRead;
+    await wait();
+    assert(rows().every(count => count === 0),
+           "the old session's answer painted the cleared rows: " + rows());
+    const beforeThird = testState.requests.length;
+    await loadSetup();
+    await wait();
+    assert(testState.requests.length === beforeThird,
+           "an old read settling cleared the new session's marker and let a third "
+           + "read start: " + (testState.requests.length - beforeThird));
+    // The new read still owns the marker, and releasing it paints the rows.
+    testState.heldSetup[1]();
+    for (let i = 0; i < 40 && !rows().every(count => count > 0); i++) await wait();
+    assert(rows().every(count => count > 0),
+           "the new session's answer never painted the rows: " + rows());
+    // Its owner clears the marker, so the next read is allowed through. Stop
+    // holding reads first, or this call would be the one held forever.
+    testState.holdAllSetup = false;
+    const beforeFourth = testState.requests.length;
+    await loadSetup();
+    await wait();
+    assert(testState.requests.length > beforeFourth,
+           "the marker was never cleared, so the card stopped reading");
+    result.textContent = "PASS: an old read settling cannot clear a new session's in-flight marker";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_LABELS = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 40));
@@ -1413,6 +1486,7 @@ class BrowserTests(unittest.TestCase):
                                    "/check-self.js", "/check-labels.js",
                                    "/check-token-none.js", "/check-audio-notice.js",
                                    "/check-setup-race.js", "/check-setup-current.js",
+                                   "/check-setup-marker.js",
                                    "/check-disconnect-write.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
@@ -1427,6 +1501,7 @@ class BrowserTests(unittest.TestCase):
                               "/check-token-none.js": CHECK_TOKEN_NONE,
                               "/check-audio-notice.js": CHECK_AUDIO_NOTICE,
                               "/check-setup-race.js": CHECK_SETUP_RACE,
+                              "/check-setup-marker.js": CHECK_SETUP_MARKER,
                               "/check-setup-current.js": CHECK_SETUP_CURRENT,
                               "/check-disconnect-write.js": CHECK_DISCONNECT_WRITE}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
@@ -1507,6 +1582,13 @@ class BrowserTests(unittest.TestCase):
         # into the rows disconnect had just cleared. The check also holds a read
         # across a re-pair and a late failure, so it needs more virtual time.
         self.run_browser("?auth=none", "check-setup-race.js", budget=12000)
+
+    def test_an_old_setup_read_settling_cannot_clear_a_new_session_marker(self):
+        # The re-pair check lets the new read finish before the old one is
+        # released, so a `finally` that clears the marker unconditionally
+        # passes it. Holding both and releasing the old one first shows the
+        # marker has to belong to the session that set it.
+        self.run_browser("?auth=none", "check-setup-marker.js", budget=12000)
 
     def test_an_audio_write_does_not_discard_a_setup_answer_in_flight(self):
         # The page's global revision was compared as well, so an audio Apply

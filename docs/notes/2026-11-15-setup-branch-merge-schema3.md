@@ -47,9 +47,9 @@ moved.
 ## Verification
 
 - Working directory: the branch worktree; `python3 -B -m unittest discover -s tests`
-  — 756 tests, 49 skipped, OK (266 onboarding, 46 setup-installer cases in the files).
+  — 763 tests, 50 skipped, OK (266 onboarding, 46 setup-installer cases in the files).
 - `DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'`
-  — 49 tests, OK, against an installed Chromium (27 setup, 22 web).
+  — 50 tests, OK, against an installed Chromium (27 setup, 23 web).
 - Devserver smoke, 2026-11-15: `GET /api/status` reports `security: none` and no
   password; `POST /api/security {"mode":"wpa"}` answers `202` with a 12-character
   password, writes `setup-secret` and `setup-security` `0600`, rewrites the card

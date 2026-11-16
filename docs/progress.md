@@ -12,7 +12,7 @@ validated**, see the [evidence summary](guides/current-status.md).
 
 This is a **tracked planning snapshot, not a live device/worker monitor**.
 Status comes from the [roadmap](roadmap.md) and [work queue](work-queue.md).
-Source fingerprint: `560f2ea09659`. Regenerate after changing either source.
+Source fingerprint: `2d850f33ebe9`. Regenerate after changing either source.
 
 ## Colour key
 
@@ -30,7 +30,7 @@ a partial/in-review packet can still have unmet prerequisites. The packet
 tables below retain both. Grey means no *recorded* progress, not proof no
 one has ever investigated it. Neither colour nor readiness grants device permission.
 
-**75 roadmap packets:** 3 finished · 0 in progress · 12 in review · 14 partial · 46 blocked · 0 untouched.
+**75 roadmap packets:** 4 finished · 0 in progress · 11 in review · 14 partial · 46 blocked · 0 untouched.
 Counts are packets, **not a percentage complete**; packet sizes differ.
 
 ## Product overview
@@ -125,7 +125,6 @@ flowchart TD
 ## Recorded active work
 
 - Acceptance review `code-r10` — WEB01.
-- Re-review `docs-r5` — Z01.
 - Re-review `setup-r8` — N02.
 
 This is what the queue records, not a liveness check. See
@@ -161,7 +160,7 @@ flowchart TD
     F05["F05 · Worker permission pilot<br/>PARTIAL"]:::partial
     R04["R04 · Upstream reuse<br/>IN REVIEW"]:::review
     N01["N01 · Onboarding research<br/>IN REVIEW"]:::review
-    Z01["Z01 · ARMv6 dependency reconnaissance<br/>IN REVIEW"]:::review
+    Z01["Z01 · ARMv6 dependency reconnaissance<br/>FINISHED"]:::finished
     B01["B01 · Recovery backend research<br/>IN REVIEW"]:::review
     T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     F00 --> F01
@@ -187,7 +186,7 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | F00 · Planning foundation | FINISHED | done | — | — |
 | F01 · Clean base and ownership | FINISHED | done | F00 | — |
-| F02 · Architecture decisions | BLOCKED | blocked | R04, N01, B01, Z01 | R04, N01, B01, Z01 |
+| F02 · Architecture decisions | BLOCKED | blocked | R04, N01, B01, Z01 | R04, N01, B01 |
 | F03 · Shared contracts and test layout | BLOCKED | blocked | F01, F02, T01 | F02 |
 | F04 · License and provenance | IN REVIEW | review | F00 | — |
 | F06 · Project-scoped agent permissions | IN REVIEW | review | F01 | — |
@@ -520,7 +519,7 @@ flowchart TD
     V02["V02 · Pinned voice adapter<br/>PARTIAL"]:::partial
     V03["V03 · Wake and satellite options<br/>BLOCKED"]:::blocked
     V04["V04 · Timers, alarms and announcements<br/>BLOCKED"]:::blocked
-    Z01["Z01 · ARMv6 dependency reconnaissance<br/>IN REVIEW"]:::review
+    Z01["Z01 · ARMv6 dependency reconnaissance<br/>FINISHED"]:::finished
     B03["B03 · Demonstrate on-target file restore<br/>PARTIAL"]:::partial
     R04 --> V01
     Z01 --> V01
@@ -542,7 +541,7 @@ flowchart TD
 
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
-| V01 · Voice runtime audit | BLOCKED | blocked | R04, Z01 | R04, Z01 |
+| V01 · Voice runtime audit | BLOCKED | blocked | R04, Z01 | R04 |
 | V02 · Pinned voice adapter | PARTIAL | blocked | V01, A02, C02, B03 | V01, A02, C02, B03 |
 | V03 · Wake and satellite options | BLOCKED | blocked | V02, C01 | V02, C01 |
 | V04 · Timers, alarms and announcements | BLOCKED | blocked | V02, A03 | V02, A03 |
@@ -612,7 +611,7 @@ flowchart TD
     V02["V02 · Pinned voice adapter<br/>PARTIAL"]:::partial
     V03["V03 · Wake and satellite options<br/>BLOCKED"]:::blocked
     M01["M01 · Pinned Sendspin adapter<br/>PARTIAL"]:::partial
-    Z01["Z01 · ARMv6 dependency reconnaissance<br/>IN REVIEW"]:::review
+    Z01["Z01 · ARMv6 dependency reconnaissance<br/>FINISHED"]:::finished
     Z02["Z02 · Missing-artifact build recipes<br/>BLOCKED"]:::blocked
     Z03["Z03 · Execute on original Zero W<br/>BLOCKED"]:::blocked
     Z04["Z04 · Zero W resource and audio profiling<br/>BLOCKED"]:::blocked
@@ -642,8 +641,8 @@ flowchart TD
 
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
-| Z01 · ARMv6 dependency reconnaissance | IN REVIEW | ready | F00 | — |
-| Z02 · Missing-artifact build recipes | BLOCKED | blocked | Z01, F03 | Z01, F03 |
+| Z01 · ARMv6 dependency reconnaissance | FINISHED | done | F00 | — |
+| Z02 · Missing-artifact build recipes | BLOCKED | blocked | Z01, F03 | F03 |
 | Z03 · Execute on original Zero W | BLOCKED | blocked | Z02, L02, B03 | Z02, L02, B03 |
 | Z04 · Zero W resource and audio profiling | BLOCKED | blocked | Z03, V02, M01, T01 | Z03, V02, M01 |
 | Z05 · Resolve bottlenecks and retest | BLOCKED | blocked | Z04, V03, A03 | Z04, V03, A03 |
@@ -755,7 +754,7 @@ flowchart LR
     C03["C03 · CLI and dry runs<br/>BLOCKED"]:::blocked
     C04["C04 · SSH maintenance TUI<br/>BLOCKED"]:::blocked
     A02["A02 · Tested HAT profiles<br/>BLOCKED"]:::blocked
-    Z01["Z01 · ARMv6 dependency reconnaissance<br/>IN REVIEW"]:::review
+    Z01["Z01 · ARMv6 dependency reconnaissance<br/>FINISHED"]:::finished
     B01["B01 · Recovery backend research<br/>IN REVIEW"]:::review
     B04["B04 · Pre-change checkpoints<br/>BLOCKED"]:::blocked
     B05["B05 · Deferred rescue and media-loss recovery<br/>BLOCKED"]:::blocked
@@ -793,7 +792,7 @@ flowchart LR
 
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
-| I01 · Prepared-image design | BLOCKED | blocked | F02, N01, B01, Z01 | F02, N01, B01, Z01 |
+| I01 · Prepared-image design | BLOCKED | blocked | F02, N01, B01, Z01 | F02, N01, B01 |
 | I02 · Reproducible image recipe | BLOCKED | blocked | I01, N03, C03, A02, U01, F04 | I01, N03, C03, A02, U01, F04 |
 | I03 · Two-board flash and boot trial | BLOCKED | blocked | I02, N04, C04, B04 | I02, N04, C04, B04 |
 | I04 · Candidate packaging and notices | BLOCKED | blocked | I03, B05, T03, F04 | I03, B05, T03, F04 |
