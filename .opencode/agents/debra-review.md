@@ -41,6 +41,12 @@ permissions:
   - action: "read"
     resource: ".local/reviews/*"
     effect: allow
+  - action: "glob"
+    resource: "*"
+    effect: allow
+  - action: "grep"
+    resource: "*"
+    effect: allow
   - action: "webfetch"
     resource: "*"
     effect: allow

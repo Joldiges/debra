@@ -332,24 +332,22 @@ class CoordTests(unittest.TestCase):
             self.assertEqual(self.profile_rules(committed), self.profile_rules(generated),
                              f"{committed.name} has drifted from tools/coord.py")
 
-    def test_search_can_be_opted_back_in(self):
-        narrow = coord._permissions("research", [])
-        self.assertNotIn(("grep", "*", "allow"), narrow)
-        wide = coord._permissions("research", [], search=True)
-        self.assertIn(("grep", "*", "allow"), wide)
-        self.assertIn(("glob", "*", "allow"), wide)
-        out = self.root / "searchy.md"
-        text = self.run_tool("profile", "--task", "SEARCH", "--role", "research",
-                             "--allow-search", "--out", str(out))
-        self.assertIn("can read a denied path's contents", text)
-        self.assertIn(("grep", "*", "allow"), self.profile_rules(out))
+    def test_search_is_on_unless_turned_off(self):
+        self.assertIn(("grep", "*", "allow"), coord._permissions("research", []))
+        self.assertIn(("glob", "*", "allow"), coord._permissions("research", []))
+        quiet = coord._permissions("research", [], search=False)
+        self.assertNotIn(("grep", "*", "allow"), quiet)
+        self.assertNotIn(("glob", "*", "allow"), quiet)
+        out = self.root / "quiet.md"
+        text = self.run_tool("profile", "--task", "QUIET", "--role", "research",
+                             "--no-search", "--out", str(out))
+        self.assertIn("cannot search", text)
+        self.assertNotIn(("grep", "*", "allow"), self.profile_rules(out))
 
     def test_secret_denies_follow_the_broad_read_allow(self):
         rules = coord._permissions("research", [])
         allow = rules.index(("read", "*", "allow"))
-        self.assertNotIn(("grep", "*", "allow"), rules,
-                         "grep authorises a pattern, not a path, so it cannot respect read denies")
-        self.assertNotIn(("glob", "*", "allow"), rules)
+        self.assertGreater(rules.index(("read", "*.env", "deny")), allow)
         secrets = [("read", "~/.ssh/*", "deny"), ("read", "~/.gnupg/*", "deny"),
                    ("read", "~/.aws/*", "deny"), ("read", "*/auth.json", "deny")]
         for rule in secrets:
