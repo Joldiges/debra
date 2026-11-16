@@ -778,6 +778,67 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_NAV = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 40));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+const current = () => [...document.querySelectorAll("#section-nav a")]
+  .filter(a => a.getAttribute("aria-current") === "location")
+  .map(a => a.getAttribute("href"));
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    const links = [...document.querySelectorAll("#section-nav a")];
+    // The bar used to be 13 px text with no padding: 16-19 px tall, under even
+    // the 24 px WCAG minimum, let alone a thumb.
+    for (const link of links) {
+      const box = link.getBoundingClientRect();
+      assert(box.height >= 44, link.textContent + " is only " + Math.round(box.height) + " px tall");
+      assert(box.width >= 44, link.textContent + " is only " + Math.round(box.width) + " px wide");
+    }
+    // The order of the bar must be the order of the document, or tapping
+    // "Device" jumps backwards past sections it claimed to follow.
+    const sections = links.map(a => document.getElementById(a.getAttribute("href").slice(1)));
+    for (let i = 1; i < sections.length; i++) {
+      assert(sections[i - 1].compareDocumentPosition(sections[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
+             links[i].textContent + " is listed after something that comes later on the page");
+    }
+    assert(current().length === 1, "expected one current section, saw " + JSON.stringify(current()));
+    assert(current()[0] === "#audio", "the first screen is not marked as Audio: " + current());
+    // Two different arrivals, tested separately because they are two different
+    // code paths. A tap is an explicit arrival and moves the marker at once; a
+    // scroll is inferred from geometry and moves it when the heading passes.
+    const setupLink = links.find(a => a.getAttribute("href") === "#setup");
+    setupLink.click();
+    assert(current().length === 1, "tapping produced " + current().length + " current sections");
+    assert(current()[0] === "#setup", "after tapping Setup the bar still says " + current());
+    // Scrolling back to the top is not a tap, so this one goes through the
+    // geometry. scrollTop rather than window.scrollTo: scrolling is asynchronous
+    // in this headless browser and the check read the old position every time.
+    document.documentElement.scrollTop = 0;
+    window.dispatchEvent(new Event("scroll"));
+    for (let i = 0; i < 40 && current()[0] !== "#audio"; i++) await wait(50);
+    assert(current().length === 1, "scrolling produced " + current().length + " current sections");
+    const nav = document.getElementById("section-nav");
+    const diagnostics = JSON.stringify({
+      scrollY: Math.round(window.scrollY), bar: Math.round(nav.getBoundingClientRect().bottom),
+      tops: [...document.querySelectorAll("#audio, #health, #device, #setup")]
+        .map(n => n.id + "=" + Math.round(n.getBoundingClientRect().top)),
+    });
+    assert(current()[0] === "#audio",
+           "returning to the top left the bar on " + current() + " " + diagnostics);
+    result.textContent = "PASS: the section bar is tappable, in document order, and knows where you are";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_NOAUTH = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -1904,7 +1965,8 @@ class BrowserTests(unittest.TestCase):
                                    "/check-pair-busy.js",
                                    "/check-refused-keyless.js", "/check-timeout.js",
                                    "/check-unverified-key.js", "/check-checking.js",
-                                   "/check-stale.js", "/check-first-screen.js"):
+                                   "/check-stale.js", "/check-first-screen.js",
+                                   "/check-nav.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -1929,7 +1991,8 @@ class BrowserTests(unittest.TestCase):
                               "/check-unverified-key.js": CHECK_UNVERIFIED_KEY,
                               "/check-checking.js": CHECK_CHECKING,
                               "/check-stale.js": CHECK_STALE,
-                              "/check-first-screen.js": CHECK_FIRST_SCREEN}[self.path]
+                              "/check-first-screen.js": CHECK_FIRST_SCREEN,
+                              "/check-nav.js": CHECK_NAV}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -1968,6 +2031,9 @@ class BrowserTests(unittest.TestCase):
         # meant to be used on. Before the reorder the volume slider sat 1262 px
         # down a 6733 px document, behind "switch to another Debra".
         self.run_browser("?auth=none", "check-first-screen.js", wrapper=True, budget=12000)
+
+    def test_the_section_bar_is_tappable_and_knows_where_you_are(self):
+        self.run_browser("?auth=none", "check-nav.js", budget=12000)
 
     def test_a_slow_device_says_it_is_checking(self):
         # The device has not answered, so the page must not look like it has

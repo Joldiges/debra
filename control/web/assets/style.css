@@ -17,7 +17,24 @@ h1 { font-size: clamp(28px, 5vw, 42px); letter-spacing: -1px; margin: 8px 0; }
 h2 { font-size: 22px; letter-spacing: -.4px; margin: 6px 0 12px; }
 p { color: var(--muted); line-height: 1.6; }
 .eyebrow { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 2px; margin: 0; }
-nav { display: flex; gap: 24px; padding: 12px 0 24px; flex-wrap: wrap; font-size: 14px; }
+/* The section bar. Plain 13 px text with no padding gave 16-19 px targets that
+   a thumb cannot hit and that failed WCAG 2.2's 24 px minimum; it also never
+   showed which section you were in. Each entry is now a full 44 px row.
+   Sticky so the way back up is always there, but not on a short viewport where
+   it would eat a quarter of the screen. */
+nav { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+  background: #101619; padding: 6px 0; margin-bottom: 6px; border-bottom: 1px solid #2b3a3e; font-size: 13px; }
+nav a { display: flex; align-items: center; justify-content: center; min-height: 44px;
+  border-radius: 9px; color: #d5e4e0; text-align: center; overflow-wrap: anywhere; }
+nav a:hover { background: #192226; }
+/* Weight and an underline, not colour alone: colour is the one channel a person
+   with a colour vision deficiency or a dim screen may not get. */
+nav a[aria-current="location"] { color: #f4f7f6; font-weight: 700; text-decoration: underline;
+  text-underline-offset: 6px; text-decoration-thickness: 2px; text-decoration-color: var(--accent); }
+@media (max-width: 640px) { nav { grid-template-columns: repeat(3, 1fr); } }
+@media (max-height: 480px) { nav { position: static; } }
+/* Landing on a section must not put its heading under the sticky bar. */
+html { scroll-padding-top: 64px; }
 .card { background: #192226; border: 1px solid #2b3a3e; border-radius: 18px; padding: 26px; margin-bottom: 20px; scroll-margin-top: 16px; }
 /* One reading column at every width. A second desktop column put two sections
    side by side and made the reading order of a long page ambiguous, for the
@@ -109,10 +126,9 @@ h3 { color: #d5e4e0; font-size: 15px; font-weight: 650; letter-spacing: .01em; m
 .choice button:disabled { opacity: .6; }
 .badge.planned { color: #eac88a; border: 1px solid #6b5a34; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 @media (max-width: 650px) { header, main { padding-left: 16px; padding-right: 16px; } .card { padding: 20px; } .heading { align-items: start; flex-direction: column; } .brand { font-size: 26px; } }
-/* Five section links do not fit one phone line at the desktop gap, and
-   wrapping left "Components" alone on a second row. Tighter spacing keeps
-   the whole nav on one line, which is what it is for. */
-@media (max-width: 520px) { nav { gap: 13px; font-size: 13px; } nav a { white-space: nowrap; } }
+/* The range input's own track is 16 px tall and its thumb barely clears it. It
+   is the control the page exists for, so its hit area is raised to a thumb. */
+input[type=range] { min-height: 44px; }
 
 /* Disclosures. A <details> shows or hides text; it is not a simulated control.
    The summary is a full-width row so it is a comfortable thumb target, and the

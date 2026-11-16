@@ -37,7 +37,11 @@
            is the normal state; `:empty` removes the box. -->
       <p id="stale-notice" class="action-notice" role="status"></p>
       <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div></div>
-      <nav aria-label="Sections"><a href="#audio">Audio</a><a href="#setup">Setup</a><a href="#device">Device</a><a href="#health">Health</a><a href="#components">Components</a></nav>
+      <!-- The order here is the order down the page. It used to put Setup
+           before Device and Health, so the navigation disagreed with the
+           document it navigates. The first entry carries aria-current until the
+           page has scrolled: the first screen is Audio. -->
+      <nav id="section-nav" aria-label="Sections"><a href="#audio" aria-current="location">Audio</a><a href="#health">Health</a><a href="#device">Device</a><a href="#components">Components</a><a href="#setup">Setup</a><a href="#planned">Tasks</a></nav>
       <!-- Audio is the one thing a person opens this page to change, so it is
            first and it is never collapsed. -->
       <section id="audio" class="card">

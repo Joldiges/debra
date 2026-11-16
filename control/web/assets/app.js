@@ -93,6 +93,65 @@ async function api(path, body) {
   }
   return data;
 }
+// The sections the navigation bar points at, in document order. Kept here
+// rather than read from the DOM so the two cannot disagree about the order.
+const SECTIONS = ["audio", "health", "device", "components", "setup", "planned"];
+// How close to the bar a heading must be before it counts as arrived. Anchoring
+// with scroll-padding parks a heading a little *below* the bar rather than
+// under it, so a strict "has crossed" test said nobody had arrived at the
+// section they had just asked for. One line of tolerance fixes that without
+// letting a section further down claim to be current.
+const SECTION_ARRIVED_PX = 48;
+let navTimer = 0;
+function updateCurrentSection() {
+  // Exactly one entry is current: the last section whose heading has passed
+  // under the bar. Above the first one, and on a page too short to scroll,
+  // that is the first section, which is what the person is looking at.
+  const nav = el("section-nav");
+  // Not offsetParent: a position:sticky element reports null for it, so the bar
+  // looked hidden and the marker never moved. getClientRects asks the question
+  // that was meant: is this element laid out at all?
+  if (!nav || nav.getClientRects().length === 0) return;
+  const bar = nav.getBoundingClientRect().bottom;
+  let current = SECTIONS[0];
+  for (const id of SECTIONS) {
+    const section = el(id);
+    if (section && section.getBoundingClientRect().top <= bar + SECTION_ARRIVED_PX) current = id;
+  }
+  for (const link of nav.querySelectorAll("a")) {
+    const here = link.getAttribute("href") === `#${current}`;
+    if (here && link.getAttribute("aria-current") !== "location") {
+      link.setAttribute("aria-current", "location");
+    } else if (!here && link.hasAttribute("aria-current")) {
+      link.removeAttribute("aria-current");
+    }
+  }
+}
+function scheduleCurrentSection() {
+  // A scroll fires far more often than the marker needs to move, so the layout
+  // reads are throttled. A timer rather than requestAnimationFrame: rAF does
+  // not run in the headless browser that checks this, and a marker that only
+  // moves in a browser nobody tests is not verified behaviour.
+  if (navTimer) return;
+  navTimer = setTimeout(() => { navTimer = 0; updateCurrentSection(); }, 50);
+}
+function watchSections() {
+  // A tap is an explicit arrival. Waiting for the scroll to settle before moving
+  // the marker made the bar look unresponsive for the length of the animation.
+  for (const link of document.querySelectorAll("#section-nav a")) {
+    link.addEventListener("click", () => {
+      for (const other of document.querySelectorAll("#section-nav a")) {
+        if (other !== link) other.removeAttribute("aria-current");
+      }
+      link.setAttribute("aria-current", "location");
+    });
+  }
+  window.addEventListener("scroll", scheduleCurrentSection, {passive: true});
+  window.addEventListener("resize", scheduleCurrentSection);
+  // An anchor that lands on a section — typed, pasted or reloaded — is the same
+  // arrival as a tap, and the bar must agree with it.
+  window.addEventListener("hashchange", scheduleCurrentSection);
+}
 function setBypassAvailable(available) {
   bypassAvailable = available;
   el("bypass").hidden = !available;
@@ -215,6 +274,7 @@ function render(data) {
   el("pair").hidden = true;
   showPairStatus("");
   el("dashboard").hidden = false;
+  updateCurrentSection();
   el("build").textContent = buildLabel(data.version);
   // The full digest is what a person compares between devices; the short form
   // is what fits. Hovering gives the whole thing without widening the footer.
@@ -845,6 +905,7 @@ async function probeKeyless() {
 
 async function start() {
   loadDevices();
+  watchSections();
   // A device that is slow to answer used to show the key prompt with nothing
   // saying anything was happening: on a keyless device the card asked for a key
   // it does not want, and "waiting" looked exactly like "broken".
