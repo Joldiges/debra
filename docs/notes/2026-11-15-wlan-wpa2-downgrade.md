@@ -56,6 +56,13 @@ to `true`, `pmf_mode` to `optional`. Bands and security can be restored in one
 write for the same reason they had to change together. No other field was
 touched, so no other value needs remembering.
 
+## Result
+
+The join then succeeded: the board appeared at `192.168.0.99` as
+`debra-lab.local` with key-only SSH, and `wpasupplicant 2:2.10-24+rpt3` was
+present throughout without blocking it. See the
+[first-join record](../testing/results/2026-11-15-zero2w-first-join.md).
+
 ## Unresolved detail
 
 `no2ghz_oui` is `true` and was left alone. What that setting actually filters is
