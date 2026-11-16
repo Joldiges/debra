@@ -431,6 +431,10 @@ el("retry").addEventListener("click", () => {
   // which is probably what was wrong.
   el("psk").value = "";
   error("");
+  // The mode row is part of this card. Drawing the card without it left a
+  // label and a button describing whichever mode was in force when the page
+  // was first rendered, until the next poll happened to correct them.
+  renderSecurity();
   show("form-card");
   el("psk").focus();
 });

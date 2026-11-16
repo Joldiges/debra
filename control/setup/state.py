@@ -56,6 +56,16 @@ SCHEMA = 3
 # "ValueError".
 DROPPED = ("hotspot_password",)
 
+# Keys a record written by an earlier build could be missing, because the
+# prototype revisions added and removed them between themselves. Only these are
+# filled from `blank()`: every other key is part of the record's shape, and a
+# file without one was not written by this module. Filling those too would turn
+# a corrupt file into a fresh device - a record with no `phase` came back as
+# `unconfigured` and was written back that way - which `read` promises never to
+# do.
+FILLED = ("last_attempt", "attempt_token", "attempt_claimed", "baseline_error",
+          "revision", "updated")
+
 # Paths whose migrated record could not be written back. `read` is on the status
 # path, so a read-only state directory would otherwise log the same warning on
 # every poll; one line is enough for anyone to notice the filesystem.
@@ -64,6 +74,27 @@ _WRITE_BACK_FAILED = set()
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def sync_directory(path):
+    """Make a completed rename in `path` durable. Never raises.
+
+    Replacing a file and fsyncing it is not enough: the directory entry itself
+    is a write, and a power cut straight after the rename can lose it and leave
+    the old file. `nm` and the baseline code already sync their directories; the
+    state and the chosen mode have the same requirement, and a lost mode write
+    changes which protection the next boot uses.
+    """
+    try:
+        fd = os.open(str(path), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 
 
 def blank(hostname=""):
@@ -174,11 +205,21 @@ def migrate(data):
     silently reset a device that had already been configured, which `read`'s
     docstring promises never to do.
 
-    Every field the record did not write is filled from `blank()`. A missing
-    field has no value to lose: the prototype revisions added and removed keys
-    between themselves, so a record can lack `attempt_token`, `baseline_error`
-    or `last_attempt` and still be a record this repository wrote. Refusing it
-    on a missing key stopped the service on a device that had merely upgraded.
+    Every field an *older schema* could lack is filled from `blank()`; see
+    `FILLED`. A missing field has no value to lose: the prototype revisions
+    added and removed keys between themselves, so a record can lack
+    `attempt_token`, `baseline_error` or `last_attempt` and still be a record
+    this repository wrote. Refusing it on a missing key stopped the service on a
+    device that had merely upgraded. A key outside that set is part of the
+    record's shape, and a file without one is refused rather than filled: a
+    record with no `phase` is a corrupt file, not a fresh device.
+
+    A record can also carry a combination the current rules refuse even after
+    the missing keys are filled: `connecting` with no attempt token, `hotspot`
+    with no access point described, or `online` with one. Those are resolved the
+    way the next boot resolves them, because refusing the file would stop the
+    service before it could raise an access point - which is the failure this
+    migration exists to prevent.
 
     Schema 1 stored no setup-network password, and may describe a hotspot that
     is not running after the upgrade. That description is dropped and the phase
@@ -195,8 +236,9 @@ def migrate(data):
     if not 1 <= schema < SCHEMA:
         return data
     migrated = {key: value for key, value in data.items() if key not in DROPPED}
-    for key, value in blank().items():
-        migrated.setdefault(key, value)
+    defaults = blank()
+    for key in FILLED:
+        migrated.setdefault(key, defaults[key])
     migrated["schema"] = SCHEMA
     if schema == 1 and migrated.get("hotspot") is not None:
         migrated["hotspot"] = None
@@ -204,6 +246,24 @@ def migrate(data):
             migrated["phase"] = "failed"
             migrated["last_error"] = ("The setup network is raised again after the "
                                       "software update")
+        migrated["attempt_token"] = None
+        migrated["attempt_claimed"] = False
+    # Three combinations an earlier build could leave cannot pass the current
+    # rules, and refusing them would stop the service before any access point is
+    # raised - the outcome this migration exists to prevent. Each is a state the
+    # next boot would have resolved anyway, so it is resolved here instead.
+    if migrated.get("phase") == "connecting" and not migrated.get("attempt_token"):
+        # The attempt belonged to a worker in a process that is gone.
+        migrated["phase"] = "failed"
+        migrated["last_error"] = "The last attempt did not finish"
+        migrated["attempt_claimed"] = False
+    if migrated.get("phase") == "hotspot" and migrated.get("hotspot") is None:
+        migrated["phase"] = "failed"
+        migrated["last_error"] = ("The setup network is raised again after the "
+                                  "software update")
+    if migrated.get("phase") == "online" and migrated.get("hotspot") is not None:
+        # An online device has no setup network: nothing is running to keep.
+        migrated["hotspot"] = None
         migrated["attempt_token"] = None
         migrated["attempt_claimed"] = False
     return migrated
@@ -288,4 +348,5 @@ def write(path, data):
         except OSError:
             pass
         raise
+    sync_directory(path.parent)
     return data

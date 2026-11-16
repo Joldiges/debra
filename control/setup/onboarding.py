@@ -27,7 +27,7 @@ How that network is protected, open or password, is a choice the person can
 change from the page itself without a reinstall. The choice is kept in a second
 owner-only file beside the password and read at every start; the status API
 reports the mode, never the password, and the one place the password is served
-is the reply to the request that turned the password on.
+is the reply to any request that asks for `wpa`.
 """
 
 from __future__ import annotations
@@ -182,6 +182,7 @@ def _store_secret(path, secret):
                 os.fsync(stream.fileno())
             os.chmod(staged, 0o600)
             os.replace(staged, path)
+            state_module.sync_directory(path.parent)
         finally:
             try:
                 os.unlink(staged)
@@ -191,6 +192,93 @@ def _store_secret(path, secret):
         LOGGER.warning("Setup secret could not be kept: %s", exc)
         return False
     return True
+
+
+def _write_mode(path, mode):
+    """Write the chosen mode, owner-only, atomically, and sync the directory."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, staged = tempfile.mkstemp(prefix=".setup-security-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(mode + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(staged, 0o600)
+        os.replace(staged, path)
+    except BaseException:
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        raise
+    # The rename is a directory write of its own: without this a power cut right
+    # after moving the mode from `none` to `wpa` can leave the old file, which
+    # is the one case where losing it opens a network somebody protected.
+    state_module.sync_directory(path.parent)
+
+
+def adopt_legacy_secret(state_path, secret_path, security_path):
+    """Carry a schema-2 setup password into its own file before it is dropped.
+
+    An earlier build kept the setup network's password inside `setup.json`.
+    This build keeps it in its own file and the migration drops the old key, so
+    a device that was password-protected would come up open on its first boot
+    after the upgrade - and because the installed default is `none`, that is
+    the one direction an upgrade must never move in.
+
+    Reads the record itself rather than through `state.read`, because the first
+    `read` is what drops the key. Runs before anything else touches the state.
+
+    A mode already stored by the page is a later decision and is left alone.
+    So is a record that never carried a password: the previous build wrote one
+    whenever it raised the access point, so a record without one is a device
+    that never raised one. There was no protection to lose, and the installer's
+    choice of mode still applies to it.
+
+    Returns the mode adopted, or None. Never raises: a device that cannot be
+    read has a bigger problem than this, and `state.read` will report it with
+    the message it deserves.
+    """
+    try:
+        raw = Path(state_path).read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    # Only schema 2 kept a password in the record, and exactly 2: schema 1 never
+    # had one, and a newer record's key is not ours to guess at.
+    schema = data.get("schema")
+    if isinstance(schema, bool) or schema != 2:
+        return None
+    legacy = data.get("hotspot_password")
+    if not isinstance(legacy, str) or not legacy:
+        return None
+    security_path = Path(security_path)
+    try:
+        if security_path.exists():
+            # Somebody chose a mode on this device. That is the later decision.
+            return None
+    except OSError:
+        return None
+    secret_path = Path(secret_path)
+    if not _store_secret(secret_path, legacy):
+        # The password cannot be moved, but the device was protected and must
+        # stay protected: the mode is adopted anyway, and this boot draws a
+        # fresh password exactly as any `wpa` device with an unwritable secret
+        # file already does. Opening the network is the failure to avoid.
+        LOGGER.error("The setup password could not be moved to its own file; "
+                     "this boot will draw a new one")
+    try:
+        _write_mode(security_path, "wpa")
+    except OSError:
+        LOGGER.error("The setup network's mode could not be stored; this device "
+                     "may come up with the mode the installer chose")
+        return None
+    LOGGER.warning("Carried the setup password from the previous record into its "
+                   "own file, so the setup network stays protected")
+    return "wpa"
 
 
 def setup_secret(secret_path):
@@ -268,6 +356,12 @@ class Onboarder:
                               else self.state_path.with_name("setup-security"))
         # Set before the first `_stored_security` call below, which may warn.
         self._warned_bad_mode = 0
+        # A record written by the build that kept the password inside it is
+        # read here, before anything else reads the state: the first read is
+        # what drops the key, and by then it is too late to keep the device
+        # protected across the upgrade.
+        self.adopted_security = adopt_legacy_secret(
+            self.state_path, self.secret_path, self.security_path)
         # The installed mode is the default a device comes up with, not an
         # override of what somebody chose on the page: the stored mode wins
         # because it is the later decision, and it is what the card note, the
@@ -510,8 +604,8 @@ class Onboarder:
         """The setup network's password, or None for a deliberately open build.
 
         One decision, read once per process. Every caller goes through here -
-        the raise, the note reprint and the reply that turns the password on -
-        so they cannot disagree about which password is in force.
+        the raise, the note reprint and the reply to any request asking for
+        `wpa` - so they cannot disagree about which password is in force.
 
         Read once, and kept, because `setup_secret` cannot always save what it
         draws: on a read-only or full state directory it returns a password that
@@ -619,22 +713,7 @@ class Onboarder:
         reads back as neither, and the person is then told the setup network is
         one thing while the device does another.
         """
-        path = self.security_path
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        fd, staged = tempfile.mkstemp(prefix=".setup-security-", dir=path.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                stream.write(mode + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(staged, 0o600)
-            os.replace(staged, path)
-        except BaseException:
-            try:
-                os.unlink(staged)
-            except OSError:
-                pass
-            raise
+        _write_mode(self.security_path, mode)
 
     def set_security(self, mode):
         """Choose how the setup network is protected, and keep the choice.
@@ -698,10 +777,18 @@ class Onboarder:
             LOGGER.warning("The failure could not be recorded in the setup state")
 
     def _safe_status(self):
-        """Status for a worker thread: the last one if the state cannot be read."""
+        """Status for a worker thread: a verdict if the real one cannot be read.
+
+        `Exception`, not the two classes a state file is expected to raise: this
+        is the last statement of a worker whose whole job is not to traceback,
+        and a status read that fails in a way nobody predicted still must not
+        become the traceback that promise rules out.
+        """
         try:
             return self.status()
-        except (OSError, ValueError):
+        except Exception as exc:
+            LOGGER.warning("The setup state could not be reported (%s)",
+                           type(exc).__name__)
             return {"phase": "failed", "security": self.security,
                     "last_error": "The setup state could not be read"}
 
@@ -777,6 +864,15 @@ class Onboarder:
                                "the device is no longer waiting for setup")
                 return self.status()
             return self._rearm(data)
+        except Exception as exc:
+            # `state.read`, `status()` and `_rearm` can each raise something
+            # this worker's promise did not allow for. The handler has already
+            # answered 202, so a traceback here is the only trace and the person
+            # is told a change happened that nothing recorded.
+            LOGGER.warning("The setup network could not be changed (%s)",
+                           type(exc).__name__)
+            self._remember_error("The setup network did not change on this device")
+            return self._safe_status()
         finally:
             # The radio is free again, whatever happened. A failure that left
             # this set would refuse every join for the life of the process.
@@ -962,7 +1058,10 @@ class Onboarder:
                     self._abandon(token)
                 except Exception:
                     LOGGER.warning("The attempt could not be released")
-            return self.status()
+            # The boundary exists so nothing escapes this worker, and `status`
+            # reading the state that just failed is the likeliest remaining
+            # escape of all.
+            return self._safe_status()
 
     def _join_reserved(self, ssid, psk, country=None, token=None):
         data = self._claim(ssid, token)
@@ -972,7 +1071,7 @@ class Onboarder:
             # as well as the SSID matters: the same network can be retried with
             # a corrected password, and the old worker must not win that race.
             LOGGER.warning("Join for %s abandoned: the reservation is no longer current", ssid)
-            return self.status()
+            return self._safe_status()
 
         try:
             self.network.stop_hotspot()
@@ -1008,9 +1107,9 @@ class Onboarder:
                                last_error=None, attempts=0, last_attempt=None)
         if settled is None:
             LOGGER.warning("Join for %s finished but the attempt was no longer current", ssid)
-            return self.status()
+            return self._safe_status()
         self._capture_baseline()
-        return self.status()
+        return self._safe_status()
 
     def _fail(self, token, reason):
         """Record a failed attempt that this worker still owns, then retry the AP.
@@ -1027,7 +1126,7 @@ class Onboarder:
         with self._lock:
             data = state_module.read(self.state_path)
             if not token or data["attempt_token"] != token:
-                return self.status()
+                return self._safe_status()
             data.update(phase="failed", last_error=reason, ssid=None,
                         attempt_claimed=False, attempt_token=None)
             state_module.write(self.state_path, data)
@@ -1205,10 +1304,17 @@ class Onboarder:
             return self.start_hotspot(reason="The previous network is not reachable", phase="failed")
         if data["phase"] == "connecting":
             return self.start_hotspot(reason="The last attempt did not finish", phase="failed")
+        if data["phase"] == "failed":
+            # The record says why the last attempt stopped. Raising the access
+            # point with that reason puts the person back on the retry card
+            # instead of a blank form that forgets what happened. Only the dead
+            # attempt used to be given its reason, so a plain failed join came
+            # back from a reboot as an unexplained form.
+            return self.start_hotspot(reason=data["last_error"], phase="failed")
         if dead_attempt:
-            # The record already says why the last attempt stopped. Raising the
-            # access point with that reason puts the person back on the retry
-            # card instead of a blank form that forgets what happened.
+            # A reservation died with the process that made it, and the record
+            # may have been left in any phase. Whatever it said is the only
+            # account of what happened, so it is carried forward.
             return self.start_hotspot(reason=data["last_error"], phase="failed")
         return self.start_hotspot()
 

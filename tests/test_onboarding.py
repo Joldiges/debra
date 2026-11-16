@@ -270,6 +270,77 @@ class StateTests(Temp):
         self.assertNotIn("hotspot_password", data)
         self.assertNotIn("abcdefghjk2m", self.state_path.read_text(encoding="utf-8"))
 
+    def test_a_connecting_record_without_a_token_is_resolved_not_refused(self):
+        # `validate` refuses `connecting` with no token, and a record like that
+        # can be left by a process that died mid-attempt. Refusing it here stops
+        # the service before it raises an access point - the outcome the
+        # migration exists to prevent.
+        legacy = dict(state_module.blank("debra-345678"), schema=2,
+                      phase="connecting",
+                      hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"},
+                      hotspot_password="abcdefghjk2m")
+        legacy["attempt_token"] = None
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["phase"], "failed")
+        self.assertFalse(data["attempt_claimed"])
+        self.assertIn("did not finish", data["last_error"])
+
+    def test_a_schema_one_connecting_record_without_an_access_point_is_resolved(self):
+        legacy = dict(state_module.blank("debra-345678"), schema=1,
+                      phase="connecting")
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        data = state_module.read(self.state_path)
+        # There was never a hotspot to keep in schema 1, and there is no token
+        # either: the attempt did not survive, and the next boot says so.
+        self.assertEqual(data["phase"], "failed")
+        self.assertIn("did not finish", data["last_error"])
+
+    def test_a_hotspot_phase_with_no_described_network_is_resolved(self):
+        legacy = dict(state_module.blank("debra-345678"), schema=2,
+                      phase="hotspot", hotspot=None)
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["phase"], "failed")
+        self.assertIn("raised again", data["last_error"])
+
+    def test_an_online_record_that_still_describes_an_access_point_is_resolved(self):
+        legacy = dict(state_module.blank("debra-345678"), schema=2,
+                      phase="online", address="192.0.2.40",
+                      hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"})
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["phase"], "online")
+        self.assertIsNone(data["hotspot"])
+        self.assertIsNone(data["attempt_token"])
+
+    def test_a_record_missing_a_core_key_is_refused_rather_than_reset(self):
+        # Only the keys an earlier build could genuinely lack are filled. A
+        # record with no `phase` is a corrupt file, and filling it from a blank
+        # one turned it into a fresh device - which `read` promises never to do.
+        legacy = dict(state_module.blank("debra-345678"), schema=1)
+        legacy.pop("phase")
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            state_module.read(self.state_path)
+        self.assertNotIn("\"phase\"", self.state_path.read_text(encoding="utf-8"),
+                         "the corrupt record was silently rewritten")
+
+    def test_a_write_makes_the_rename_durable(self):
+        # Replacing the file and fsyncing it is not enough: the directory entry
+        # is a write of its own, and a power cut straight after the rename can
+        # lose it. The state decides which phase the next boot starts in.
+        calls = []
+        real = state_module.sync_directory
+
+        def sync(path):
+            calls.append(Path(path))
+            return real(path)
+
+        with patch.object(state_module, "sync_directory", sync):
+            state_module.write(self.state_path, state_module.blank("debra-1"))
+        self.assertEqual(calls, [self.state_path.parent])
+
     def test_every_write_advances_the_revision(self):
         # The page orders answers by this, not by the time its request started.
         data = state_module.write(self.state_path, state_module.blank("debra-1"))
@@ -550,6 +621,18 @@ class ResumeTests(Temp):
         self.assertEqual(status["phase"], "online")
         self.assertEqual(status["address"], "192.0.2.40")
         self.assertNotIn("start_hotspot", network.phases())
+
+    def test_a_failed_attempt_keeps_its_reason_across_the_reboot(self):
+        # A person corrects the wrong household password by reading the reason
+        # on the page. Only a dead attempt used to be handed its reason on the
+        # next boot, so a plain failure came back as a blank form.
+        state_module.write(self.state_path, dict(
+            state_module.blank("debra-1"), phase="failed",
+            hotspot={"ssid": "Debra-Setup-1", "interface": "wlan0"},
+            last_error="The Wi-Fi password was not accepted"))
+        status = self.onboarder(FakeNetwork()).resume()
+        self.assertEqual(status["phase"], "failed")
+        self.assertEqual(status["last_error"], "The Wi-Fi password was not accepted")
 
     def test_a_lost_network_comes_back_as_a_setup_point_with_a_reason(self):
         state_module.write(self.state_path, dict(state_module.blank("debra-1"),
@@ -1094,6 +1177,36 @@ class SecurityEndpointTests(Temp):
         self.assertFalse(self.state_path.with_name("setup-security").exists(),
                          "the failed change left a mode file behind")
 
+    def test_a_lost_reply_restores_a_choice_the_page_had_already_made(self):
+        # The revert path asks whether there was a stored choice. The answer
+        # decides between writing the old mode back and removing the file, and
+        # every other test starts with no file - so an expression that always
+        # said "no choice" would pass all of them and delete a real one here.
+        stored = self.state_path.with_name("setup-security")
+        self.assertEqual(stored, self.dir / "setup-security")
+        # A device whose owner chose `wpa` on the page, installed as `none`.
+        # `setUp` replaced the helper with the instance it built.
+        chosen = Temp.onboarder(self, self.network, security="none",
+                                card_note_path=self.note)
+        chosen.set_security("wpa")
+        chosen.start_hotspot()
+        self.server.onboarder = chosen
+        self.assertEqual(chosen.security, "wpa")
+        real_reply = onboarding.PortalHandler._reply
+
+        def reply(handler, code, body, content_type="application/json"):
+            if code == 202:
+                raise BrokenPipeError(32, "Broken pipe")
+            return real_reply(handler, code, body, content_type)
+
+        with patch.object(onboarding.PortalHandler, "_reply", reply):
+            with self.assertRaises(OSError):
+                self.request("/api/security", {"mode": "none"})
+        self.assertTrue(stored.exists(),
+                        "the revert removed a mode the page had chosen")
+        self.assertEqual(stored.read_text(encoding="utf-8").strip(), "wpa",
+                         "the device was left in the mode whose reply was lost")
+
     def test_the_radio_is_given_back_when_no_worker_could_be_started(self):
         # `_changing` left set refuses every join and every later change for the
         # life of the process. A thread that cannot be created is the one path
@@ -1388,6 +1501,88 @@ class SetupSecurityTests(Temp):
             self.onboarder(FakeNetwork(), security="")
 
 
+class LegacySecretAdoptionTests(Temp):
+    """A device that was protected by the previous build stays protected.
+
+    The previous build kept the setup password inside `setup.json`. This one
+    keeps it in its own file, and the migration drops the old key. Without a
+    deliberate hand-over, an upgrade would open the setup network - and the
+    installed default being `none` means nothing else would stop it.
+    """
+
+    def legacy(self, **overrides):
+        data = dict(state_module.blank("debra-345678"), schema=2,
+                    phase="hotspot",
+                    hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"},
+                    hotspot_password="abcdefghjk2m")
+        data.update(overrides)
+        self.state_path.write_text(json.dumps(data), encoding="utf-8")
+        return data
+
+    def test_the_old_password_is_carried_into_its_own_file(self):
+        self.legacy()
+        network = FakeNetwork()
+        # The installer says `none`, which is the development default. The
+        # upgrade is the only thing that can keep this device protected, so it
+        # has to outrank that default.
+        with self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+            onboarder = self.onboarder(network, security="none")
+        self.assertIn("stays protected", "\n".join(logs.output))
+        self.assertEqual(onboarder.adopted_security, "wpa")
+        self.assertEqual(onboarder.security, "wpa")
+        secret = self.state_path.with_name("setup-secret")
+        self.assertEqual(secret.read_text(encoding="utf-8").strip(), "abcdefghjk2m")
+        self.assertEqual(stat.S_IMODE(secret.stat().st_mode), 0o600)
+        stored = self.state_path.with_name("setup-security")
+        self.assertEqual(stored.read_text(encoding="utf-8").strip(), "wpa")
+        # And the boot that follows raises a protected network with that very
+        # password, rather than the open one the installed default asks for.
+        status = onboarder.resume()
+        self.assertEqual(status["phase"], "hotspot")
+        self.assertEqual(network.hotspot["password"], "abcdefghjk2m")
+
+    def test_the_password_is_not_left_in_the_state_after_the_upgrade(self):
+        self.legacy()
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            onboarder = self.onboarder(FakeNetwork(), security="none")
+        onboarder.resume()
+        raw = self.state_path.read_text(encoding="utf-8")
+        self.assertNotIn("hotspot_password", raw)
+        self.assertNotIn("abcdefghjk2m", raw)
+        self.assertEqual(json.loads(raw)["schema"], state_module.SCHEMA)
+
+    def test_a_mode_the_page_chose_is_not_overridden_by_the_old_record(self):
+        # The page's decision is later than the record's password. A device
+        # whose owner turned the password off before the upgrade must stay open.
+        self.legacy()
+        (self.dir / "setup-security").write_text("none\n", encoding="utf-8")
+        onboarder = self.onboarder(FakeNetwork(), security="none")
+        self.assertIsNone(onboarder.adopted_security)
+        self.assertEqual(onboarder.security, "none")
+        self.assertFalse((self.dir / "setup-secret").exists(),
+                         "a password file was created for a network switched off on purpose")
+
+    def test_a_record_without_a_password_is_not_an_upgrade(self):
+        # The previous build wrote a password whenever it raised the access
+        # point, so a record without one describes a device that never raised
+        # one. Nothing was protected, and the installed mode still applies -
+        # inferring a choice here would freeze one nobody made.
+        self.legacy(hotspot_password=None)
+        onboarder = self.onboarder(FakeNetwork(), security="none")
+        self.assertIsNone(onboarder.adopted_security)
+        self.assertEqual(onboarder.security, "none")
+
+    def test_the_adopted_choice_survives_the_next_boot(self):
+        self.legacy()
+        self.onboarder(FakeNetwork(), security="none").resume()
+        # A second boot reads a schema-3 record and no longer has a legacy
+        # password to move, but the mode and the password file are still there.
+        again = self.onboarder(FakeNetwork(), security="none")
+        self.assertIsNone(again.adopted_security)
+        self.assertEqual(again.security, "wpa")
+        self.assertEqual(onboarding.setup_secret(again.secret_path), "abcdefghjk2m")
+
+
 class SetupSecuritySwitchTests(Temp):
     """The mode is a choice on the page, not only an installer argument."""
 
@@ -1415,6 +1610,24 @@ class SetupSecuritySwitchTests(Temp):
         calls = [call for call in network.calls if call[0] == "start_hotspot"]
         self.assertTrue(calls[0][3],
                         "the stored mode was ignored: the access point came up open")
+
+    def test_the_mode_and_password_files_are_synced_to_disk(self):
+        # The mode decides whether the next boot opens the network. Losing the
+        # rename that turned the password on is the same defect as never having
+        # turned it on, so both files are written through a synced rename.
+        calls = []
+        real = state_module.sync_directory
+
+        def sync(path):
+            calls.append(Path(path))
+            return real(path)
+
+        onboarder = self.onboarder(security="none")
+        with patch.object(state_module, "sync_directory", sync):
+            onboarder.set_security("wpa")
+            onboarder.hotspot_password()
+        self.assertEqual(calls, [self.dir, self.dir],
+                         "a mode or password rename was not made durable")
 
     def test_an_unknown_mode_is_refused_and_writes_nothing(self):
         onboarder = self.onboarder(security="wpa")
@@ -1674,6 +1887,51 @@ class SetupSecuritySwitchTests(Temp):
         self.assertEqual(network.calls, before,
                          "an access point was raised over a join in progress")
         self.assertEqual(state_module.read(self.state_path)["phase"], "connecting")
+
+
+class WorkerBoundaryTests(Temp):
+    """The two background workers promise not to traceback. Check all of it.
+
+    Both start after the browser has already been answered, so an exception
+    escaping their threads goes to stderr and nowhere a person will look, and
+    the device is left in a mode nobody was told about.
+    """
+
+    def corrupt(self):
+        self.state_path.write_text("{not json", encoding="utf-8")
+
+    def test_the_mode_change_worker_does_not_raise_on_a_corrupt_state(self):
+        onboarder = self.onboarder(FakeNetwork(), security="wpa")
+        onboarder.start_hotspot()
+        self.corrupt()
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            status = onboarder.rearm_hotspot(generation=onboarder.security_generation())
+        self.assertEqual(status["phase"], "failed")
+        self.assertIn("could not be read", status["last_error"])
+
+    def test_the_mode_change_worker_does_not_raise_when_status_fails(self):
+        # `status()` is the last thing the worker calls, and the state it reads
+        # is the state the whole operation depends on.
+        onboarder = self.onboarder(FakeNetwork(), security="wpa")
+        onboarder.start_hotspot()
+        with patch.object(onboarding.Onboarder, "status",
+                          side_effect=RuntimeError("synthetic")):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+                status = onboarder.rearm_hotspot()
+        self.assertEqual(status["phase"], "failed")
+
+    def test_the_join_worker_does_not_raise_when_status_fails(self):
+        network = FakeNetwork()
+        onboarder = self.onboarder(network)
+        onboarder.start_hotspot()
+        accepted, token = onboarder.admit("HomeWiFi")
+        self.assertTrue(accepted)
+        with patch.object(onboarding.Onboarder, "status",
+                          side_effect=RuntimeError("synthetic")):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+                status = onboarder.join_reserved("HomeWiFi", "correct horse battery",
+                                                 None, token=token)
+        self.assertEqual(status["phase"], "failed")
 
 
 class AccessPointCheckTests(Temp):

@@ -38,6 +38,8 @@ moved.
 | observed | Two branches each claimed schema number 2 with different contents | `git show main:control/setup/state.py` vs the branch's `state.py`, 2026-11-15 | Read directly; `main`'s version has `hotspot_password` in `blank()` and a `revision`; the branch's has neither |
 | observed | A schema-1 record describes an access point that cannot be joined, and is dropped | `state.read` on a schema-1 file, 2026-11-15 | Phase becomes `failed` and the retired key leaves the file; exercised on disk, not only in tests |
 | observed | A schema-2 record keeps its described access point and loses its password | `state.read` on a schema-2 file, 2026-11-15 | The password is gone from the file on disk, not merely from the returned dict |
+| observed | That password is moved to `setup-secret` and `wpa` to `setup-security` *before* the record is read | `adopt_legacy_secret`, called from `Onboarder.__init__`; `LegacySecretAdoptionTests`, 2026-11-15 | Without it, an upgrade opened a previously protected network, because the installed default is `none`. Tested offline; a second boot (schema 3) adopts nothing and stays `wpa` |
+| proposed-decision | Only a schema-2 record that *carried a password* is adopted | same, tested by `test_a_record_without_a_password_is_not_an_upgrade` | The previous build wrote a password whenever it raised the access point, so no password means none was ever raised: nothing was protected, and the installer's flag still applies. A stored choice would outrank that flag for ever, so annotating a device nobody protected would freeze a decision nobody made |
 | proposed-decision | The access point is recorded *before* it is raised, and the record is corrected if the raise fails | `main`'s ordering, adopted into `start_hotspot` | A failed state write no longer leaves a live access point that nothing describes; a failed raise still clears the description |
 | proposed-decision | `_fail` settles and re-raises under the admission lock | `main`'s change, kept | The lock had to become an `RLock` for this; the branch's password/mode state came along unchanged |
 | open-question | Whether a phone joins a `wpa-psk` access point raised from this profile | unchanged from the earlier note | Still not run on a radio |
@@ -45,7 +47,7 @@ moved.
 ## Verification
 
 - Working directory: the branch worktree; `python3 -B -m unittest discover -s tests`
-  — 688 tests, 47 skipped, OK (231 onboarding, 40 installer cases in the files).
+  — 705 tests, 47 skipped, OK (249 onboarding, 40 installer cases in the files).
 - `DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'`
   — 47 tests, OK, against an installed Chromium.
 - Devserver smoke, 2026-11-15: `GET /api/status` reports `security: none` and no
@@ -66,8 +68,45 @@ moved.
 - Kept from `main`: the `revision` counter and the page's ordering of answers by
   it, the handler-wide failure boundary on GET and POST with a released
   reservation, the handler's `_json_body` framing shared by both POST paths, the
-  baseline failure remembered in memory, the attempt claim cleared on boot, the
-  migration filling every field an older record did not write, and the
-  `--enable` install path that accepts the absolute link `systemctl` writes.
+  baseline failure remembered in memory, the attempt claim cleared on boot, and
+  the `--enable` install path that accepts the absolute link `systemctl` writes.
+- Narrowed from `main`: its migration filled *every* key an older record lacked
+  from `blank()`, which turned a record with no `phase` into a fresh
+  `unconfigured` device and wrote that back. Only the keys an earlier build
+  could genuinely lack are filled now (`state.FILLED`); a record missing a core
+  key is refused, as `read()` promises.
+- Added after review: `connecting` with no token, `hotspot` with no described
+  network and `online` with one are normalised to a usable record instead of
+  stopping the service before an access point is raised.
 - Removed: `hotspot_password` from the state and from every preset fixture, and
   `main`'s tests that asserted the password travels with the state.
+
+## Corrections to the earlier note
+
+`docs/notes/2026-11-15-open-ap-cannot-exist.md` is left as written. These are
+the details in it that this work superseded; cite this note rather than that one
+for them:
+
+- It says `state.py` "is now schema 2" and that `read()` migrates by dropping the
+  retired key and "filling anything the older schema lacked". Both are now wrong:
+  the schema is 3, and only the fields an earlier build could lack are filled.
+- It says the removed password is simply dropped. It is now carried into
+  `setup-secret` and `wpa` into `setup-security` first, so an upgrade cannot open
+  a protected network.
+- Its evidence block reports 621 tests (40 skipped) and 40 browser tests, and its
+  prose says "three independent reviews". The counts are from before three merges
+  with `main`; the numbers above are the current ones, and more review rounds
+  have run.
+
+## Residuals this work does not close
+
+- **An unreadable mode file fails open when the installed default is `none`.**
+  `_stored_security()` logs and returns "no choice", so a device whose page chose
+  `wpa` but whose `setup-security` cannot be read comes up in the installed
+  mode. Reading the file is a permission and corruption question, not a mode
+  question, and failing closed would strand a device that was never protected.
+  Not changed.
+- **The card note is written non-atomically.** A power cut while it is being
+  rewritten can truncate it; the next raise rewrites it, and the password
+  itself is in `setup-secret`, so the loss is the note rather than the
+  credential. Not changed.

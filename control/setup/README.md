@@ -59,8 +59,9 @@ Nothing reboots the device to apply Wi-Fi, and nothing restarts NetworkManager.
 No household passphrase is put in the setup state, passed on a command line or
 kept in a log: NetworkManager's keyfile is where Debra writes it. That keyfile is
 not the only copy of the secret on the device — the first baseline archives it
-deliberately — and the setup network's own generated password is stored in the
-setup state, served to the page, and written to the boot partition.
+deliberately — and the setup network's own generated password is kept in its own
+owner-only file (`setup-secret`, never in `setup.json`), served only to the reply
+that asks for it, and written to the boot partition.
 
 ## Why this is a system unit, not a user unit
 
@@ -98,8 +99,9 @@ none of them make it a secure portal:
   when the access point is raised again. While the access point is up it is also
   in that profile as `psk=` (see the file table below), and the join deletes the
   profile. It is deliberately absent from the status API, which anything that
-  has joined can read; the one place it is served is the reply that turns it on,
-  and that reply goes over cleartext HTTP to whoever has joined - while the
+  has joined can read; the one place it is served is the status-202 reply to any
+  request that asks for `wpa` (including a repeat that only re-shows it), and
+  that reply goes over cleartext HTTP to whoever has joined - while the
   network is open, to anyone in range. Anyone who can join the setup network can
   also submit the form; the password protects the setup window, not the
   household, and turning it on from an open network protects what comes after,
@@ -215,11 +217,12 @@ sudo python3 -B control/setup/install.py --python "$(command -v python3)" \
 
 `--setup-security wpa` installs the protected setup network: a random per-device
 password on the boot-partition note. Whatever is chosen is written into the unit
-as an argument, so the mode a device runs is something the unit says and not a
-default that a later change can reinterpret. The installer prints a warning when
-the mode is `none`. The page can switch the running device between the two
-without a reinstall, and that choice is kept in
-`/var/lib/debra/setup/setup-security`.
+as an argument, so the mode a device **starts** in is something the unit says and
+not a default that a later change can reinterpret. It is not the last word on
+the mode: the page can switch the running device between the two without a
+reinstall, and from then on the stored choice in
+`/var/lib/debra/setup/setup-security` outranks the unit's argument. The installer
+prints a warning when the mode is `none`.
 
 A tree prepared from a host for a card has no running systemd to ask, so
 `--enable` also creates
@@ -257,9 +260,13 @@ from a release works. The release also contains `install.py` itself, because the
 unit runs `releases/<id>/install.py --serve`; the runner on the device is
 therefore this reviewed file and not a generated second program.
 
-An identical install changes nothing and creates no rollback copy. A release or
-unit that differs from what the installer would write is refused, not
-overwritten. Nothing is ever deleted.
+An identical install changes nothing and creates no rollback copy. They are not
+treated alike: a **release** that differs from what the installer would write is
+refused, and so is one whose content address is already used by different bytes.
+A **unit** that differs is snapshotted to `debra-setup.service.previous-<stamp>`
+and then replaced, because updating the unit is the whole reason the install
+path exists; `--restore <unit>` puts the retained copy back atomically. Nothing
+is ever deleted.
 
 ## Check that it worked
 
@@ -362,6 +369,18 @@ Ordered by how likely it is to bite on a real first boot.
 11. **The cooldown is words, not a countdown.** The page says to wait ten
     minutes because the attempt counter lives in the state file and a power
     cycle does not clear it. There is no retry-after the page can count down.
+12. **The access point has never been raised from a written keyfile, in either
+    mode.** `nmcli device wifi hotspot` cannot make an open network (with no
+    password it invents one nobody is shown), so the access point is instead a
+    keyfile this repository writes: `mode=ap`, `ipv4.method=shared`, and
+    `key-mgmt` either `wpa-psk` with the stored password or `none` for the open
+    development mode. It is then loaded with `nmcli connection reload`, taken
+    down if it is already active, brought up, and read back through the profile
+    and `device show`. None of that has run on a radio, so neither the open mode
+    nor the protected one is demonstrated, and the read-back that is supposed to
+    catch a mismatch has never had a mismatch to catch. Switching modes cycles
+    that same profile rather than deleting and recreating it, which is also
+    unexercised.
 
 ## How the risky steps are kept small
 
@@ -415,6 +434,7 @@ Guards in this subsystem have been checked by breaking them and watching a test
 fail, but that is evidence about the guards that were broken, not a proof of the
 whole subsystem. Each round's transforms, the failing test for each, and any
 survivors are recorded in that round's verdict under `.local/reviews/`
-(`setup-r6-20261115/verdict.md` is the current one); a survivor is a test gap,
-not a harmless change. Earlier rounds found guards that no test covered at the
+(the newest file under `.local/reviews/setup-ap-20261115/` is the current one
+for this branch; the `setup-r6-20261115/` verdicts belong to the earlier,
+independent setup work); a survivor is a test gap, not a harmless change. Earlier rounds found guards that no test covered at the
 time.
