@@ -31,6 +31,9 @@ or Linux troubleshooting. Wi-Fi onboarding and a stable address such as
 
 ## Current progress
 
+**[Visual progress map](docs/progress.md)** — colour-coded steps, dependencies,
+partial work, reviews and blockers, from the current roadmap and work queue.
+
 | Area | Evidence / limits |
 | --- | --- |
 | Voice and music | One [Pi 5 + ReSpeaker 2-Mics v2](docs/testing/results/2026-11-15-lab-pi5-lva-sendspin.md) ran wake → HA → spoken reply and Sendspin music. Not a supported hardware matrix or endurance result. |

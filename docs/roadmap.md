@@ -4,6 +4,10 @@ Created 2026-11-14 from [James's brief](project-brief.md).
 This is a coordinated backlog, **not a claim that any implementation exists**.
 Product scope is broad; execute it as independently reviewable work packets.
 
+**[Visual progress and dependency diagrams](progress.md)** — colour-coded product
+overview, every packet and prerequisite, and the recorded active work. Generated
+from this roadmap and the work queue; not a second backlog or a live monitor.
+
 ## Strategy
 
 Run documentation/comparisons, low-cost hardware research, appliance tooling,
@@ -355,6 +359,33 @@ alongside research without marking these prerequisite-gated packets complete.
 | D01 / blocked | R01, F04 | Inventory all concrete candidate Pi/HAT/speaker/accessory identities and prioritize sensible combinations and reusable CAD. Record exact revisions, dimension sources or measurements, mounting/connector clearances, header/stack heights, speaker envelopes/openings, controls/displays, fasteners, and licensing/provenance. Return the coverage/missing-measurement table and shared component/interface parameters required by the [enclosure brief](design/enclosures.md); do not invent fit from photos or merge similar seller listings. |
 | D02 / blocked | D01 | Use a dedicated, bounded AI + SolidCraft assignment to develop reusable component envelopes, printable trays/carriers/lids/grilles and a small useful variety of exact assemblies, beginning with one reviewed layout. Proposed `models/` organization and acceptance are in the [enclosure brief](design/enclosures.md). Deliver editable sources, parameter sets, printable exports, BOM/attribution and assembly/print guidance. Verify wiring/plug/service space, powered-off microSD and power access, buttons/covers, optional cloth/mesh retention, cooling and microphone/speaker paths; exercise parameter changes. Distinguish provisional/dimension-sourced geometry from CAD-only/physically tested assemblies. |
 | D03 / blocked | D02, L01, A01 | With separately agreed printing/device-test scope, physically check the selected variant's fit, assembly, controls, access, thermal behavior, and microphone/speaker performance against a documented baseline. Record hardware, model revision, material/print settings, measurements, and failures; iterate before marking that exact combination validated. Add further variants incrementally rather than claiming all parameter combinations work. |
+
+## Visual progress annotations
+
+Acceptance/dispatch state above is not the same as implementation maturity.
+These evidence-linked annotations identify **partial** work for the generated
+[progress diagrams](progress.md), without accepting packets or changing their
+prerequisites. All other colours come from the packet state and active/review
+rows in [work queue](work-queue.md). A completed subtask is not a completed packet.
+Remove an annotation when the whole packet is accepted; revise the evidence when
+the limited work changes. Do not infer support from an amber node.
+
+| Packet | Progress | Evidence and remaining scope |
+| --- | --- | --- |
+| F05 | partial | [Permission pilot](testing/results/2026-11-14-ai-readiness.md): some real refusals, missing coverage and claim-specific acceptance; self-selection dispatch closed, not all development blocked |
+| R05 | partial | [Comparison tables](comparisons/devices.md) exist; reviewed synthesis and the choose-your-path guide remain open |
+| N06 | partial | [Mounted-card inspection](testing/results/2026-11-15-zero2w-card.md) and [failed first join](testing/results/2026-11-15-zero2w-first-boot.md) provide evidence; vendor-AppImage control flash and a reliable headless path remain open |
+| WEB02 | partial | [Discovery and device links](../control/web/README.md) exist; production enrollment and access revocation do not |
+| WEB03 | partial | [Read-only Setup card](../control/web/README.md) and family detection exist; exact-revision identification and lifecycle writes are not implemented |
+| WEB04 | partial | [Service probes](../control/web/README.md) partly report enabled/running, not the full installed/configured/connected/working contract |
+| WEB07 | partial | [Resource readings](../control/web/README.md) exist; complete per-board collectors and the full freshness/counter acceptance remain open |
+| WEB09 | partial | [Browser safeguards and tests](../control/web/README.md) exist; whole-packet accessibility/security acceptance and production enrollment/transport remain separate |
+| A01 | partial | [One Pi 5/ReSpeaker audio result](testing/results/2026-11-15-pi5-respeaker-v2-audio.md); not a repeatable fresh-baseline procedure across the supported matrix |
+| V02 | partial | [Manual lab voice bring-up](testing/results/2026-11-15-lab-pi5-lva-sendspin.md) demonstrated a reply; not the reusable adapter or complete timer/announcement/restart acceptance |
+| M01 | partial | [Pinned Sendspin on one lab Pi](testing/results/2026-11-15-lab-pi5-lva-sendspin.md); not a reproducible adapter or complete pairing/health acceptance |
+| B03 | partial | [File archives and extraction checks](guides/device-backup.md) exist; no demonstrated on-target restore |
+| D01 | partial | [Component envelopes and dimensional sources](../models/README.md) exist; complete measured coverage/provenance and mounting decisions remain open |
+| D02 | partial | [Editable CAD and assemblies](../models/README.md) exist; reconstruction, wiring/retention/access and reviewed exact variants remain incomplete; nothing printed or fit-tested |
 
 ## Handoff format
 
