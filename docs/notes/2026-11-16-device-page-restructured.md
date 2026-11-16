@@ -47,6 +47,8 @@ The measurements come from Chromium at a fixed 390 px inside an iframe.
 | observed | Focusing a hidden element does nothing, so the disconnect path left focus on the device name once the key field became hidden | `a33fc10`, found by an existing check failing | Replaced with a helper that focuses whichever action the card offers |
 | observed | The page footer sat inside the dashboard while the network switcher follows it, so the page appeared to end and then carried on with another card | desktop screenshot of `ready`, 2026-11-16 | `7308269`: footer is last in `main`, hidden until the dashboard opens |
 | observed | A read failure printed the same sentence into an alert region every poll; a region re-announcing "the device did not answer" indefinitely is worse than silence | `13bbc15` | Written only when it changes. Not observed with a screen reader, so "announced once" is inferred from not rewriting the node |
+| observed | Focusing the device name on first paint drew the browser's default focus ring around a heading, which reads as a selection box; it was the first thing visible on the real device page | live payloads rendered at 390 px, 2026-11-16 | `18e4ad7` suppresses the outline for programmatic focus on `#hostname` and `main`; operable controls keep their `:focus-visible` ring |
+| observed | The host's page is served by a foreground `python3 -B control/web/server.py serve` process (pid 3924827, `--bind 127.0.0.1`, key mode), not by a systemd unit, so its running code predates version reporting and it reports no `version` field | `ss -ltnp` on the host, 2026-11-16 | Not restarted: it is not a managed unit and another session shares this checkout. The page assets it serves are current because they are read from disk per request |
 | hypothesis | A single reading column is the right shape for both widths | Sol design study, section A | Chosen for unambiguous reading order; desktop space is left unused |
 
 ## Verification
@@ -55,7 +57,7 @@ The measurements come from Chromium at a fixed 390 px inside an iframe.
   `python -B -m unittest discover -s tests` — 835 tests, OK (62 skipped).
   `DEBRA_BROWSER_TEST=1 python -B -m unittest discover -s tests -p 'test_web_browser.py'`
   — 35 tests, OK.
-- `git show --stat 5b024bd 9f9e32a d558e02 29f323c 791136d 0ebb3d4 10e1667 1fb25c7 bffb8fa 61ce60c bc651cf ba4fd8d 9c7f2e7 13bbc15 a33fc10 7308269`
+- `git show --stat 5b024bd 9f9e32a d558e02 29f323c 791136d 0ebb3d4 10e1667 1fb25c7 bffb8fa 61ce60c bc651cf ba4fd8d 9c7f2e7 13bbc15 a33fc10 7308269 fe77a92 18e4ad7`
   lists the slices; each names its own checks in the message.
 - Not tested: any real phone, tablet or screen reader; zoom beyond the default;
   a second Debra open in another tab; a device losing its audio sink while the
@@ -74,10 +76,13 @@ The measurements come from Chromium at a fixed 390 px inside an iframe.
   correct; its running process predates version reporting, which a restart would
   change. `debra-8518d6` and `debra-f943dc` were deliberately not updated
   (James restricted the update to host and Pi 5).
+- Host: the page and assets are current, but its foreground server process predates
+  version reporting, so the build string is unknown there until that process is
+  restarted. Restarting it is a one-line relaunch with the same arguments; it was
+  left alone because it is not a managed unit.
 - Next action: the state-vocabulary items in section B that are still unbuilt —
-  `aria-busy` on the audio controls during a write (the controls are already
-  disabled, so this is assistive-technology polish only), and a "checking"
-  indication for a later poll that does not flicker on a 3-second cadence.
+  the "checking" indication for a later poll that does not flicker on a
+  3-second cadence, which needs a decision about what it should look like.
 - Authorization needed: a design review of the new order before it is treated as
   settled, and a decision on whether the page should ever open a disclosure by
   itself when a section is chosen from the bar.
