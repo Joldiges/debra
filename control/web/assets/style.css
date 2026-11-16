@@ -8,7 +8,10 @@ header { max-width: 960px; margin: auto; padding: 18px 24px 10px; display: flex;
 .skip { position: absolute; left: -9999px; top: 0; background: var(--accent); color: #10251d; padding: 12px 18px; border-radius: 0 0 9px 0; font-weight: 650; z-index: 10; }
 .skip:focus { left: 0; }
 a { color: var(--accent); text-decoration: none; }
-.brand { color: #f4f7f6; font-size: 30px; font-weight: 750; letter-spacing: -1px; }
+/* The wordmark is three words' worth of text in two small lines. Left to wrap,
+   a long status line beside it broke it into "debra / DEVICE / CONTROL"; the
+   status is the part that can wrap instead. */
+.brand { color: #f4f7f6; font-size: 30px; font-weight: 750; letter-spacing: -1px; flex: none; white-space: nowrap; }
 .brand span { display: block; font-size: 9px; letter-spacing: 2px; color: var(--muted); }
 #connection, .detail, footer { color: var(--muted); font-size: 13px; line-height: 1.6; }
 main { max-width: 960px; margin: 4px auto 48px; padding: 0 24px; }

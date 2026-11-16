@@ -35,6 +35,10 @@ let revision = 0;
 // When the device last answered. A failed read leaves the previous readings on
 // screen, and they are only honest if the page says how old they are.
 let lastReadAt = null;
+// True when the last keyless probe never reached the device. A page that says
+// "waiting for the access key" against a device that never answered tells a
+// person to keep typing into a device that is not there.
+let probeFailed = false;
 // Only these mean "the device refused and changed nothing". Anything else,
 // including 503, may have run the native command before failing.
 const DEFINITE = new Set([400, 401, 403, 404, 405, 413]);
@@ -825,6 +829,9 @@ async function probeKeyless() {
   const started = revision;
   const before = el("pair-status")?.textContent || "";
   let failure = "";
+  // Whether the device ever answered at all. A probe that never completes is
+  // not the same situation as one the device refused, and the header says so.
+  probeFailed = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     let available = false, refused = false;
     failure = "";
@@ -845,10 +852,11 @@ async function probeKeyless() {
       }
     } catch {
       failure = "The device did not answer.";
+      probeFailed = true;
     }
     if (started !== revision) return false;
     setBypassAvailable(available);
-    if (available || refused) return available;
+    if (available || refused) { probeFailed = false; return available; }
     if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
   }
   showPairStatus((before ? before + " " : "") + failure +
@@ -891,9 +899,15 @@ async function start() {
   // leaving "checking" on screen for ever, and it must not ask for a key the
   // device has just said it does not want.
   if (!el("pair").hidden) {
+    // Three different reasons to be on this card, said differently: the device
+    // answered and wants a key, it answered and offers keyless access, or it
+    // never answered at all — and in that last case it is not waiting for a
+    // key, it is unreachable.
     el("connection").textContent = bypassAvailable
       ? "Not connected · choose how to continue"
-      : "Not connected · waiting for the access key";
+      : probeFailed
+        ? "Not connected · no answer from the device"
+        : "Not connected · waiting for the access key";
   }
 }
 
