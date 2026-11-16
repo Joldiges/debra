@@ -82,6 +82,9 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
    long one widened the phone layout instead of wrapping. */
 #output, #error, #audio-notice { overflow-wrap: anywhere; }
 #error { color: #ffc8b8; }
+/* An empty message must not leave a gap where it would be. */
+#error:empty { margin: 0; }
+#read-failure #retry { margin: 0 0 18px; }
 #pair-status { color: #ffc8b8; margin: 10px 0 0; }
 /* An empty neutral line must not leave a gap where a message would be. */
 #pair-check:empty { margin: 0; }

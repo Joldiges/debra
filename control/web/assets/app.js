@@ -192,6 +192,7 @@ function forgetKey(message) {
   lastReadAt = null;
   el("error").textContent = "";
   el("stale-notice").textContent = "";
+  el("retry").hidden = true;
   el("pair").hidden = false;
   el("dashboard").hidden = true;
   el("connection").textContent = "Not connected";
@@ -207,6 +208,7 @@ function revokeBypass(message) {
   currentAudio = null;
   lastReadAt = null;
   el("stale-notice").textContent = "";
+  el("retry").hidden = true;
   if (message) showPairStatus(message);
 }
 function setOp(isVolume, value) {
@@ -523,6 +525,8 @@ async function refresh() {
     // next to its control until a reading agrees with it.
     el("error").textContent = "";
     showNotices();
+    // The device answered, so there is nothing left to try again.
+    el("retry").hidden = true;
     return true;
   } catch (error) {
     if (started !== revision || busy) return false;
@@ -547,13 +551,18 @@ async function refresh() {
     // or being replaced by it.
     el("error").textContent = error.message;
     showNotices();
+    el("retry").hidden = false;
     el("connection").textContent = "Not connected · readings may be stale";
     // The numbers below are the last ones the device sent. Leaving them
     // unlabelled is how "36%" reads as current when the device has been gone
     // for a minute.
+    // Receipt time, said as receipt time. When the device *measured* these
+    // numbers is a different fact the payload does not carry, and dressing our
+    // clock up as an observation time would be exactly the invented confidence
+    // this page exists to avoid.
     el("stale-notice").textContent = lastReadAt
-      ? `The device is not answering. These readings are the last ones it sent, at ${
-          new Date(lastReadAt).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}, and may be out of date.`
+      ? `The device is not answering. These are the last readings it sent — this page received them at ${
+          new Date(lastReadAt).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})} and the device does not report when it measured them.`
       : "";
     for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
     return false;
@@ -677,6 +686,12 @@ el("disconnect").addEventListener("click", () => {
   el("dashboard").hidden = true;
   el("pair").hidden = false;
   el("connection").textContent = "Disconnected";
+});
+el("retry").addEventListener("click", async () => {
+  // A read, and only a read: a write whose outcome was uncertain is never
+  // repeated automatically, and this button must not become that retry.
+  el("retry").disabled = true;
+  try { await refresh(); } finally { el("retry").disabled = false; }
 });
 el("volume").addEventListener("input", () => {
   draft = true;

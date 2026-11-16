@@ -14,7 +14,13 @@
     <!-- A read failure is named near the top of the page, not several screens
          below the readings it concerns. It sits outside the dashboard so a
          refusal on the welcome card has somewhere to appear too. -->
-    <p id="error" role="alert"></p>
+    <div id="read-failure">
+      <p id="error" role="alert"></p>
+      <!-- A failure a person can only read is a failure they cannot act on.
+           This reads again; it never retries a write, and it is never shown
+           while the page has nothing to re-read. -->
+      <button id="retry" class="secondary" type="button" hidden>Try reading again</button>
+    </div>
     <section id="pair" class="card">
       <p class="eyebrow">WELCOME</p><h1>Your device, within reach.</h1>
       <p>Enter this device’s access key. It stays in this browser tab. Use this prototype only on a trusted local network.</p>
@@ -66,7 +72,17 @@
       </section>
       <!-- Readings second: they are what a person checks when the volume does
            not respond, and the main numbers stay visible without an extra tap. -->
-      <section id="health" class="card"><p class="eyebrow">READ-ONLY</p><h2>Health & resources</h2><dl id="health-values"></dl>
+      <section id="health" class="card"><p class="eyebrow">READ-ONLY</p><h2>Health & resources</h2>
+        <dl id="health-values"></dl>
+        <!-- A reading the page does not have is said out loud, in the same
+             place and shape as the readings it does have. Silence about CPU-core
+             voltage would leave a person unsure whether it is missing, healthy
+             or zero. Static markup: no control, because there is nothing to
+             control. -->
+        <div id="power-gaps" class="choices">
+          <div class="choice"><div class="choice-head"><span class="choice-title">CPU-core voltage</span><span class="badge planned">Planned</span></div><p class="choice-detail">A collector will show CPU-core voltage; this reading is not implemented yet. The 5 V supply above is a different measurement.</p></div>
+        </div>
+        <p id="age-caveat" class="detail">Readings show what the device reported when it last answered. It does not report when it measured them, so reading age is unknown; showing observation times is <span class="badge planned">Planned</span>.</p>
         <details id="cores-details" class="more"><summary>Per-core CPU</summary><div id="cores" class="cores"></div></details>
         <details id="swap-details" class="more"><summary>Swap & compression</summary><dl id="swap-values"></dl>
           <p class="detail">Swap I/O is system-wide pages/second—not a zram/zswap benchmark. Counters need two samples. zswap pool statistics require a future permitted collector; no root access is requested.</p>

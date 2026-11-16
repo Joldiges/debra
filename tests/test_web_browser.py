@@ -43,6 +43,10 @@ window.testState = {
   // `?status=offline` makes every status read fail with a non-401 error, so a
   // check can prove an unverified key is not persisted for the next reload.
   offline: new URLSearchParams(location.search).get("status") === "offline",
+  // `?power=supply` makes the fixture report the one voltage a real Pi 5 does,
+  // so a check can prove it is shown as the 5 V supply and never as CPU-core
+  // voltage, which nothing collects.
+  powerSupply: new URLSearchParams(location.search).get("power") === "supply",
   cpu: {cpu: 12, cpu0: 24},
   longSink: new URLSearchParams(location.search).get("sink") === "long",
   cores: new URLSearchParams(location.search).get("cores") === "unavailable",
@@ -193,7 +197,10 @@ window.fetch = async (path, options) => {
     hostname: "Fixture device", model: "Test board", architecture: "fixture",
     os: "Fixture OS", selected_hardware: {speaker: "<script>untrusted</script>"},
     uptime_s: 600, cpu_percent: cores, memory: {},
-    power: {}, wifi: [{interface: "wlan0", signal_dbm: -42}], zram: [],
+    power: state.powerSupply
+      ? {throttle_flags: "0x0", supply_voltage_v: 5.10004,
+         undervoltage_now: false, undervoltage_since_boot: false}
+      : {}, wifi: [{interface: "wlan0", signal_dbm: -42}], zram: [],
     swap_io: {}, zswap_enabled: null,
     storage: null, temperature_c: 48.2,
     components: [{name: "LVA", active: "active", configuration: "Not yet inspected"}],
@@ -661,19 +668,34 @@ window.addEventListener("load", async () => {
     const notice = document.getElementById("stale-notice").textContent;
     assert(/not answering/.test(notice),
            "the stale notice does not say the device stopped: " + notice);
-    assert(/last ones it sent/.test(notice),
+    assert(/last readings it sent/.test(notice),
            "the stale notice does not say the readings are old: " + notice);
+    assert(/does not report when it measured them/.test(notice),
+           "the stale notice presents the page's clock as an observation time: " + notice);
     assert(/\d{1,2}:\d{2}/.test(notice),
            "the stale notice does not say when the last answer was: " + notice);
     assert(document.getElementById("volume-value").textContent === before,
            "the stale state changed the reading instead of labelling it");
     assert(document.getElementById("apply").disabled && document.getElementById("mute").disabled,
            "the controls stayed usable against a device that is not answering");
+    // A failure a person can only read is one they cannot act on.
+    const retry = document.getElementById("retry");
+    assert(!retry.hidden, "a read failure offered no way to read again");
+    const beforeRetry = testState.requests.length;
+    retry.click();
+    for (let i = 0; i < 40 && retry.disabled; i++) await wait();
+    const retried = testState.requests.slice(beforeRetry);
+    assert(retried.length > 0, "trying again sent no request");
+    const writes = retried.filter(request => request.method !== "GET");
+    assert(writes.length === 0,
+           "trying again sent a request that is not a read: " + JSON.stringify(writes));
     // It answers again: the warning must go and the controls come back.
     testState.offline = false;
     await refresh();
     assert(document.getElementById("stale-notice").textContent === "",
            "the stale notice stayed after the device answered again");
+    assert(document.getElementById("retry").hidden,
+           "the retry control stayed after the device answered again");
     assert(!document.getElementById("apply").disabled,
            "the controls stayed disabled after the device returned");
     result.textContent = "PASS: old readings are labelled as old, and the label clears when the device returns";
@@ -796,6 +818,61 @@ window.addEventListener("load", async () => {
     assert(current()[0] === "#audio",
            "returning to the top left the bar on " + current() + " " + diagnostics);
     result.textContent = "PASS: the section bar is tappable, in document order, and knows where you are";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_MISSING_READINGS = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    // The device reports a 5 V supply. That is the only voltage on this board.
+    const health = document.getElementById("health-values").textContent;
+    const supplyRow = [...document.querySelectorAll("#health-values div")]
+      .find(row => /5 V supply/.test(row.textContent));
+    assert(supplyRow, "the 5 V supply row is missing");
+    assert(/5\.10/.test(supplyRow.textContent),
+           "the supplied voltage is not shown: " + supplyRow.textContent);
+    // CPU-core voltage is not collected. It is named as missing rather than
+    // left out, because silence reads as either zero or healthy.
+    const gaps = document.getElementById("power-gaps");
+    assert(gaps, "there is no row for readings the page does not have");
+    const gapRow = [...gaps.querySelectorAll(".choice")]
+      .find(row => /CPU-core voltage/.test(row.textContent));
+    assert(gapRow, "CPU-core voltage is not named as a missing reading");
+    assert(gapRow.querySelector(".badge.planned"), "the missing reading is not marked Planned");
+    assert(/not implemented yet/.test(gapRow.textContent),
+           "the missing reading does not say why it is missing: " + gapRow.textContent);
+    // It must never carry a number. A 0 V, or the supply voltage repeated here,
+    // would be a fabricated measurement.
+    assert(!/\d\s*V\b/.test(gapRow.textContent.replace(/5 V supply/g, "")),
+           "the missing reading invented a voltage: " + gapRow.textContent);
+    assert(!gapRow.textContent.includes("5.10"),
+           "the 5 V supply was repeated as CPU-core voltage");
+    // A missing reading must not look healthy either: no badge claims a state.
+    assert(!gapRow.querySelector(".badge:not(.planned)"),
+           "the missing reading is badged as a state");
+    // Reading age: the page says it does not know, instead of implying now.
+    const caveat = document.getElementById("age-caveat");
+    assert(caveat, "there is no statement about reading age");
+    assert(/age is unknown/.test(caveat.textContent),
+           "the age caveat does not say reading age is unknown: " + caveat.textContent);
+    assert(!caveat.closest("#health-values"),
+           "the caveat sits inside the readings the renderer owns");
+    assert(!/updated just now|fresh/i.test(document.body.textContent),
+           "the page claims the readings are fresh");
+    result.textContent = "PASS: a missing reading is named as missing, and the supply "
+      + "voltage is never presented as CPU-core voltage";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -1929,7 +2006,7 @@ class BrowserTests(unittest.TestCase):
                                    "/check-refused-keyless.js", "/check-timeout.js",
                                    "/check-unverified-key.js", "/check-checking.js",
                                    "/check-stale.js", "/check-first-screen.js",
-                                   "/check-nav.js"):
+                                   "/check-nav.js", "/check-missing-readings.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -1955,7 +2032,8 @@ class BrowserTests(unittest.TestCase):
                               "/check-checking.js": CHECK_CHECKING,
                               "/check-stale.js": CHECK_STALE,
                               "/check-first-screen.js": CHECK_FIRST_SCREEN,
-                              "/check-nav.js": CHECK_NAV}[self.path]
+                              "/check-nav.js": CHECK_NAV,
+                              "/check-missing-readings.js": CHECK_MISSING_READINGS}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -1994,6 +2072,9 @@ class BrowserTests(unittest.TestCase):
         # meant to be used on. Before the reorder the volume slider sat 1262 px
         # down a 6733 px document, behind "switch to another Debra".
         self.run_browser("?auth=none", "check-first-screen.js", wrapper=True, budget=12000)
+
+    def test_a_missing_reading_is_named_and_never_invented(self):
+        self.run_browser("?auth=none&power=supply", "check-missing-readings.js", budget=12000)
 
     def test_the_section_bar_is_tappable_and_knows_where_you_are(self):
         self.run_browser("?auth=none", "check-nav.js", budget=12000)
