@@ -1,10 +1,13 @@
 """A small, honest first baseline: the configuration, not the whole device.
 
 This is not whole-device recovery and does not pretend to be. It captures the
-files that make this device *this device* — its setup state, its NetworkManager
-profiles, and the few small system files in `CAPTURE` — into one timestamped
-archive with a manifest, so a later change can be compared against a known
-point. It captures no package list and builds no hardware inventory; a path that
+files that make this device *this device* — its NetworkManager profiles and the
+few small system files in `CAPTURE` — into one timestamped archive with a
+manifest, so a later change can be compared against a known point. Two things
+are deliberately left out (see `NEVER_CAPTURE`): the setup service's own state
+directory, which holds the setup-network password and the chosen mode, and the
+setup network's own access-point profile, which holds the same password a second
+time. It captures no package list and builds no hardware inventory; a path that
 does not exist is recorded as missing rather than produced.
 
 Wi-Fi keyfiles are included because they are part of the device's configuration,

@@ -98,7 +98,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
 | Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
-| Setup-network secret behind a page toggle (branch `setup-ap-secret`), merged candidate `6a4c01a` | `debra-review`, independent | **changes requested** — five should-fix findings: a schema-2 upgrade could silently open a protected network, the migration could emit a record `validate` refuses, `rearm_hotspot`/`join_reserved` could still raise out of their threads, `had_choice` had a surviving mutation, and several README claims contradicted the code. All five repaired with a failing test for each (`adopt_legacy_secret`, migration normalisation, total worker boundaries, an endpoint test for a stored choice, and corrected docs), plus the smaller notes. The seventh review reads the repair. Verdict: `.local/reviews/setup-ap-20261115/verdict-sixth.md` |
+| Setup-network secret behind a page toggle (branch `setup-ap-secret`), repair `ef8fce1` | `debra-review`, independent | **changes requested** on the seventh round, with two should-fix items: the "an upgrade cannot open a protected network" claim was absolute while a failed mode write fell back to `none` (and the mutation "give up when the password cannot be stored" survived), and the baseline docs still said the archive includes the setup state that `NEVER_CAPTURE` excludes. Both repaired, with tests that fail without them; every remaining item is a note and is recorded as a residual. Sixth verdict: `.local/reviews/setup-ap-20261115/verdict-sixth.md`; seventh: `verdict-seventh.md` |
 
 ## Accepted
 
@@ -119,10 +119,10 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 173 onboarding tests
-and 37 installer tests) that has
+first baseline now have an implementation (`control/setup/`, 255 onboarding tests
+and 40 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 620 tests (41 skipped) plus 41 browser tests
+whole offline suite is 711 tests (47 skipped) plus 47 browser tests
 (`-p 'test_*browser.py'`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,

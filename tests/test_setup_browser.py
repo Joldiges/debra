@@ -739,13 +739,13 @@ window.addEventListener("load", async () => {
       assert(shown("form-card") && !shown("security-uncertain"),
              "the page never went back to the form after a lost reply");
       assert(textOf("security-mode") === "Setup network: open (development build)",
-             "the page stopped reporting the mode the device is really in: "
+             "the page stopped reporting the mode the device has stored: "
              + JSON.stringify(textOf("security-mode")));
       result.textContent = "PASS: a lost reply says it is not known yet, without claiming the change";
     } else if (mode === "security-answer-lost") {
       // The request reached the device and the device acted on it; only the
       // answer never came back. The page must say it does not know yet, and its
-      // next status poll must report the mode the device is really in - not the
+      // next status poll must report the mode the device has stored - not the
       // mode the page hoped for, and not a claim that the change failed either.
       assert(await formReady(), "the Wi-Fi form never appeared");
       byId("security-toggle").click();
@@ -765,7 +765,7 @@ window.addEventListener("load", async () => {
              "the page kept the uncertain card after a status answer arrived");
       assert(shown("form-card"), "the page did not return to the form");
       assert(textOf("security-mode") === "Setup network: password required",
-             "the page does not report the mode the device is really in: "
+             "the page does not report the mode the device has stored: "
              + JSON.stringify(textOf("security-mode")));
       result.textContent = "PASS: a lost answer leaves the page unsure, then reports the real mode";
     } else {

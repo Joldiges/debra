@@ -5,10 +5,9 @@ proves the decisions and the HTTP contract, not that a radio works.
 """
 
 import hashlib
+import io
 import json
 import secrets
-import hashlib
-import io
 import logging
 import os
 import socket
@@ -280,6 +279,8 @@ class StateTests(Temp):
                       hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"},
                       hotspot_password="abcdefghjk2m")
         legacy["attempt_token"] = None
+        # A worker had claimed the attempt: exactly the residue to clear.
+        legacy["attempt_claimed"] = True
         self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
         data = state_module.read(self.state_path)
         self.assertEqual(data["phase"], "failed")
@@ -307,12 +308,15 @@ class StateTests(Temp):
     def test_an_online_record_that_still_describes_an_access_point_is_resolved(self):
         legacy = dict(state_module.blank("debra-345678"), schema=2,
                       phase="online", address="192.0.2.40",
-                      hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"})
+                      hotspot={"ssid": "Debra-Setup-345678", "interface": "wlan0"},
+                      attempt_claimed=True, attempt_token="stale-token")
         self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
         data = state_module.read(self.state_path)
         self.assertEqual(data["phase"], "online")
         self.assertIsNone(data["hotspot"])
         self.assertIsNone(data["attempt_token"])
+        self.assertFalse(data["attempt_claimed"],
+                         "a dead claim survived a record that says it is online")
 
     def test_a_record_missing_a_core_key_is_refused_rather_than_reset(self):
         # Only the keys an earlier build could genuinely lack are filled. A
@@ -326,10 +330,11 @@ class StateTests(Temp):
         self.assertNotIn("\"phase\"", self.state_path.read_text(encoding="utf-8"),
                          "the corrupt record was silently rewritten")
 
-    def test_a_write_makes_the_rename_durable(self):
+    def test_a_write_syncs_the_state_directory(self):
         # Replacing the file and fsyncing it is not enough: the directory entry
         # is a write of its own, and a power cut straight after the rename can
-        # lose it. The state decides which phase the next boot starts in.
+        # lose it. The state decides which phase the next boot starts in. That
+        # the sync itself reaches `fsync` is `SyncDirectoryTests`.
         calls = []
         real = state_module.sync_directory
 
@@ -487,6 +492,31 @@ class StateTests(Temp):
         with self.assertRaises(ValueError):
             state_module.validate(dict(state_module.blank("debra-1"), psk="hunter22"))
         self.assertNotIn("psk", json.dumps(state_module.blank("debra-1")))
+
+
+class SyncDirectoryTests(unittest.TestCase):
+    """`sync_directory` itself, because asserting the call proves nothing."""
+
+    def test_it_fsyncs_an_open_directory(self):
+        directory = Path(tempfile.mkdtemp(prefix="sync-", dir="/tmp/opencode"))
+        seen = []
+        real = os.fsync
+
+        def fsync(fd):
+            seen.append(os.fstat(fd).st_mode)
+            return real(fd)
+
+        try:
+            with patch.object(state_module.os, "fsync", fsync):
+                state_module.sync_directory(directory)
+        finally:
+            os.rmdir(directory)
+        self.assertEqual(len(seen), 1, "the directory was never fsynced")
+        self.assertTrue(stat.S_ISDIR(seen[0]),
+                        "the handle synced was not the directory")
+
+    def test_a_missing_directory_is_not_an_error(self):
+        state_module.sync_directory(Path("/tmp/opencode") / "no-such-directory")
 
 
 class HotspotTests(Temp):
@@ -1562,6 +1592,41 @@ class LegacySecretAdoptionTests(Temp):
         self.assertFalse((self.dir / "setup-secret").exists(),
                          "a password file was created for a network switched off on purpose")
 
+    def test_a_password_that_cannot_be_moved_still_keeps_the_boot_protected(self):
+        # Writing the mode is what makes the network protected. The password
+        # file failing is the narrower failure, and it must not open the
+        # network: this boot draws a fresh password and asks for one.
+        self.legacy()
+        network = FakeNetwork()
+        with patch.object(onboarding, "_store_secret", return_value=False):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+                onboarder = self.onboarder(network, security="none")
+            self.assertEqual(onboarder.security, "wpa")
+            status = onboarder.resume()
+        self.assertEqual(status["phase"], "hotspot")
+        self.assertTrue(network.hotspot["password"],
+                        "the access point came up open")
+        self.assertNotEqual(network.hotspot["password"], "abcdefghjk2m",
+                            "the password survived without being written")
+        self.assertEqual(self.state_path.with_name("setup-security")
+                         .read_text(encoding="utf-8").strip(), "wpa")
+
+    def test_a_mode_that_cannot_be_stored_still_protects_this_boot(self):
+        # The choice cannot outlive the reboot, but opening the network now is
+        # worse. The mode is adopted for the running process and the journal
+        # says the next boot may fall back.
+        self.legacy()
+        network = FakeNetwork()
+        with patch.object(onboarding, "_write_mode", side_effect=OSError(30, "Read-only")):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+                onboarder = self.onboarder(network, security="none")
+        self.assertIn("later boot", "\n".join(logs.output))
+        self.assertEqual(onboarder.adopted_security, "wpa")
+        self.assertEqual(onboarder.security, "wpa")
+        status = onboarder.resume()
+        self.assertEqual(status["phase"], "hotspot")
+        self.assertEqual(network.hotspot["password"], "abcdefghjk2m")
+
     def test_a_record_without_a_password_is_not_an_upgrade(self):
         # The previous build wrote a password whenever it raised the access
         # point, so a record without one describes a device that never raised
@@ -1574,7 +1639,8 @@ class LegacySecretAdoptionTests(Temp):
 
     def test_the_adopted_choice_survives_the_next_boot(self):
         self.legacy()
-        self.onboarder(FakeNetwork(), security="none").resume()
+        with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+            self.onboarder(FakeNetwork(), security="none").resume()
         # A second boot reads a schema-3 record and no longer has a legacy
         # password to move, but the mode and the password file are still there.
         again = self.onboarder(FakeNetwork(), security="none")
@@ -1611,7 +1677,7 @@ class SetupSecuritySwitchTests(Temp):
         self.assertTrue(calls[0][3],
                         "the stored mode was ignored: the access point came up open")
 
-    def test_the_mode_and_password_files_are_synced_to_disk(self):
+    def test_the_mode_and_password_files_sync_the_directory(self):
         # The mode decides whether the next boot opens the network. Losing the
         # rename that turned the password on is the same defect as never having
         # turned it on, so both files are written through a synced rename.
@@ -1909,6 +1975,36 @@ class WorkerBoundaryTests(Temp):
         self.assertEqual(status["phase"], "failed")
         self.assertIn("could not be read", status["last_error"])
 
+    def test_a_status_failure_after_the_raise_does_not_claim_nothing_changed(self):
+        # The raise succeeded, and then the status read for the answer failed.
+        # That is not a failed change, and recording it as one hides the raise
+        # that did happen. The second call is the one `_rearm_now` makes after
+        # `start_hotspot` has already raised the network.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="wpa")
+        onboarder.start_hotspot()
+        real = onboarder.status
+        calls = []
+
+        # A plain function replaces the method, so it receives the instance.
+        def status(_self):
+            calls.append(1)
+            if len(calls) > 1:
+                raise ValueError("synthetic")
+            return real()
+
+        with patch.object(onboarding.Onboarder, "status", status):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+                status_dict = onboarder.rearm_hotspot()
+        self.assertEqual(len([call for call in network.calls
+                              if call[0] == "start_hotspot"]), 2,
+                         "the access point was not raised again")
+        self.assertEqual(status_dict["phase"], "failed")
+        recorded = state_module.read(self.state_path)["last_error"]
+        self.assertNotEqual(recorded, "The setup network did not change on this device",
+                            "a failed status read was recorded as a failed change")
+        self.assertIsNone(recorded, "the raise succeeded, so there is nothing to record")
+
     def test_the_mode_change_worker_does_not_raise_when_status_fails(self):
         # `status()` is the last thing the worker calls, and the state it reads
         # is the state the whole operation depends on.
@@ -1918,6 +2014,20 @@ class WorkerBoundaryTests(Temp):
                           side_effect=RuntimeError("synthetic")):
             with self.assertLogs(onboarding.LOGGER, level="WARNING"):
                 status = onboarder.rearm_hotspot()
+        self.assertEqual(status["phase"], "failed")
+
+    def test_the_join_worker_does_not_raise_when_the_state_cannot_be_read(self):
+        # `_safe_status` inside `_join_reserved` covers a failing status read.
+        # This fails the state read itself, so only the worker's own boundary
+        # can keep the exception out of the thread.
+        onboarder = self.onboarder(FakeNetwork())
+        onboarder.start_hotspot()
+        accepted, token = onboarder.admit("HomeWiFi")
+        self.assertTrue(accepted)
+        with patch.object(state_module, "read", side_effect=RuntimeError("synthetic")):
+            with self.assertLogs(onboarding.LOGGER, level="WARNING"):
+                status = onboarder.join_reserved("HomeWiFi", "correct horse battery",
+                                                 None, token=token)
         self.assertEqual(status["phase"], "failed")
 
     def test_the_join_worker_does_not_raise_when_status_fails(self):

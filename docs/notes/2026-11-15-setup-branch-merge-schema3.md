@@ -47,7 +47,7 @@ moved.
 ## Verification
 
 - Working directory: the branch worktree; `python3 -B -m unittest discover -s tests`
-  — 705 tests, 47 skipped, OK (249 onboarding, 40 installer cases in the files).
+  — 711 tests, 47 skipped, OK (255 onboarding, 40 installer cases in the files).
 - `DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'`
   — 47 tests, OK, against an installed Chromium.
 - Devserver smoke, 2026-11-15: `GET /api/status` reports `security: none` and no
@@ -91,8 +91,14 @@ for them:
   retired key and "filling anything the older schema lacked". Both are now wrong:
   the schema is 3, and only the fields an earlier build could lack are filled.
 - It says the removed password is simply dropped. It is now carried into
-  `setup-secret` and `wpa` into `setup-security` first, so an upgrade cannot open
-  a protected network.
+  `setup-secret` and `wpa` into `setup-security` first, so the first boot after
+  an upgrade cannot open a network that was protected. Two writes can still fail:
+  a password that cannot be moved is replaced by a fresh one, and a mode that
+  cannot be stored protects only that boot (see the residuals).
+- It says the page reports "the mode the device is really in". It reports the
+  mode the device has **stored**, which is what it will use on its next start;
+  it is not re-derived from the running access point, so a change whose re-raise
+  failed is reported as the new mode while the old network is still up.
 - Its evidence block reports 621 tests (40 skipped) and 40 browser tests, and its
   prose says "three independent reviews". The counts are from before three merges
   with `main`; the numbers above are the current ones, and more review rounds
@@ -110,3 +116,14 @@ for them:
   rewritten can truncate it; the next raise rewrites it, and the password
   itself is in `setup-secret`, so the loss is the note rather than the
   credential. Not changed.
+- **`status.security` is the stored mode, not the running access point's.** It
+  is set at construction and by a change, and never re-derived from what is
+  actually up. When a stored change's re-raise fails, the page reports the mode
+  the device will use on its next start, not the one it is serving. That is the
+  useful answer for the person, and it is not the same claim; the page copy and
+  this note now say "the mode the device will use".
+- **A mode that cannot be stored protects only this boot.** If the mode file
+  cannot be written during an upgrade, the adopted `wpa` is used for the running
+  process (so the access point is protected now) but the next boot falls back to
+  the installer's flag. The journal says so. Nothing can be persisted on that
+  filesystem, so this is the strongest available outcome, not an oversight.

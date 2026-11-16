@@ -432,11 +432,13 @@ def serve(state_dir, card_note=None, network=None, address=None,
         # install time: the journal is where an open setup network is noticed.
         # The mode reported is the one the device will use, which after a change
         # on the page is the stored one rather than the unit's argument - so the
-        # message names which of the two it came from instead of always blaming
-        # the flag.
+        # message names where it came from instead of always blaming the flag.
+        # An adopted upgrade is always `wpa`, so it cannot reach this line; the
+        # entry keeps the mapping from having a silent hole.
         LOGGER.warning("setup network is OPEN: mode none, from %s",
-                       "the setup page" if onboarder.security_source == "page"
-                       else "--setup-security")
+                       {"page": "the setup page",
+                        "upgrade": "an upgraded setup record"}.get(
+                            onboarder.security_source, "--setup-security"))
 
     wait_for_uplink(network, uplink_wait)
     status = onboarder.resume()

@@ -236,9 +236,12 @@ def adopt_legacy_secret(state_path, secret_path, security_path):
     that never raised one. There was no protection to lose, and the installer's
     choice of mode still applies to it.
 
-    Returns the mode adopted, or None. Never raises: a device that cannot be
-    read has a bigger problem than this, and `state.read` will report it with
-    the message it deserves.
+    Returns the mode adopted, or None. A device that was protected returns
+    `wpa` even when one of the two writes fails, because opening the network now
+    is worse than a mode that does not outlive the reboot; the journal says
+    which write failed. Never raises: a device that cannot be read has a bigger
+    problem than this, and `state.read` will report it with the message it
+    deserves.
     """
     try:
         raw = Path(state_path).read_text(encoding="utf-8")
@@ -273,9 +276,15 @@ def adopt_legacy_secret(state_path, secret_path, security_path):
     try:
         _write_mode(security_path, "wpa")
     except OSError:
-        LOGGER.error("The setup network's mode could not be stored; this device "
-                     "may come up with the mode the installer chose")
-        return None
+        # The choice cannot be kept, but this boot can still be protected: the
+        # caller uses the returned mode for the running process, and the next
+        # boot falls back to the installer's flag and says so in the journal.
+        # Opening the network now is worse than a mode that does not outlive
+        # the reboot.
+        LOGGER.error("The setup network's mode could not be stored; this boot "
+                     "stays protected, but a later boot may use the mode the "
+                     "installer chose")
+        return "wpa"
     LOGGER.warning("Carried the setup password from the previous record into its "
                    "own file, so the setup network stays protected")
     return "wpa"
@@ -367,10 +376,14 @@ class Onboarder:
         # because it is the later decision, and it is what the card note, the
         # running access point and this field all have to agree about.
         stored = self._stored_security()
-        self.security = stored or security
-        # Which of the two decided, kept for the one place that has to say so
+        # A carried-forward `wpa` is a decision even when it could not be
+        # stored, so it outranks the installer's flag for this process at least.
+        self.security = stored or self.adopted_security or security
+        # Which of the three decided, kept for the one place that has to say so
         # out loud: the journal line that reports an open setup network.
-        self.security_source = "page" if stored else "install"
+        self.security_source = ("page" if stored
+                                else "upgrade" if self.adopted_security
+                                else "install")
         self._last_submit = 0.0
         # Reentrant: a failure path may settle and then re-raise the access
         # point while still holding the admission lock, so a new request cannot
@@ -915,7 +928,9 @@ class Onboarder:
                        "page is still listening on the old address")
             LOGGER.warning("%s; restart the setup service to move it", message)
             self._remember_error(message)
-        return self.status()
+        # The raise has already happened. A status read that fails here must not
+        # reach `_rearm`'s handler and be reported as "did not change".
+        return self._safe_status()
 
     def admit(self, ssid):
         """Reserve the one in-flight attempt, or say why not.
