@@ -13,7 +13,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Roadmap](roadmap.md) | Current packets, prerequisites, and acceptance; not permission to operate devices |
 | [Visual progress map](progress.md) | Colour-coded product overview and every roadmap dependency; generated from the roadmap and work queue |
 | [Work queue](work-queue.md) | Execution state: what is running, queued, in review, done or blocked, and what blocks it |
-| [Browser enrollment](design/browser-enrollment.md) | How a normal person gets into the device page without a terminal: four options, a recommendation, and the one decision needed. A proposal, not an approval |
+| [Browser enrollment](design/browser-enrollment.md) | How a normal person gets into the device page without a terminal: the four options, the one James chose (a password chosen during setup), the development backdoors and how they are kept out of production. Decided, not built |
 | [Parts in hand](design/parts-manifest.md) | The parts James reports owning, separated from assumptions, as the input to enclosure design |
 | [Task chains](task-chains.md) | “Any chain” / named-chain worker entrypoint, atomic claims, workspaces, and handoffs |
 | [AI workflow](ai-workflow.md) | Coordinator/worker roles, the operating model as practised, task scope, review, and integration |
