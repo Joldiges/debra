@@ -105,6 +105,7 @@ so a claim, an item id or a review can be resolved instead of being remembered.
 | [Test coverage audit](notes/2026-11-15-test-coverage-audit.md) | What the offline tests do and do not reach |
 | [Web acceptance criteria review](notes/2026-11-15-web-acceptance-criteria-review.md) and [rewrite](notes/2026-11-15-web-acceptance-criteria-rewrite.md) | Why the WEB acceptance criteria were rewritten, and the rewritten text |
 | [Browser code r2 repair](notes/2026-11-15-browser-code-r2-repair.md) and [browser docs handoff](notes/2026-11-15-browser-docs-handoff.md) | Session handoffs for the web candidate |
+| [Browser harness and keyfile findings](notes/2026-11-15-browser-harness-and-keyfile-findings.md) | What headless Chromium cannot do here (a 390 px viewport, inline styles under CSP) and what NetworkManager's keyfile reader really parses |
 | [Research readiness handoff](notes/2026-11-14-research-readiness-handoff.md), [task-chain dispatch](notes/2026-11-14-task-chain-dispatch.md) and [review repairs](notes/2026-11-14-task-chain-review-repairs.md) | Earlier session handoffs for dispatch and review |
 | [Lab Pi 5 preparation plan](guides/pi5-lab-preparation.md) | The 2026-11-15 plan for the lab Pi. It was **overtaken**: the device was built without the restore gate it asks for, and nothing in it was replayed from a fresh card |
 | [Historical checklist](outline.md) | Pre-repository checklist; the script it names is absent from this checkout |
