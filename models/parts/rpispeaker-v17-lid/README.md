@@ -67,6 +67,8 @@ connector slot is an assumed size and location, not a verified cable route.*
   flange, terminal geometry or retention method is known. The sleeve has
   0.2 mm radial clearance, so it does **not** retain a driver by itself; a
   safe, serviceable retainer must be designed after measuring the actual part.
+  [What to measure](measure-request.md) lists the five numbers and what each one
+  changes.
   This is not a carrier for a DWEII module and does not claim to seal one.
 - The front opening is one unobstructed Ø28.4 mm aperture, rather than a
   protective grille. Open area is π × 14.2² = **633.47 mm²**, or

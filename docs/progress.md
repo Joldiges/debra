@@ -12,7 +12,7 @@ validated**, see the [evidence summary](guides/current-status.md).
 
 This is a **tracked planning snapshot, not a live device/worker monitor**.
 Status comes from the [roadmap](roadmap.md) and [work queue](work-queue.md).
-Source fingerprint: `823748072281`. Regenerate after changing either source.
+Source fingerprint: `116998efa9e0`. Regenerate after changing either source.
 
 ## Colour key
 
