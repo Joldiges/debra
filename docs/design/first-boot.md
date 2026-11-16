@@ -54,10 +54,10 @@ does not restart the journey from nothing.
 
 | Phase | Entered when | What is recorded |
 | --- | --- | --- |
-| `unconfigured` | No state file exists yet, so a blank record is returned and written on first change | `schema: 1`, an empty hostname, every other field null, `attempts: 0` |
-| `hotspot` | `resume()` finds no routable Wi-Fi uplink, or a fresh start; also what a failed attempt falls back to | `phase`, `hotspot: {ssid, interface}`, `last_error: null` |
-| `connecting` | A submission was accepted by the page and the worker entered `join()` | `phase`, `ssid`, `attempts` incremented, `last_error: null` |
-| `online` | The adapter returned a Wi-Fi device with a routable IPv4 address | `phase`, `ssid`, `address`, `hotspot: null`, and `baseline` once the capture succeeds |
+| `unconfigured` | No state file exists yet, so a blank record is returned and written on first change | `schema: 2`, a `revision: 0`, an empty hostname, every other field null, `attempts: 0` |
+| `hotspot` | `resume()` finds no routable Wi-Fi uplink, or a fresh start; also what a failed attempt falls back to | `phase`, `hotspot: {ssid, interface}`, `hotspot_password`, `last_error: null` |
+| `connecting` | A submission was accepted by the page and the worker entered `join()` | `phase`, `ssid`, `attempts` incremented, `attempt_token`, `attempt_claimed`, `last_error: null` |
+| `online` | The adapter returned a Wi-Fi device with a routable IPv4 address | `phase`, `ssid`, `address`, `hotspot: null`, and `baseline` once the capture succeeds; `attempt_token` and `attempt_claimed` are cleared |
 | `failed` | The join raised; the setup network could not be raised; or a boot found the device was `online`/`connecting` and is not now | `phase`, a one-line `last_error`, and the `hotspot` record when the setup network came back |
 
 Transitions, in full:
@@ -107,7 +107,7 @@ the operating system is at most `partial`.
 | --- | --- | --- | --- |
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
 | Applying the name | `hostnamectl set-hostname`, so the running system answers to the recorded name | partial | The call now exists and a name that would not resolve is refused before it runs. No boot has applied one on a device, and a failure is logged rather than retried |
-| State across reboots | Closed JSON schema, atomic owner-only writes, refuses unknown keys and phases | implemented | Nothing on the schema; corruption handling is an error by design |
+| State across reboots | Closed JSON schema, atomic owner-only writes, refuses unknown keys and phases, and migrates a schema-1 record on read rather than refusing it | implemented | Corruption handling is an error by design; the migration is the one path that accepts a record the current validator would otherwise refuse, and it drops a schema-1 hotspot because that schema stored no password |
 | Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist and are tested offline. Neither has been enabled or started on a device, and there is no image |
 | Raising the setup network | `nmcli device wifi hotspot` with a fixed profile name and a generated twelve-character password | partial | Never executed on a radio. The password is generated rather than derived from the device name, because the name is broadcast in the setup SSID; it is kept in the `0600` setup state (making that file a credential) and written to `debra-setup.txt` on the boot partition so the owner can read it. No idle timeout, no pinned channel, no enforced WPA2-only mode |
 | Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. The operating systems' captive-portal probe paths are answered with a redirect to the page, built from the bound address rather than the request's `Host`, but whether a phone's probe reaches the access point at all depends on the setup network's DNS, which Debra does not configure; that is unverified, and the card-note address remains the fallback. No phone has been tried. Nearby networks are scanned once, before the access point is raised, and offered in a picker; typing the name still works and is the fallback when the scan finds nothing |

@@ -16,6 +16,11 @@ let generation = 0;
 // started before the POST can receive the state the POST produced, and on a
 // single-radio handover there may be no later poll to repair that.
 let submittedRevision = null;
+// The revision of the answer currently on screen. It only moves forward, so an
+// answer that is older than what the page already shows can never replace it.
+// Ordering against the submission alone let two answers resolve out of order:
+// the newer failure appeared, then an older "still waiting" answer redrew the
+// form over it, because it had started after the submission.
 let lastRevision = null;
 // True only while the person has asked the uncertain card to check again. In
 // that case even an answer with the same revision is useful: it says the device
@@ -29,6 +34,23 @@ function newerThanSubmit(answer) {
   return typeof answer.revision === "number"
     && typeof submittedRevision === "number"
     && answer.revision > submittedRevision;
+}
+
+function acceptable(answer, started) {
+  // "Ask the device again" deliberately wants the same-revision answer: it is
+  // the proof that the device never received the request.
+  if (reconciling) return true;
+  const fresh = typeof answer.revision === "number";
+  if (fresh && typeof lastRevision === "number" && answer.revision <= lastRevision) {
+    // Not newer than the screen already showing. This is what stops two
+    // overlapping answers from resolving out of order, and it is why a request
+    // that started after the submission cannot restore a pre-submission form
+    // over the handover card: its revision is the one already drawn from.
+    return false;
+  }
+  // A request that began after the submission is news, unless it is older by
+  // revision, which is refused above.
+  return started === generation || (fresh && newerThanSubmit(answer));
 }
 
 // A short list covers most homes; "Other" swaps to a two-letter code so no
@@ -192,8 +214,13 @@ async function load() {
     const response = await fetch("/api/status", {cache: "no-store", signal: AbortSignal.timeout(8000)});
     if (!response.ok) throw new Error("The device did not answer");
     const answer = await response.json();
-    if (started !== generation && !reconciling && !newerThanSubmit(answer)) return;
-    lastRevision = typeof answer.revision === "number" ? answer.revision : lastRevision;
+    if (!acceptable(answer, started)) return;
+    if (typeof answer.revision === "number") {
+      // Forward only. A regression here would let the next older answer be
+      // accepted as if it were new.
+      lastRevision = typeof lastRevision === "number"
+        ? Math.max(lastRevision, answer.revision) : answer.revision;
+    }
     status = answer;
     render();
   } catch {

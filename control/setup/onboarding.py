@@ -502,9 +502,11 @@ class Onboarder:
 
         The whole attempt has a failure boundary. An unexpected exception in the
         worker used to escape its thread, leave `phase=connecting` with the claim
-        set, and print a traceback containing a path to stderr. The claim is
-        per-process, so that device refused every later submission until the
-        state was repaired by hand.
+        set, and print a traceback containing a path to stderr. Within this live
+        process that refusal stays: if the settlement, the failure record and the
+        abandon record all fail to write, the device remains `connecting` until
+        the next boot, whose `resume()` clears the claim. A reboot is the repair;
+        nothing outside the process has to touch the state by hand.
         """
         try:
             return self._join_reserved(ssid, psk, country, token)
@@ -815,6 +817,7 @@ class PortalHandler(BaseHTTPRequestHandler):
 
     def _reply(self, code, body, content_type="application/json"):
         payload = body if isinstance(body, bytes) else json.dumps(body).encode()
+        self._replied = True
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
@@ -896,6 +899,26 @@ class PortalHandler(BaseHTTPRequestHandler):
         self._reply(200, page, "text/html; charset=utf-8")
 
     def do_POST(self):
+        """Handle one join request, with a boundary around the whole handler.
+
+        `admit()` writes the state, and a full disk there raised inside
+        `BaseHTTPRequestHandler`: `socketserver` printed the traceback - with the
+        state path in it - to the journal, and the phone got no reply at all. The
+        join worker has its own boundary; this is the other half.
+        """
+        self._replied = False
+        try:
+            self._post_join()
+        except Exception:
+            # The class and a fixed sentence only: an OSError carries a path.
+            LOGGER.warning("A join request could not be handled")
+            if not self._replied:
+                try:
+                    self._reply(500, {"error": "The device could not handle the request"})
+                except OSError:
+                    LOGGER.warning("The failure reply could not be delivered")
+
+    def _post_join(self):
         if self.path != "/api/join":
             self._reply(404, {"error": "Not found"})
             return

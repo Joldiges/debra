@@ -7,6 +7,7 @@ proves the decisions and the HTTP contract, not that a radio works.
 import json
 import secrets
 import hashlib
+import io
 import logging
 import os
 import stat
@@ -17,6 +18,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -2584,3 +2586,175 @@ class BaselineDurabilityTests(Temp):
             baseline_module.capture(self.baseline_dir, root=str(self.dir / "empty"),
                                     stamp="S")
         self.assertIn(True, synced, "the baseline directory itself was never fsynced")
+
+
+class RearmWindowTests(Temp):
+    """No request may be admitted between the failure and the raised AP.
+
+    The r4 repair settled the failure and then re-raised the access point while
+    still holding the admission lock. Pausing inside the raise cannot see that
+    window, because the raise is already inside the lock: the old order released
+    ownership first, so the gap is between the settlement write and the raise.
+    """
+
+    def test_nothing_is_admitted_between_the_failure_and_the_rearm(self):
+        network = FakeNetwork(behaviour="bad-psk")
+        clock = [1000.0]
+        onboarder = self.onboarder(network, clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        real_write = state_module.write
+        entered = threading.Event()
+        release = threading.Event()
+        gated = []
+
+        def gated_write(path, data):
+            if (not gated and data.get("phase") == "failed"
+                    and not data.get("attempt_token")):
+                # This is the settlement inside `_fail`. Hold the worker here.
+                gated.append(True)
+                entered.set()
+                release.wait(5)
+            return real_write(path, data)
+
+        with patch.object(state_module, "write", gated_write):
+            accepted, token = onboarder.admit("HomeWiFi")
+            self.assertTrue(accepted)
+            worker = threading.Thread(target=onboarder.join_reserved,
+                                      args=("HomeWiFi", "wrong password", None, token))
+            worker.start()
+            self.assertTrue(entered.wait(5), "the failure was never recorded")
+
+            clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+            admitted = []
+            newcomer = threading.Thread(target=lambda: admitted.append(onboarder.admit("Other")))
+            newcomer.start()
+            newcomer.join(timeout=0.5)
+            self.assertTrue(
+                newcomer.is_alive(),
+                "a new attempt was admitted while the access point was still down")
+            self.assertEqual(admitted, [])
+
+            release.set()
+            worker.join(timeout=5)
+            newcomer.join(timeout=5)
+        self.assertFalse(worker.is_alive())
+        self.assertFalse(newcomer.is_alive())
+        self.assertTrue(admitted and admitted[0][0], "the retry after the rearm was refused")
+        self.assertEqual(onboarder.status()["phase"], "connecting")
+
+
+class SupersededFailureTests(Temp):
+    """A worker that lost its reservation must not record its own failure.
+
+    The settlement already re-checks the token; the failure path reached the
+    same state through `start_hotspot()`, which wrote a full record. A worker
+    superseded while failing wiped the newer attempt's token, published its own
+    stale reason and raised the access point over it.
+    """
+
+    def test_a_superseded_worker_cannot_record_its_failure(self):
+        network = FakeNetwork(behaviour="bad-psk")
+        clock = [1000.0]
+        onboarder = self.onboarder(network, clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        accepted, first = onboarder.admit("HomeWiFi")
+        self.assertTrue(accepted)
+        # The phone never got the reply, so it retried with a different name.
+        # That is the production path to a superseded worker.
+        onboarder.release(first)
+        clock[0] += onboarding.SUBMIT_INTERVAL_S + 1
+        accepted, second = onboarder.admit("Other")
+        self.assertTrue(accepted)
+        raises = len([call for call in network.calls if call[0] == "start_hotspot"])
+
+        status = onboarder._fail(first, "The Wi-Fi password was refused by the network")
+
+        stored = state_module.read(self.state_path)
+        self.assertEqual(stored["phase"], "connecting",
+                         "a superseded worker ended the newer attempt")
+        self.assertEqual(stored["attempt_token"], second,
+                         "a superseded worker cleared the newer attempt's token")
+        self.assertEqual(stored["ssid"], "Other")
+        self.assertIsNone(stored["last_error"],
+                          "a superseded worker published its own stale reason")
+        self.assertEqual(len([call for call in network.calls
+                              if call[0] == "start_hotspot"]), raises,
+                         "a superseded worker raised the access point over the newer attempt")
+        self.assertEqual(status["phase"], "connecting")
+
+
+class HandlerBoundaryTests(Temp):
+    """The request handler is a boundary too, not only the join worker."""
+
+    def test_a_state_write_failure_answers_the_phone_instead_of_tracebacking(self):
+        # `admit()` writes the state. A full disk there raised inside
+        # BaseHTTPRequestHandler: socketserver printed the traceback, with the
+        # state path in it, to the journal, and the phone got no reply at all.
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, clock=lambda: 1000.0)
+        onboarder.start_hotspot()
+        server = onboarding.Portal(("127.0.0.1", 0), onboarder,
+                                   onboarding.ASSETS / "setup.html")
+        host = "127.0.0.1:%d" % server.server_port
+        server.host = host
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        stderr = io.StringIO()
+        real_write = state_module.write
+
+        def full_disk(path, data):
+            raise OSError(28, "No space left on device: " + str(self.state_path))
+
+        request = urllib.request.Request(
+            "http://" + host + "/api/join",
+            data=json.dumps({"ssid": "HomeWiFi", "psk": "correct horse"}).encode(),
+            method="POST")
+        request.add_header("Host", host)
+        request.add_header("Content-Type", "application/json")
+        try:
+            with patch.object(state_module, "write", full_disk), \
+                    redirect_stderr(stderr):
+                try:
+                    with urllib.request.urlopen(request, timeout=10) as response:
+                        code, body = response.status, response.read()
+                except urllib.error.HTTPError as exc:
+                    code, body = exc.code, exc.read()
+        finally:
+            server.shutdown()
+            thread.join()
+            server.server_close()
+        self.assertEqual(code, 500)
+        self.assertIn(b"could not handle the request", body)
+        self.assertNotIn(str(self.state_path), stderr.getvalue(),
+                         "the journal received the state path")
+        self.assertNotIn("Traceback", stderr.getvalue(),
+                         "socketserver printed a traceback for a handled failure")
+        self.assertEqual(state_module.read(self.state_path)["phase"], "hotspot")
+
+
+class PersistedBaselineFailureTests(Temp):
+    """The recorded failure must outlive the process that saw it.
+
+    The in-memory copy is what the running page shows. It is not what the next
+    boot reads: without the persisted field the page says only "not captured
+    yet" after a reboot, with no reason, and nothing retries visibly.
+    """
+
+    def test_the_next_process_sees_the_recorded_capture_failure(self):
+        onboarder = self.onboarder(FakeNetwork())
+        real_write = state_module.write
+
+        def failing(path, data):
+            if data.get("baseline"):
+                raise OSError(28, "No space left on device")
+            return real_write(path, data)
+
+        with patch.object(state_module, "write", failing):
+            onboarder._capture_baseline()
+        self.assertEqual(onboarder.status()["baseline_error"],
+                         "The device is out of disk space")
+        # A later process has no memory of the failure, only the file.
+        later = self.onboarder(FakeNetwork())
+        self.assertEqual(later.status()["baseline_error"],
+                         "The device is out of disk space",
+                         "the recorded failure did not survive the process that saw it")

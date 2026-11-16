@@ -9,6 +9,11 @@ The setup network's own password is a different credential and is kept here. It
 is generated, not derived: a password computed from the device name is computable
 by anyone who can see the name broadcast, which is everyone in range. It is also
 written to the boot-partition note, which is how the owner learns it.
+
+Every write bumps a `revision`. The setup page uses it to order answers: an
+answer is only news if it is newer than the screen it would replace. Schema 1
+records are migrated on read; that migration is the one path that accepts a
+record the current validator would refuse.
 """
 
 from __future__ import annotations

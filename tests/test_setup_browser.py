@@ -396,6 +396,40 @@ window.addEventListener("load", async () => {
       assert(!shown("uncertain"), "the uncertain card stayed up after the device answered");
       assert(byId("ssid").value === "HomeWiFi", "the retry form lost the network name");
       result.textContent = "PASS: the uncertain card has a working way back to the form";
+    } else if (mode === "older-answer") {
+      // Two status answers are not ordered against each other by the request's
+      // start time: an older answer delivered last used to redraw a screen the
+      // person had already moved past.
+      assert(await until(() => shown("form-card")), "the Wi-Fi form never appeared");
+      const base = await (await realFetch("/api/status", {cache: "no-store"})).json();
+      const before = window.fetch;
+      let queued = [];
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/status" && queued.length
+            && (options.method || "GET").toUpperCase() === "GET") {
+          const next = queued.shift();
+          return new Response(JSON.stringify(next),
+                              {status: 200, headers: {"Content-Type": "application/json"}});
+        }
+        return before(path, options);
+      };
+      const newer = Object.assign({}, base, {
+        revision: (base.revision || 0) + 1, phase: "failed",
+        last_error: "SENTINEL NEWER ANSWER"});
+      const older = Object.assign({}, base, {
+        revision: base.revision || 0, phase: "hotspot", last_error: null});
+      queued = [newer];
+      await load();
+      assert(shown("failed"), "the newer answer was not rendered");
+      assert(textOf("failed-reason") === "SENTINEL NEWER ANSWER",
+             "the newer answer's reason is not on screen: " + JSON.stringify(textOf("failed-reason")));
+      const shownRevision = lastRevision;
+      queued = [older];
+      await load();
+      assert(shown("failed"), "an older status answer replaced a newer screen");
+      assert(lastRevision === shownRevision,
+             "the page's revision went backwards: " + JSON.stringify(lastRevision));
+      result.textContent = "PASS: an older status answer cannot replace a newer one";
     } else if (mode === "validation") {
       assert(await formReady(), "the Wi-Fi form never appeared");
       fill("HomeWiFi", "short");
@@ -896,6 +930,9 @@ class SetupBrowserTests(unittest.TestCase):
         state = self.assert_driven("uncertain-recovery")
         self.assertEqual(state["phase"], "hotspot",
                          "a lost reply changed the device's own state")
+
+    def test_an_older_status_answer_cannot_replace_a_newer_one(self):
+        self.assert_driven("older-answer")
 
     def test_bad_input_is_refused_in_the_page_without_a_request(self):
         self.assert_driven("validation")
