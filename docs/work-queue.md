@@ -38,8 +38,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `code-r8` | — | `.local/reviews/code-r8-20261115/` | independent, `gpt-6.1-sol`; frozen on `709b3df`, judging whether the nine r7 findings are closed and what the repairs broke |
-| Acceptance review `setup-r5` | — | `.local/reviews/setup-r5-20261115/` | independent, `gpt-6.1-sol`; frozen on `a550a96`, judging whether the eight r4 findings and all six surviving r4 mutations are closed, and what the repair broke equally badly |
+| Repair of the `code-r8` findings | WEB03 | `control/web/` | worker-owned; `code-r8` returned **changes requested** (restore path, launchability guard, notice placement, HAT rows, refusal count, Setup staleness) |
+| Acceptance review `setup-r6` | — | `.local/reviews/setup-r6-20261115/` | independent, `gpt-6.1-sol`; to be frozen on `f9c5e7b`, judging the five r5 findings and the four re-run transforms |
 
 ## Done this round
 
@@ -52,6 +52,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | The r3 review's blockers | N02 | `5c8fde4` — the SSID is NetworkManager's byte list (proven against libnm), the hostname is reconciled every boot, the baseline pointer is verified or adopted, tar metadata comes from the read descriptor, claim/settle are atomic, and the page keeps a name's spaces and says "not known yet" instead of claiming a handover. Both surviving r3 mutations are now caught |
 | Four installer gaps: retained releases re-verified, staging files created 0600, the device list validated in `install()`, and a start limit in `[Unit]` | B13, WEB03 | `6b762ba` — each checked by reverting it and watching a named test fail; `--restore` now refuses a unit whose release no longer matches its content address |
 | The r4 review's blockers | N02 | `a550a96` — a claim no longer survives a reboot, the failure rearm holds the admission lock, the setup password is generated once and reused, state schema 2 carries a monotonic revision and its consistency rules, baseline adoption is one bounded validator, a failed pointer write is adopted rather than re-captured, and the page accepts a newer answer and can leave the uncertain card. All six surviving r4 mutations plus a request-time status guard now fail a named test |
+| The r5 review's narrow findings | N02 | `f9c5e7b` — answers are now ordered against each other by revision, `do_POST` has a fixed-sentence boundary, and the three properties a revert could silently remove (rearm-in-lock, superseded failure, persisted capture error) have tests. Schema 2 is documented. R5-06 remains bounded and documented |
 | The r7 review's blockers | WEB03 | `709b3df` — the documented rollback command runs without `--host` and refuses an unstartable unit, the keyless dashboard carries its own warning, HAT detection needs a vendor and a two-mic word, parser refusals reach the page, a 390 px page holds a long sink identity, an oversized valid body is refused, same-device detection is the exact host or its `.local` alias, a Switch link is not refused as cross-site, and the labels name their sources |
 | The r2 review's blockers | N02 | this round — the profile is written where NetworkManager keeps it and promoted to autoconnect only after the join is verified; a per-attempt token replaces the SSID check; the reservation is released when the reply cannot be written; the country is set after the AP is down; the portal prints the address it is served on; the baseline is never overwritten, never archives itself, and `latest()` verifies the hash; the page keeps what was typed across a poll and shows a baseline failure |
 | Browser proof of the device list | — | `test_development_bypass_and_device_links` already drives the configured and discovered badges, the same-device case, a literal label, a discovery start failure, an empty scan and a refused advertisement |
@@ -59,6 +60,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Installed-artifact tests and atomic rollback | B13 | `508a7f9`, `9d11d08` — 16 tests; two real gaps recorded rather than asserted away |
 | Dashboard Setup card | WEB03 | `8b05215` — 21 tests, read-only, every choice disabled with its reason |
 | First-boot design page | N02 | `b136db2`, kept in step with the code by `40ef8dc` |
+| A card that can be booted into the trial, and a written trial | N02 | `92f31c7` — `--enable` links the unit into `multi-user.target.wants` so a tree prepared with `--root` starts at first boot; 7 tests. `docs/testing/first-boot-trial-plan.md` states what one run would prove, the run sheet, the recovery path and the three questions only James can answer. No card prepared, no service started |
 | Speaker cover carrying the four-screw pattern | — | `4b62ff6`; `SQ_PITCH` still an assumption |
 | Notices checklist in the activity TUI | — | `3f7236a` — 22 tests, driven in a real pty |
 | The v17 body as an editable source | A2 | `f7b2163` — reconstruction, honest about what it cannot reproduce |
