@@ -607,6 +607,14 @@ window.addEventListener("load", async () => {
     assert(!document.getElementById("bypass").hidden,
            "bypass control hidden although the device runs without a key");
     assert(!document.getElementById("bypass-note").hidden, "no warning about the open device");
+    // A beginner is asked for a key with no statement of where it comes from.
+    // The hint must say the page cannot show it and must not claim a setup
+    // screen hands it over yet.
+    const hint = document.getElementById("key-source");
+    assert(hint && !hint.hidden, "no hint about where the access key comes from");
+    assert(/never shows it/.test(hint.textContent), "the hint does not say the page cannot show the key");
+    assert(/planned, not built/.test(hint.textContent),
+           "the hint promises a setup screen that does not exist");
     assert(document.getElementById("device-links").children.length === 1, "device link not rendered");
     const first = document.getElementById("device-links").children[0];
     assert(first.querySelector("a.switch")?.href === "http://debra-3c6b3f.local:8787/",
