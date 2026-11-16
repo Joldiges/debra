@@ -2,14 +2,17 @@
 
 Debra is working toward an affordable Home Assistant voice and music device a
 beginner can set up from a browser. One working lab device, a tested browser-control
-prototype, offline-tested setup code, CAD models and research exist; no appliance
-image, no onboarding that has ever run on a device, no updates
-screen and no recovery do. Unchecked claims say unknown, per the [evidence labels](../evidence.md),
-as of 2026-11-15. SendSpin is the initial music path, Snapcast the alternative, and
-full original Pi Zero W support is still an unproven goal.
+prototype, a setup service that has run once on a second board, CAD models and
+research exist; no appliance image, no onboarding page that has ever served a
+person, no updates screen and no recovery do. Unchecked claims say unknown, per
+the [evidence labels](../evidence.md), as of 2026-11-16. SendSpin is the initial
+music path, Snapcast the alternative, and full original Pi Zero W support is
+still an unproven goal.
 
 ## What works on the lab device
-There is **one** device. No second device has been built.
+The Pi 5 below is the device that answers voice and music. A second board — a
+Zero 2 W — has since run the setup service once (see the next section); it is not
+a second finished device.
 
 - Pi 5 Model B Rev 1.0, 4 GB, Pi OS Lite 64-bit (Debian 13), ReSpeaker 2-Mics
   HAT v2.0, PipeWire 1.4.2, linux-voice-assistant v1.1.18 and Sendspin 9.1.0
@@ -46,10 +49,15 @@ These run on a Fedora development computer, not on the Pi.
   and lists announced devices (15 tests). The activity table has 98 tests and its
   notices checklist 24; the task helper and research runner 15 and 9
   ([unattended runner](scheduled-runner.md)).
-- The first-boot setup service in `control/setup/` is offline-tested only
-  ([README](../../control/setup/README.md)): 177 tests for naming, onboarding and
-  the baseline, and 39 for its installer. This code has never run on a device: it
-  has raised no radio, joined no network, applied no name or captured a baseline.
+- The first-boot setup service in `control/setup/` has run **once** on a Pi Zero
+  2 W ([first device run](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)):
+  the online path finished in 1.28 s, renamed the board from its hardware serial
+  (`debra-lab` → `debra-8518d6`), captured a baseline, enabled its unit and left
+  port 80 closed. The access-point path has never run: no radio raised, no join
+  performed by Debra, and the rename by a *first* boot is unexercised. Two
+  defects around the rename (a stale `/etc/hosts` alias and mDNS not following)
+  were found there and repaired. 177 tests cover naming, onboarding and the
+  baseline, and 39 the installer ([README](../../control/setup/README.md)).
 - The activity TUI has a **Notices** tab: one checklist of everything worth not
   missing (blockers, confirmations, failed research tasks, a turn running too
   long), ticked off with `x` and kept as a dimmed "checked off" count so a
@@ -97,12 +105,12 @@ is still `not-run`.
 ## What does not exist
 - No appliance image or image build: nothing here turns a blank card into a
   working Debra device.
-- No onboarding that has run on a device: the setup portal, the hardware-derived
-  `debra-<id>` name and the first baseline exist as offline-tested code, but no
-  radio has been raised, no network joined and no name applied by them. There is
-  no captive portal. Browser enrollment is **decided but not built**: the device
-  password is to be chosen during setup, with development-only provisions (a
-  bypass, an uncontested reset and `debra`) that production mode must refuse
+- No onboarding page that has served a person: the setup service has run once on
+  a real board on its **online** path, but the access point, the captive portal,
+  a join performed by Debra and the first-boot rename are all unexercised. There
+  is no captive portal. Browser enrollment is **decided but not built**: the
+  device password is to be chosen during setup, with development-only provisions
+  (a bypass, an uncontested reset and `debra`) that production mode must refuse
   ([decision](../design/browser-enrollment.md)); today the page's access key is
   only obtainable from a terminal, and there is no revocation.
 - No updates screen and no per-component update policy.

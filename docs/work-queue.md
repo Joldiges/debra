@@ -90,7 +90,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Why it is next |
 |---|---|---|
-| Device run of the onboarding flow | N02 | needs a spare card and one of the next Pis; nothing in `control/setup/` has touched a radio |
+| Device run of the **access-point** flow | N02 | the service has run once on a Zero 2 W, but only on its online path ([record](testing/results/2026-11-15-zero2w-setup-service-first-run.md)): no radio has been raised, no join performed by Debra, and the rename by a first boot is unexercised. Needs a card and a board that is allowed to lose its network |
 | Captive-portal probes may never arrive | N02 | researched: NM shared mode starts dnsmasq without `--no-resolv`, so with no uplink the probe names cannot resolve. The smallest fix is one file, `dnsmasq-shared.d/50-debra-captive.conf` with `address=/#/<AP address>`; see [the note](notes/2026-11-15-captive-portal-dns-in-nm-shared-mode.md). Not implemented: `control/setup/` is frozen under review, the AP address should be made explicit first, and dnsmasq presence plus the real `--conf-dir` need a device check |
 | A real NetworkManager has never loaded the Wi-Fi profile | N02 | the profile is written into `/etc/NetworkManager/system-connections` with `autoconnect=false` and promoted after a verified join. That the keyfile plugin reads it, that it survives a reboot, and that the promotion takes effect are all unproven |
 | The radio handover has never run | N02 | stop the access point, associate, verify, and restore the access point on failure is only exercised against the fake. No `nmcli`, `hostnamectl` or `raspi-config` call has been made by Debra |
