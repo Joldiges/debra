@@ -131,10 +131,65 @@ changes the name and stops, leaving the two consumers of the name behind.
   `cloud-init`. The package is installed (`25.2-1~bpo13+1+rpt20`) and its
   `result.json` reports `errors: []` with the `file:///boot/firmware` seed.
 
+## Boot test: the unit runs at boot, and both defects are boot-transient
+
+The board was rebooted with the unit enabled (`systemctl reboot`; it answered SSH
+again about 16 s later).
+
+| Check | Observed |
+| --- | --- |
+| Unit at boot | started `23:46:12`, `INFO setup phase online, device name debra-8518d6`, deactivated `23:46:15`, `Result=success`, `NRestarts=0`, 1.29 s |
+| Port 80 | nothing listening |
+| State | `setup.json` sha256 unchanged; still one baseline, no second archive |
+| Network | `home` activated on `wlan0`, `192.168.0.99` |
+| mDNS | `debra-8518d6.local` → `192.168.0.99`; `debra-lab.local` times out |
+| `hostname -f` | `debra-8518d6` — works again |
+| `sudo` | quiet — no "unable to resolve host" |
+
+So the service does run correctly as part of a boot, decides online, and leaves
+the device connected and unchanged.
+
+**What fixed defect 1 was cloud-init, not Debra.** cloud-init 25.2 ran in that
+same boot (finished 26.5 s in) and rewrote the file to:
+
+```
+127.0.1.1 debra-8518d6 debra-lab
+```
+
+That is why `hostname -f` and `sudo` work again — and why the previous name
+survives as a secondary alias. Two consequences:
+
+- the repair depends on cloud-init running on every boot, which is a property of
+  this image and not something Debra controls. An image without cloud-init, or a
+  device with it disabled, keeps the stale alias indefinitely;
+- the service cannot assume the file is somebody else's problem. It renamed the
+  device and left two consumers of the name behind, and only a reboot or another
+  service repaired them.
+
+Defect 2 is the same shape and also self-corrects: `avahi-daemon` starts after
+`/etc/hostname` already holds the new name, so at boot it announces the right
+one. Both defects are confined to the window between a rename and the next boot —
+which is exactly the window a person installing this on a running device sits in.
+
+## Fix
+
+`Nmcli.set_hostname()` now applies the whole identity rather than the hostname
+alone: it reads the current name with `hostnamectl --static`, renames, rewrites
+the `127.0.1.1` line through a new pure function `hosts_naming()`, and restarts
+`avahi-daemon.service` **only when the name actually changed**. The alias write
+is in place, so the file keeps its owner, mode and any symlink; a failure in
+either the alias write or the responder restart logs a warning and does not fail
+the boot, because the name itself is applied and the device works.
+
+Tests: `tests/test_setup_identity.py` (14 cases: file shapes, idempotency, the
+restart only on change, invalid names writing nothing, and both failures staying
+non-fatal). Full suite: 675 tests, the only two errors are in `control/web/`,
+which this change does not touch.
+
 ## Not done
 
-- No reboot after install. The unit is enabled but has never run as part of a
-  boot, so "runs at boot, after NetworkManager is up, and leaves the device
-  online" is still unproven.
 - The onboarding page, the access point, a join performed by Debra, the rename
   by a *first* boot, and a restore from the baseline are all still unexercised.
+- The fix above is reviewed but not yet reinstalled on the board, so the device
+  is still running the release that leaves `/etc/hosts` and mDNS behind until
+  the next boot.
