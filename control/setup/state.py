@@ -95,7 +95,12 @@ def migrate(data):
     schema = data.get("schema")
     if isinstance(schema, bool) or not isinstance(schema, int):
         return data
-    if schema >= SCHEMA:
+    if not 1 <= schema < SCHEMA:
+        # A record from a *newer* schema is left for `validate` to refuse. So is
+        # a version that never existed: schema 0 or a negative one is a corrupt
+        # file, and filling it from `blank()` would silently reset a device that
+        # had already been configured, which `read`'s docstring promises never
+        # to do.
         return data
     migrated = {key: value for key, value in data.items() if key not in DROPPED}
     for key, value in blank().items():
@@ -176,14 +181,23 @@ def read(path):
         # rather than given up on - the filesystem may only be read-only for a
         # while - but the warning is logged once per path, because this is on
         # the status path and a poll must not repeat it every fifteen seconds.
+        # Only if the file is still the one that was read: `read` is not under
+        # the same lock as every writer, and a record saved in between must not
+        # be replaced by this older one. Not counted as a failed write-back -
+        # the newer record is the one that will be used.
         try:
-            migrated = write(path, migrated)
-            _WRITE_BACK_FAILED.discard(str(path))
-        except (OSError, ValueError):
-            if str(path) not in _WRITE_BACK_FAILED:
-                _WRITE_BACK_FAILED.add(str(path))
-                LOGGER.warning("The migrated setup state could not be written back; "
-                               "the retired key stays on disk until it can be")
+            unchanged = path.read_text(encoding="utf-8") == raw
+        except OSError:
+            unchanged = False
+        if unchanged:
+            try:
+                migrated = write(path, migrated)
+                _WRITE_BACK_FAILED.discard(str(path))
+            except (OSError, ValueError):
+                if str(path) not in _WRITE_BACK_FAILED:
+                    _WRITE_BACK_FAILED.add(str(path))
+                    LOGGER.warning("The migrated setup state could not be written "
+                                   "back; the retired key stays on disk until it can be")
     return migrated
 
 

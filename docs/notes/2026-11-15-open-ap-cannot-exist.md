@@ -32,9 +32,11 @@ that a later reviewer found still wrong:
   stores the choice in `setup-security` and it survives reboots, which is what
   `POST /api/security` exists for.
 - **Its line 93 says the review's other findings are not addressed.** Each of
-  the fourteen has a repair in this branch, and each repair is paired with a
-  mutation that fails without it (tabulated below). That is a claim about this
-  branch's diff, not a claim that the work is finished or reviewed.
+  the fourteen has a repair in this branch. The *behavioural* repairs are each
+  paired with a mutation that fails without them, tabulated below; a
+  documentation, README or test-only correction has nothing to mutate and is
+  listed without one. That is a claim about this branch's diff, not a claim that
+  the work is finished or reviewed.
 - **Its "Evidence" counts (415 tests, 9 browser cases) are stale.** The figures
   at the end of this note are the ones this work was checked against.
 - **Its lines 76-80 attribute a `tests/test_docs.py` fix to "the same
@@ -174,8 +176,8 @@ every repair from here on is paired with a mutation that fails without it.
 Executed in the worktree, offline, on this machine:
 
 ```sh
-python3 -B -m unittest discover -s tests                                 # 615 tests, OK, 39 skipped
-DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'  # 39 tests, OK
+python3 -B -m unittest discover -s tests                                 # 621 tests, OK, 40 skipped
+DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'  # 40 tests, OK
 ```
 
 Mutation evidence, each applied in this checkout and reverted with `git
@@ -204,6 +206,12 @@ suite is known to catch:
 | Count a corrupt mode file as a stored choice | 1 failure (junk becomes a choice) |
 | Read a legacy state record without migrating it | 1 error (`ValueError` on first boot) |
 | Log a failed migration on every read | 1 failure (a warning every poll) |
+| Accept a schema version that never existed | 1 failure (a corrupt record reset to blank) |
+| Give up on a failed migration write-back | 1 failure (the retired password stays on disk) |
+| Rewrite the state on every read | 1 failure (a write happens at all) |
+| Drop the guard against a write landing mid-migration | 1 failure (a newer record is clobbered) |
+| Always remove the mode file on a revert | 1 failure (a choice somebody made is lost) |
+| Let a lost answer claim the change was made | 1 browser failure (the uncertain card is not shown) |
 
 ## Known limits of the mode switch
 

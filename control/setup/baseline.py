@@ -48,8 +48,9 @@ CAPTURE = (
 #   before it captures, so this only matters after a power loss mid-raise - which
 #   is exactly when a baseline is taken on the next boot.
 NEVER_CAPTURE = (
-    Path("var/lib/debra/setup"),
-    Path("etc/NetworkManager/system-connections/debra-setup.nmconnection"),
+    (Path("var/lib/debra/setup"), "the setup service's own state directory"),
+    (Path("etc/NetworkManager/system-connections/debra-setup.nmconnection"),
+     "the setup network's own access-point profile"),
 )
 
 MAX_BYTES = 32 * 1024 * 1024
@@ -77,17 +78,11 @@ class _Collector:
         except (OSError, ValueError):
             self.skipped.append({"path": str(path), "reason": "resolves outside the capture root"})
             return
-        for private in NEVER_CAPTURE:
+        for private, reason in NEVER_CAPTURE:
             if relative == private or private in relative.parents:
-                # Named so a manifest somebody inspects says which credential
-                # was held back, not just that something was: one entry is a
-                # directory and the other is a single file.
-                self.skipped.append({
-                    "path": str(relative),
-                    "reason": ("the setup network's own profile"
-                               if relative.suffix == ".nmconnection"
-                               else "the setup service's own state directory"),
-                })
+                # The reason travels with the entry, so a manifest somebody
+                # inspects says which credential was held back and why.
+                self.skipped.append({"path": str(relative), "reason": reason})
                 return
         if self.exclude is not None:
             try:

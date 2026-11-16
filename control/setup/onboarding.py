@@ -152,7 +152,9 @@ def _read_secret(path):
     except (OSError, UnicodeDecodeError) as exc:
         # Readable is not required for a good password, only for the same one
         # twice. Say so in the journal and carry on.
-        LOGGER.warning("Setup secret could not be read: %s", exc)
+        # Class name only: the message carries the path, and this module logs
+        # paths only where the path is the point.
+        LOGGER.warning("Setup secret could not be read: %s", exc.__class__.__name__)
         return ""
 
 
@@ -220,9 +222,11 @@ def setup_secret(secret_path):
     if saved:
         LOGGER.warning("The kept setup password is not a usable passphrase; "
                        "drawing a new one")
+    # The stored value is returned if it was kept; if it was not, the caller
+    # holds this one for the life of the process, which is what stops the reply,
+    # the access point and the note from disagreeing.
     secret = _new_secret()
-    if _store_secret(path, secret):
-        return secret
+    _store_secret(path, secret)
     return secret
 
 
@@ -261,6 +265,8 @@ class Onboarder:
         # unreadable on the next boot.
         self.security_path = (Path(security_path) if security_path
                               else self.state_path.with_name("setup-security"))
+        # Set before the first `_stored_security` call below, which may warn.
+        self._warned_bad_mode = 0
         # The installed mode is the default a device comes up with, not an
         # override of what somebody chose on the page: the stored mode wins
         # because it is the later decision, and it is what the card note, the
@@ -562,12 +568,18 @@ class Onboarder:
         except (FileNotFoundError, IsADirectoryError):
             return None
         except (OSError, UnicodeDecodeError) as exc:
-            LOGGER.warning("The stored setup network mode could not be read: %s", exc)
+            LOGGER.warning("The stored setup network mode could not be read: %s",
+                           exc.__class__.__name__)
             return None
         if stored in SETUP_SECURITY:
             return stored
-        LOGGER.warning("The stored setup network mode is not one of %s; "
-                       "using the installed default", ", ".join(SETUP_SECURITY))
+        # Once per process: this is called from `has_stored_security` on the
+        # change path, and a hand-edited file must not produce a warning every
+        # time somebody presses the button.
+        self._warned_bad_mode += 1
+        if self._warned_bad_mode == 1:
+            LOGGER.warning("The stored setup network mode is not one of %s; "
+                           "using the installed default", ", ".join(SETUP_SECURITY))
         return None
 
     def _write_security(self, mode):

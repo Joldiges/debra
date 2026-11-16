@@ -238,6 +238,95 @@ class StateTests(Temp):
                          "the read-only warning repeated on every read")
         state_module._WRITE_BACK_FAILED.discard(str(self.state_path))
 
+    def test_a_schema_that_never_existed_is_refused_not_reset(self):
+        # Filling a schema-0 record from `blank()` would validate, and the
+        # device would come up as a fresh one - hiding the fact that it had
+        # already been configured, which is what `read`'s docstring promises
+        # never to do.
+        for schema in (0, -1, 99):
+            legacy = dict(state_module.blank("debra-345678"), schema=schema)
+            legacy["hotspot_password"] = "s3cretvalue"
+            self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+            with self.assertRaises(ValueError, msg=f"schema {schema} was accepted"):
+                state_module.read(self.state_path)
+            self.assertIn("s3cretvalue",
+                          self.state_path.read_text(encoding="utf-8"),
+                          "a corrupt record was replaced instead of refused")
+
+    def test_a_current_record_is_not_rewritten_by_reading_it(self):
+        # `read` is on the status path. Rewriting a current record on every poll
+        # would bump `updated` - the page's "last changed" - and write the file
+        # once per poll for nothing.
+        state_module.write(
+            self.state_path, dict(state_module.blank("debra-345678"), phase="hotspot",
+                                  hotspot={"ssid": "Debra-Setup-345678",
+                                           "interface": "wlan0"}))
+        # Not a byte comparison: `updated` has one-second resolution, so a
+        # rewrite inside the same second produces identical bytes and would
+        # pass. What must not happen is the write at all.
+        with patch.object(state_module, "write") as write:
+            for _ in range(3):
+                self.assertEqual(state_module.read(self.state_path)["schema"],
+                                 state_module.SCHEMA)
+        write.assert_not_called()
+
+    def test_a_failed_migration_is_retried_on_a_later_read(self):
+        # A read-only filesystem is often temporary. Giving up after the first
+        # failure would leave the retired password on disk for ever.
+        legacy = dict(state_module.blank("debra-345678"), schema=1)
+        legacy["hotspot_password"] = "s3cretvalue"
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        state_module._WRITE_BACK_FAILED.discard(str(self.state_path))
+        real_write = state_module.write
+        failures = [OSError(30, "Read-only file system")]
+        calls = []
+
+        def flaky(path, data):
+            calls.append(1)
+            if failures:
+                raise failures.pop()
+            return real_write(path, data)
+
+        with patch.object(state_module, "write", flaky):
+            with self.assertLogs(state_module.LOGGER, level="WARNING"):
+                state_module.read(self.state_path)
+            self.assertIn("s3cretvalue",
+                          self.state_path.read_text(encoding="utf-8"))
+            state_module.read(self.state_path)
+        self.assertEqual(len(calls), 2, "the migrated record was not written the second time")
+        self.assertNotIn("s3cretvalue",
+                         self.state_path.read_text(encoding="utf-8"),
+                         "the retried write-back did not remove the retired password")
+        state_module._WRITE_BACK_FAILED.discard(str(self.state_path))
+
+    def test_a_write_between_read_and_migration_is_not_clobbered(self):
+        # `read` is not under the same lock as every writer. A record saved in
+        # between must not be replaced by the older one being migrated.
+        legacy = dict(state_module.blank("debra-345678"), schema=1)
+        legacy["hotspot_password"] = "s3cretvalue"
+        self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        state_module._WRITE_BACK_FAILED.discard(str(self.state_path))
+        real_validate = state_module.validate
+        raced = []
+
+        def racing_validate(data):
+            # Stands in for another writer finishing between our read and our
+            # write-back: `validate` runs after the read and before the write.
+            if not raced:
+                raced.append(1)
+                real_write(self.state_path,
+                           dict(state_module.blank("debra-newer"), phase="online"))
+            return real_validate(data)
+
+        real_write = state_module.write
+        with patch.object(state_module, "validate", racing_validate):
+            with self.assertNoLogs(state_module.LOGGER, level="WARNING"):
+                state_module.read(self.state_path)
+        self.assertEqual(json.loads(self.state_path.read_text())["hostname"],
+                         "debra-newer",
+                         "the migration replaced a record written after it was read")
+        state_module._WRITE_BACK_FAILED.discard(str(self.state_path))
+
     def test_a_record_from_a_newer_schema_is_still_refused(self):
         # The other direction: a downgraded service must not silently drop a
         # field it does not understand.
@@ -1371,6 +1460,28 @@ class SetupSecuritySwitchTests(Temp):
                          "a superseded request undid a later change")
         self.assertEqual(
             self.state_path.with_name("setup-security").read_text().strip(), "wpa")
+
+    def test_a_revert_restores_a_choice_that_was_already_there(self):
+        # `restore_security` has two branches: write the previous mode back when
+        # the device carried a page-made choice, remove the file when it did
+        # not. Both tests for a lost reply take the remove branch, so an
+        # implementation that always removed - silently discarding somebody's
+        # choice - would pass the suite.
+        clock = [1000.0]
+        network = FakeNetwork()
+        onboarder = self.onboarder(network, security="none", clock=lambda: clock[0])
+        onboarder.start_hotspot()
+        onboarder.set_security("none")          # a page-made choice, of "none"
+        stored = self.state_path.with_name("setup-security")
+        self.assertTrue(onboarder.has_stored_security())
+        self.assertIs(onboarder.begin_security_change(), True)
+        generation = onboarder.security_generation()
+        onboarder.set_security("wpa")
+        onboarder.restore_security("none", generation, had_choice=True)
+        self.assertTrue(stored.exists(),
+                        "the revert removed a choice somebody had made")
+        self.assertEqual(stored.read_text(encoding="utf-8").strip(), "none")
+        self.assertEqual(onboarder.security, "none")
 
     def test_a_rearm_that_cannot_run_is_recorded_rather_than_raised(self):
         # This runs in a worker thread, where a traceback goes to stderr and

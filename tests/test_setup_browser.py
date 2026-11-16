@@ -593,6 +593,32 @@ window.addEventListener("load", async () => {
              "the page stopped reporting the mode the device is really in: "
              + JSON.stringify(textOf("security-mode")));
       result.textContent = "PASS: a lost reply says it is not known yet, without claiming the change";
+    } else if (mode === "security-answer-lost") {
+      // The request reached the device and the device acted on it; only the
+      // answer never came back. The page must say it does not know yet, and its
+      // next status poll must report the mode the device is really in - not the
+      // mode the page hoped for, and not a claim that the change failed either.
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      byId("security-toggle").click();
+      assert(await until(() => shown("security-uncertain")),
+             "the uncertain card never appeared when the answer was lost");
+      assert(!shown("security-handover"),
+             "an answer that never arrived was reported as a completed change");
+      assert(textOf("security-uncertain-network") === "Debra-Setup-demo1",
+             "the uncertain card does not name the setup network: "
+             + JSON.stringify(textOf("security-uncertain-network")));
+      assert(!byId("security-toggle").disabled, "the security button stayed disabled");
+      // Poll again, as the page does on its own. The device changed, so this
+      // must now show the protected mode - and it must not still be showing
+      // the uncertain card.
+      await load();
+      assert(!shown("security-uncertain"),
+             "the page kept the uncertain card after a status answer arrived");
+      assert(shown("form-card"), "the page did not return to the form");
+      assert(textOf("security-mode") === "Setup network: password required",
+             "the page does not report the mode the device is really in: "
+             + JSON.stringify(textOf("security-mode")));
+      result.textContent = "PASS: a lost answer leaves the page unsure, then reports the real mode";
     } else {
       throw new Error("unknown case " + JSON.stringify(mode));
     }
@@ -687,12 +713,14 @@ class PortalProxy(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, portal_host, page=None, script=CHECK, cut_after_join=False):
+    def __init__(self, address, portal_host, page=None, script=CHECK,
+                 cut_after_join=False, cut_after_security=False):
         self.portal_host = portal_host
         self.portal_port = int(portal_host.rsplit(":", 1)[1])
         self.page = page
         self.script = script
         self.cut_after_join = cut_after_join
+        self.cut_after_security = cut_after_security
         self.cut = False
         super().__init__(address, ProxyHandler)
 
@@ -781,6 +809,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length)
+        if (self.server.cut_after_security
+                and self.path.split("?")[0] == "/api/security"):
+            # The request reaches the device and it acts on it; the answer is
+            # what never arrives. That is different from a request that never
+            # left the phone, and it is the case the page's uncertain card
+            # exists for.
+            self._portal("POST", self.path, body,
+                         self.headers.get("Content-Type") or "application/json")
+            self.close_connection = True
+            return
         status, content_type, payload = self._portal(
             "POST", self.path, body, self.headers.get("Content-Type") or "application/json")
         self._reply(status, payload, content_type)
@@ -816,7 +854,8 @@ class SetupBrowserTests(unittest.TestCase):
                 time.sleep(0.5 * attempt)
         return result
 
-    def drive(self, case, *arguments, cut=False, page=None, script=CHECK, phone=False):
+    def drive(self, case, *arguments, cut=False, page=None, script=CHECK, phone=False,
+              cut_security=False):
         """Click through one case, returning Chromium's output, state and files.
 
         `phone=True` opens the wrapper that holds the real page in a 390 px frame
@@ -828,7 +867,8 @@ class SetupBrowserTests(unittest.TestCase):
         """
         with DevServer(*arguments) as portal:
             proxy = PortalProxy(("127.0.0.1", 0), portal.host, page=page,
-                                script=script, cut_after_join=cut)
+                                script=script, cut_after_join=cut,
+                                cut_after_security=cut_security)
             thread = threading.Thread(target=proxy.serve_forever, daemon=True)
             thread.start()
             try:
@@ -867,13 +907,15 @@ class SetupBrowserTests(unittest.TestCase):
         self.assertTrue(verdict.startswith('<pre id="browser-test-result">PASS:'),
                         (verdict or result.stdout[-2000:]) + "\n" + result.stderr[-1000:])
 
-    def assert_driven(self, case, *arguments, cut=False):
-        result, state, _files = self.drive(case, *arguments, cut=cut)
+    def assert_driven(self, case, *arguments, cut=False, cut_security=False):
+        result, state, _files = self.drive(case, *arguments, cut=cut,
+                                           cut_security=cut_security)
         self.assert_verdict(result)
         return state
 
-    def assert_driven_with_files(self, case, *arguments, cut=False):
-        result, state, files = self.drive(case, *arguments, cut=cut)
+    def assert_driven_with_files(self, case, *arguments, cut=False, cut_security=False):
+        result, state, files = self.drive(case, *arguments, cut=cut,
+                                          cut_security=cut_security)
         self.assert_verdict(result)
         return state, files
 
@@ -967,22 +1009,33 @@ class SetupBrowserTests(unittest.TestCase):
     def test_a_lost_reply_is_not_reported_as_a_handover(self):
         self.assert_driven("lost-reply")
 
-    def test_a_lost_change_reply_does_not_claim_the_password_was_turned_on(self):
-        # The discriminating page assertions live in the browser case
-        # (`security-lost`): the uncertain card must be shown, the handover must
-        # not, and the next status answer must still report the mode the device
-        # is really in. This wrapper checks the other half - that the device was
-        # left alone.
-        #
-        # `setup-security` is the file that records a page-made mode. It is not
-        # a key in `setup.json`, so reading the state here (as an earlier version
-        # of this test did) could never fail: the mode lives in its own file.
+    def test_a_request_that_never_left_the_phone_leaves_the_device_alone(self):
+        # `security-lost` fails the fetch in the page, so the device is never
+        # asked. The page-side assertions are in the browser case; this checks
+        # the device really was not touched. No file assertion can add anything
+        # to a request that was never sent, so there is none here - the case
+        # that does reach the device is the next test.
         state, files = self.assert_driven_with_files("security-lost")
         self.assertIsNone(state.get("last_error"))
-        self.assertNotIn("setup-security", files,
-                         "a reply that never arrived recorded a mode choice")
-        self.assertNotIn("setup-secret", files,
-                         "a reply that never arrived drew and stored a password")
+        self.assertEqual(files, {}, "a request that was never sent changed a file")
+
+    def test_an_answer_that_is_lost_after_delivery_still_reports_the_real_mode(self):
+        # The other half, and the one the uncertain card exists for: the proxy
+        # delivers the POST and drops the reply, so the device really changes
+        # while the phone hears nothing. The page must not claim a handover.
+        #
+        # `setup-security` is the file that records a page-made mode - not a key
+        # in `setup.json`, which never has one. This is what an earlier version
+        # of this test read, and why it could not fail.
+        state, files = self.assert_driven_with_files("security-answer-lost",
+                                                     cut_security=True)
+        self.assertIsNone(state.get("last_error"))
+        self.assertEqual(files.get("setup-security"), "wpa",
+                         "the delivered change was not recorded on the device")
+        self.assertIn("setup-secret", files,
+                      "the device served a password it did not store")
+        self.assertTrue(files["setup-secret"],
+                        "the stored setup password is empty")
 
     def test_a_status_answer_from_before_the_submission_is_ignored(self):
         self.assert_driven("stale-poll")

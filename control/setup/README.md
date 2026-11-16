@@ -80,7 +80,8 @@ none of them make it a secure portal:
   arrived from, and there is no firewall rule here. What actually keeps the page
   off the household network is that the address exists only while the access
   point does.
-- The access point is `wpa-psk` with a random per-device password. The password
+- In `wpa` mode the access point is `wpa-psk` with a random per-device password
+  (`none` is the development default; see the mode bullet below). The password
   is written to the boot-partition note, which is how its owner learns it, and
   kept in `/var/lib/debra/setup/setup-secret` (`0600`) so the note stays true
   when the access point is raised again. While the access point is up it is also
