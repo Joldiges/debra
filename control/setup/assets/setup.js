@@ -113,7 +113,10 @@ function render() {
     const rows = [
       ["Device name", host],
       ["Address", status.address || "not reported"],
-      ["Setup page", `http://${host}.local:8787/`],
+      // Not "Setup page": this is the device's own control page, and it is a
+      // different program that may not be installed yet. Calling it setup would
+      // send a person looking for the page they are already on.
+      ["Device page", `http://${host}.local:8787/`],
       ["Baseline", status.baseline ? "captured" : "not captured yet"],
     ];
     for (const [label, value] of rows) {

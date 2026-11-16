@@ -318,6 +318,13 @@ window.addEventListener("load", async () => {
       assert(rows.some(row => row.includes("Baseline") && /captured/.test(row)
                               && !/not captured/.test(row)),
              "the baseline line is missing: " + rows.join(" | "));
+      // The device page is a different program from this one, and it may not be
+      // installed. Calling it the "Setup page" points a person at the page they
+      // are already looking at.
+      assert(rows.some(row => row.includes("Device page") && row.includes("debra-demo1.local:8787")),
+             "the device page address is not named: " + rows.join(" | "));
+      assert(!rows.some(row => row.includes("Setup page")),
+             "the connected screen still calls the device page the setup page");
       result.textContent = "PASS: the connected screen shows the address and the baseline";
     } else if (mode === "failed") {
       assert(await until(() => shown("failed")), "the failure screen never appeared");
