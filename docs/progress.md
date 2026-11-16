@@ -12,7 +12,7 @@ validated**, see the [evidence summary](guides/current-status.md).
 
 This is a **tracked planning snapshot, not a live device/worker monitor**.
 Status comes from the [roadmap](roadmap.md) and [work queue](work-queue.md).
-Source fingerprint: `b2f6a7e875a3`. Regenerate after changing either source.
+Source fingerprint: `6a98669345e6`. Regenerate after changing either source.
 
 ## Colour key
 
@@ -125,6 +125,7 @@ flowchart TD
 ## Recorded active work
 
 - Acceptance review `code-r10` — WEB01.
+- Re-review `docs-r3` — Z01, T01.
 
 This is what the queue records, not a liveness check. See
 [review outcomes, queued work and named blockers](work-queue.md), including
