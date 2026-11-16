@@ -100,11 +100,65 @@ for them:
   it is not re-derived from the running access point, so a change whose re-raise
   failed is reported as the new mode while the old network is still up.
 - Its evidence block reports 621 tests (40 skipped) and 40 browser tests, and its
-  prose says "three independent reviews". The counts are from before three merges
-  with `main`; the numbers above are the current ones, and more review rounds
-  have run.
+  prose says "three independent reviews". The counts are from before the merges
+  with `main`; the numbers above are the current ones, and the review series is
+  recorded in the work queue.
+
+## What the tenth review caught in this note's own tree
+
+The tenth review (`verdict-tenth.md`) returned **changes requested** for a defect
+the merges created, not for the design: resolving `state.py` and the test file
+against `main`'s line had left
+`test_a_hotspot_phase_with_no_described_network_is_resolved` as a write with no
+assertions, so deleting the `phase="hotspot"` with no described hotspot
+normalisation failed no test. That normalisation is the only thing standing
+between such a record and `validate`, which refuses it and stops the service
+before any access point is raised. The read and three assertions are restored.
+
+The same round settled `updated`, which was in both `state.FILLED` and
+`state.MANDATORY_1`. It is mandatory — the first prototype revision (`cd4790f`)
+already wrote it — so it is out of `FILLED` and two tests pin the refusal and the
+ordinary fill of `revision`.
+
+Three documentation claims in `control/setup/README.md` were false against the
+code and are corrected: the migration is 1→3 **and** 2→3 rather than "from
+schema 1"; it fills the five fields a later revision added and refuses a missing
+core key, rather than "filling every field the old record never wrote"; and the
+previous unit is snapshot to `previous-units/<stamp>.service`, not
+`debra-setup.service.previous-<stamp>`. The installer was also said to install
+"a random per-device password on the boot-partition note"; it writes the mode and
+the service generates the password and the note at first boot.
+
+## The device run this tree now carries, and what it does not transfer
+
+`main` landed the first device run of the setup service
+([result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md), tree
+`a90cfba`). It is evidence about this tree in places and not in others, and the
+distinction is not obvious from the file, so:
+
+- **Transfers:** `ensure_identity` is byte-identical here, so the rename that
+  worked, and the two defects it left (`/etc/hosts` and `avahi-daemon` keeping
+  the old name), apply unchanged. The two are recorded as defects in that result
+  and named in this tree's residuals rather than repaired here.
+- **Does not transfer:** that tree had no `NEVER_CAPTURE`, so its baseline
+  archived `setup.json`. This tree excludes the whole state directory and the
+  access-point profile, which is the safer behaviour and has only ever run
+  against a temporary root. Its 9449-byte archive is therefore not evidence about
+  this tree's exclusion list.
+- **Out of scope for it entirely:** the setup access point, the page, a join
+  performed by Debra, a restore, and any boot. The unit was started on a running
+  device, not at boot.
 
 ## Residuals this work does not close
+
+- **`/etc/hosts` and `avahi-daemon` keep the old name after a live rename.** Both
+  were found by the device run. `ensure_identity` applies the name through
+  `hostnamectl` and stops there, so the loopback alias still names the old
+  device (every `sudo` warns) and mDNS answers to the old name until avahi is
+  restarted. At boot this self-corrects, because `/etc/hostname` is written
+  first; the case that was run — a first run on a running device — does not.
+  Not repaired here: it is identity work, and this branch's job is the setup
+  network's security.
 
 - **An unreadable mode file fails open when the installed default is `none`.**
   `_stored_security()` logs and returns "no choice", so a device whose page chose

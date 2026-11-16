@@ -45,10 +45,15 @@ These run on a Fedora development computer, not on the Pi.
   and lists announced devices (15 tests). The activity table has 98 tests and its
   notices checklist 24; the task helper and research runner 15 and 9
   ([unattended runner](scheduled-runner.md)).
-- The first-boot setup service in `control/setup/` is offline-tested only
+- The first-boot setup service in `control/setup/` is offline-tested
   ([README](../../control/setup/README.md)): 266 tests for naming, onboarding and
-  the baseline, and 46 for its installer. This code has never run on a device: it
-  has raised no radio, joined no network, applied no name or captured a baseline.
+  the baseline, and 46 for its installer. One device run has happened, on the
+  other line's tree at `a90cfba`
+  ([result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)):
+  the online path, the hardware-derived rename, a baseline and the systemd start
+  all worked, and it left `/etc/hosts` and `avahi-daemon` on the old name. The
+  setup access point has never been raised, nothing has run at boot, and this
+  branch's tree has not run on a device.
 - The activity TUI has a **Notices** tab: one checklist of everything worth not
   missing (blockers, confirmations, failed research tasks, a turn running too
   long), ticked off with `x` and kept as a dimmed "checked off" count so a

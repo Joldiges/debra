@@ -21,8 +21,11 @@ The unit runs on every boot and asks `Onboarder.resume()`
    through `hostnamectl`, verifies the recorded baseline and adopts or captures
    one if it is missing or damaged, and then exits 0. Because the name is
    applied unconditionally, a name changed outside Debra is changed back on the
-   next boot; that is a deliberate choice, and no device test has measured what
-   an actual rename does to an online connection.
+   next boot; that is a deliberate choice. One device test has now measured a
+   rename on an online connection: the link stayed `activated` and the SSH
+   session survived ([result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)).
+   The same run showed the service leaves `/etc/hosts` and `avahi-daemon` on the
+   old name; neither is repaired here.
 3. No usable uplink: it sets the device name, looks for nearby networks while
    the radio is still free, raises the setup access point, writes the
    setup-network password to the boot partition, and serves the page on the
@@ -342,6 +345,17 @@ the web prototype are unaffected; they are separate units.
 
 ## What is still unproven
 
+One device run has happened, and it was the other line's tree: the Zero 2 W
+installed and ran `control/setup/` at `a90cfba`, recorded in
+[the first-run result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md).
+It exercised the online path, the hardware-derived rename, a baseline over a real
+root and the unit being started by systemd. `ensure_identity` is byte-identical
+in this tree, so that run's two findings — `/etc/hosts` and `avahi-daemon` keeping
+the old name — apply here unchanged. The baseline does not transfer as-is: that
+tree archived `setup.json` and this one excludes the whole state directory. The
+list below is what this tree has still never done, which is everything involving
+a radio.
+
 Ordered by how likely it is to bite on a real first boot.
 
 1. **The Wi-Fi profile has never been loaded by a real NetworkManager.** The
@@ -367,12 +381,18 @@ Ordered by how likely it is to bite on a real first boot.
 4. **Only Wi-Fi uplinks count.** `nmcli`-based `active()` looks at Wi-Fi devices,
    so a device with working Ethernet and no Wi-Fi still raises the setup access
    point.
-5. **Nothing has read a real root-only keyfile set.** The baseline has only ever
-   run against a temporary root.
-6. **The device name is applied with `hostnamectl`, which has never run.** The
-   adapter refuses a name that would not resolve as `<name>.local`, and the name
-   is applied again on every boot, so a failure is retried rather than
-   remembered as done. No boot has applied one.
+5. **A real root has been archived once, by a tree that archived more than this
+   one does.** The device run captured the two NetworkManager keyfiles (`0600`,
+   `missing: []`), and its manifest says the archive holds the household
+   passphrase. That tree did not exclude the setup state directory; this one
+   does, and that exclusion has only ever run against a temporary root.
+6. **`hostnamectl` has run once, and the name it applied is not the name the
+   device answers to.** The device run renamed the board in `/etc/hostname` and
+   `hostnamectl --static` without disturbing the connection, and left `/etc/hosts`
+   (so every `sudo` warns) and `avahi-daemon` on the old name until it was
+   restarted. At boot that is self-correcting because `/etc/hostname` is already
+   written; the gap is a first run on a running device, which is exactly the
+   case that was run. Nothing here repairs it.
 7. **The captive-portal redirect may never be asked for.** The probe paths are
    answered, but the setup network's DNS decides whether a phone reaches them;
    see [above](#the-phone-should-offer-to-open-the-page). Until that is measured
@@ -387,9 +407,11 @@ Ordered by how likely it is to bite on a real first boot.
    cannot see it. The service warns (`The setup note is not on a mounted boot
    partition`) and the access point still starts. Nothing refuses to run without
    that partition, and no boot has been tried with it absent.
-10. **The unit has never been loaded by systemd.** The tests read the rendered
-    unit as text; they do not run `systemd-analyze verify`, and they prove
-    nothing about polkit, D-Bus or a radio.
+10. **The unit has been started by systemd once, and never as part of a boot.**
+    The device run reports `status=0/SUCCESS`, `inactive (dead)`, 1.28 s, with
+    `multi-user.target.wants/` created. That was a start on a running device, so
+    the ordering, the 30-second wait and the reboot are still unexercised, and
+    `systemd-analyze verify` has not been run.
 11. **The cooldown is words, not a countdown.** The page says to wait ten
     minutes because the attempt counter lives in the state file and a power
     cycle does not clear it. There is no retry-after the page can count down.

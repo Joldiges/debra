@@ -2,18 +2,20 @@
 
 This is T01's test design, based on the [project brief](../project-brief.md), [evidence rules](../evidence.md) and [roadmap](../roadmap.md), read 2026-11-15. Requirements describe the destination, not present capabilities. No test is run by this document; every physical, privileged and fault-injection test below is **not-run**. A future report must record its own results, including failures and skipped cases, rather than treating this plan as evidence.
 
-Reviewed twice by `openrouter/openai/gpt-6.1-sol#flex-high`, 2026-11-15:
-**changes required** both times. docs-r1 raised two findings against this
+Reviewed three times by `openrouter/openai/gpt-6.1-sol#flex-high`, 2026-11-15:
+**changes required** each time. docs-r1 raised two findings against this
 document — the detailed browser scope from
 [web control](../design/web-control.md) was not mapped, and functional
 restoration could pass without the brief's quick-rollback requirement. The
-revision that followed **addressed** both, and docs-r2 accepted the quickness
-repair but found the browser submap still short of the detailed accessibility,
+revision that followed **addressed** both; docs-r2 accepted the quickness repair
+but found the browser submap still short of the detailed accessibility,
 metric-inventory and recovery/report cases, and the new performance wording
-self-contradictory: it left an executed-but-failing run labelled `not-run`. This
-revision closes those. Both remain pending re-review, so nothing here is reviewed
-evidence yet. Review records: `.local/reviews/docs-r1-20261115/verdict.md` and
-`.local/reviews/docs-r2-20261115/verdict.md`, which are not in Git.
+self-contradictory because it left an executed-but-failing run labelled
+`not-run`. This revision **addresses** those, plus docs-r3's three points here: a
+stale B05 gate, an undefined contrast rule, and the closure wording itself.
+Nothing here is reviewed evidence yet. Review records:
+`.local/reviews/docs-r1-20261115/verdict.md`, `docs-r2-20261115/verdict.md` and
+`docs-r3-20261115/verdict.md`, which are not in Git.
 
 ## Test tiers
 
@@ -85,7 +87,7 @@ physical tier is named where a claim needs the real device.
 | --- | --- | --- | --- |
 | No write on startup, polling or reconnect | O | Page load, every poll and every reconnect issue reads only; no volume, mute or configuration write, and no sound, is produced. A captured request log, not only the page's own wrapper, shows it. | The page and server commits, captured log; **R1**; **Report:** requests seen, any write or sound, and how the log was captured. |
 | Explicit selected-sink identity, no fallback | O, F | The page names the sink it controls; a missing or renamed sink is reported unavailable and the page writes nothing, rather than falling back to a default device. On a device, the named sink is the one the sound actually leaves. | Device alias, PipeWire/WirePlumber versions, sink name before and after an external change; **R1, R2**; **Report:** the named sink, the independent identification that it is the one sounding, and the unavailable case. |
-| Keyboard, focus, busy and error states; phone and desktop layout; labels and contrast | O | Every control is reachable and operable by keyboard and has a screen-reader label; focus is visible; disabled controls explain themselves; busy and error states are announced; text and controls meet the contrast rule in the WEB09 usability section of [web control](../design/web-control.md); nothing is wider than a 390 px viewport. (WEB09.) | Browser name/version, viewport sizes, the accessibility checks actually used (for example an automated audit and one manual keyboard pass); **R1**; **Report:** what was checked by machine, what by hand, and what remains unchecked. |
+| Keyboard, focus, busy and error states; phone and desktop layout; labels and contrast | O | Every control is reachable and operable by keyboard and has a screen-reader label; focus is visible; disabled controls explain themselves; busy and error states are announced; text and controls meet a contrast criterion — **proposed**: WCAG 2.2 AA, 4.5:1 for body text and 3:1 for large text, control boundaries and focus indicators, measured with a checker rather than judged by eye; [web control](../design/web-control.md) names contrast as a requirement but states no number, so this is a proposal awaiting agreement, not an existing rule — and nothing is wider than a 390 px viewport. (WEB09.) | Browser name/version, viewport sizes, the accessibility checks actually used (for example an automated audit and one manual keyboard pass); **R1**; **Report:** what was checked by machine, what by hand, and what remains unchecked. |
 | Reload, disconnect, duplicate submission, lost response, stale request | O | A reload asks for the key again and does not replay a write; a duplicate submission is not sent twice; a lost response is reported as unknown, not as success or failure; a response to a stale request cannot repaint current state; an external change is shown. | The page commit, request log and the fault-injection method; **R1**; **Report:** each case, the observed outcome, and any case where "unknown" was shown as success. |
 | LED profiles, brightness, colour and event mapping | O, F | Profiles and mappings are selectable, applied and visibly correct on the real three-LED HAT; a cosmetic indication is never presented as a real microphone mute. (WEB06; blocked until the LED work exists.) | HAT revision, profile/mapping files and the device alias; **R2**; **Report:** mappings applied, what was visible, and any indicator that could be mistaken for a hardware mute. |
 | Health readings: units, freshness, staleness, per-core | O, F | Every reading in the [WEB07 metric inventory](../design/web-control.md#web07-metrics-and-freshness) is individually labelled with its unit and observation age; an unavailable reading shows `Unknown` with a reason, never zero; a stale reading is marked stale including after resume; per-core values match the device. | Device alias, collector versions, the fixture or sample times and the device values compared; **R1, R2**; **Report:** the readings checked, the units and ages shown, and every field that was unavailable and why. |
@@ -116,7 +118,7 @@ For the **original Pi Zero W**, the above full voice-and-music path must run on 
 
 [Z01 ARMv6 reconnaissance](../research/Z01-armv6.md) is **unreviewed evidence**, not a runtime result. It reports an absent ARMv6 TensorFlow Lite C prebuilt for the investigated wake engines, questionable tagged artifacts and unmeasured CPU/RAM; artifact inspection and proposed work do not establish either failure on every possible stack or support. The [Pi 5 lab result](results/2026-11-15-lab-pi5-lva-sendspin.md) is tested on one Pi 5, not Zero W evidence.
 
-The roadmap's B03 selected-file restoration milestone is narrower than whole-device recovery. Whole-SD imaging, replacement-media boot and a second destination are deferred and do not block browser controls or unrelated work. However, do not call G4/T03 or a release-candidate gate complete while their stated B05 dependency is unmet; do not infer dead-card recovery from B03.
+The roadmap's B03 selected-file restoration milestone is narrower than whole-device recovery. Whole-SD imaging, replacement-media boot and a second destination are deferred and do not block browser controls or unrelated work. T03 no longer lists B05 as a prerequisite: its failure and soak cases need on-target snapshot and rollback (B03/B04), and its record must say what recovery does **not** guarantee. **I04** (release-candidate packaging) still lists B05, so that release gate remains unmet by design until the deferred work is done. Do not infer dead-card recovery from B03.
 
 ## Proposed measurements, not approved thresholds
 
