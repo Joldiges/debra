@@ -268,6 +268,9 @@ design provides the authorization and revocation boundary? What identity proof,
 address lifetime and invalidation method bind an origin to a physical device?
 What pre-auth distinctions and non-SSH recovery steps are safe to disclose?
 Until decided, those positive paths are blocked, not implemented features.
+[Browser enrollment](browser-enrollment.md) sets out the four candidate
+answers to the first question and the one decision needed; it is a proposal, not
+a review of any of them.
 
 **Must never happen:** Require SSH for ordinary supported configuration, enroll
 or revoke on load, log/display credentials, treat tab disconnect as revocation,

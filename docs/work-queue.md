@@ -43,7 +43,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
 | Acceptance review `code-r10` | WEB01 | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b16e0` (re-verified byte-identical), judging R9-01…R9-06, re-running the nine r9 survivor transforms and five new ones, and running the offline and browser suites in a scratch copy |
-| Re-review `docs-r3` | Z01, T01 | `.local/reviews/docs-r3-20261115/` | independent, `gpt-6.1-sol`; hash-bound on the two documents (`Z01-armv6.md` `6b205f5b…`, `acceptance.md` `930e9d84…`), judging the seven docs-r2 findings and the new historical-library evidence |
+| Re-review `docs-r4` | Z01, T01 | `.local/reviews/docs-r4-20261115/` | independent, `gpt-6.1-sol`; hash-bound on the repaired documents (`Z01-armv6.md` `d9f55d7b…`, `acceptance.md` `37cc1fc6…`, preimage = the r3 candidate), judging the eight docs-r3 findings and checking the new bubblewrap command for self-consistency |
+| Re-review `setup-r8` | N02 | `.local/reviews/setup-r8-20261115/` | independent, `gpt-6.1-sol`; frozen on `ccc2b42` with the six setup files byte-identical to `5956db4` (tree `a7885881…`), judging R7-01…R7-04, re-running the four repair reversals plus five new ones, and reproducing the round-7 failing scenarios in a scratch copy |
 
 ## Done this round
 
@@ -165,6 +166,7 @@ No true blockers right now.
 |---|---|---|
 | ReSpeaker 2-Mics HAT v2 microphone and LED positions | The demo lid's two microphone holes and LED window sit on an estimated v2 layout from product pictures and the v1 board, marked unconfirmed | Openings that sit exactly over the right hardware instead of close |
 | DWEII module outer dimensions and acoustic opening positions | The speaker bay uses seller-claim envelopes with added clearance, marked unconfirmed | A measured bay, and certainty that no vent is sealed |
+| Which way a normal person gets into the device page | [Browser enrollment](design/browser-enrollment.md) is a proposal: today the access key is only obtainable from a terminal, and the setup page and the device page have never been installed together | whether the setup screen shows the generated key once (B), setup asks for a device password on its own network (D, recommended), or access waits for Home Assistant pairing (C). It decides whether the credential is a long key that has to be copied or a password a person chooses, and whether an unauthenticated claim window on the household network can exist at all |
 | The v17 speaker's diameter, depth, frame outline and mounting pitch | The [lid](../models/parts/rpispeaker-v17-lid/README.md) is the single front panel, but its Ø28 driver, 10 mm sleeve, 24.8 mm rear opening and 32 mm assumed pitch are all guesses | A speaker mount that is a design instead of a placeholder: which mounting the frame allows, whether it fits the 5.40 mm between the plate underside and the bay's raised surfaces, and whether the sleeve is needed at all |
 
 ## Unattended research
