@@ -163,3 +163,82 @@ on the household LAN can read this device's status and change its volume and
 mute, with no credential. It is a development mode, not the product. Reverting is
 the same install without `--auth none`, then `systemctl --user daemon-reload &&
 systemctl --user restart debra-web.service`; the previous unit is retained.
+
+## Addendum 2: the missing button was JavaScript switched off, and the page now says so
+
+James reported again that the welcome card offered no way in, on a board that
+was already running `--auth none`. **The cause was the browser, not the board:
+JavaScript was disabled in Chrome.** With scripting off, `app.js` never ran, so
+the keyless probe never ran and the bypass button stayed hidden; the form also
+submitted natively to `/?key=...`, which is the raw-JSON 404 in Addendum 1.
+
+That is a page defect even though the trigger was local: the page had no
+`<noscript>` statement, and every probe failure was silent. The page and server
+were changed as a result (the `control/web` patch, not yet reviewed):
+
+- a refused key is forgotten and named on the welcome card, and the keyless
+  probe still runs;
+- only a key the device has accepted is written to `sessionStorage`;
+- the form posts, so a scripting-off submit cannot put the key in the URL;
+  `GET /?key=...` and `/index.html` serve the page, which names the rejected
+  address;
+- `AbortSignal.timeout` has a fallback, and a probe that cannot complete says
+  why on the card;
+- `<noscript>` states that the page needs JavaScript and that a submitted key
+  was not checked.
+
+Deployed to this board as release
+`078eb64b66c0ff28a131f445f54c41892cac8e3f674cd672a361a1f6b38ee908` with
+`--auth none`. Verified from the development host with a fresh headless
+Chromium profile: the dashboard stays hidden, the pair card is shown, and
+`#bypass` is **not** hidden. `/?key=abc` and `/index.html` both answer
+`200 text/html`.
+
+### Addendum 2a: the review, and the redeploy after it
+
+Three reviews ran, all on `openrouter/deepseek/deepseek-v4.1-flash-1017#high`
+($0.032, $0.035, $0.056). That is the author's own model and family, so none of
+them is an independent acceptance review; the record says so rather than
+implying one certified the change. The second round found a real regression the
+coordinator had introduced: `page_route()` called `urlsplit` on the raw request
+target, and `urlsplit("//]")` raises `ValueError`, turning a request that used to
+get a clean `404` into an unhandled traceback and an empty response. Fixed with
+`self.path.partition("?")[0]` and pinned by a direct helper probe (the raw-socket
+half is not load-bearing here: Python 3.15's `http.server` normalises `//]` to
+`/]` before the handler sees it).
+
+The third round approved with no MUST-FIX. Its non-blocking findings were fixed
+without another model review, because they are the reviewer's own named items
+with no new interface: `loadDevices()` used `AbortSignal.timeout` directly and
+swallowed the throw (the "Switch to another Debra" card vanished silently); a
+pairing submit during an in-flight read cleared the box and the message and then
+did nothing; `#pair-status` was a `display:none` live region, so the refusal may
+not have been announced; plus a stale comment, a missing cross-site `POST /`
+test, and a missing `/app.js?x=1` 404 case. The in-flight-submit guard and the
+`loadDevices` fallback each have a browser assertion that fails without the fix.
+
+Redeployed to this board as release
+`054631e3a7abe19ce82bcc28c812f79c608fd47fb828f78f475b1a95ae65ddf3` with
+`--auth none`, after the change was committed. Verified on the board:
+`/`, `/?key=abc` and `/index.html` answer `200 text/html`, `/app.js?x=1` answers
+`404`; `GET /api/status` reports `auth: none`; `GET /api/devices` reports
+`found: 1`, `error: null`; and a fresh-profile headless Chromium shows the
+welcome card with `#bypass` visible and the Pi 5 listed under "Switch to another
+Debra".
+
+**Discovery was also broken and is now fixed on this board.** The page said
+`Discovery problem: avahi-browse is not installed`; `avahi-daemon` was running
+but `avahi-utils` was absent. After `sudo apt-get install -y avahi-utils`,
+`GET /api/devices` reports `discovery.found: 1`, `error: null`, and the Pi 5
+(`debra-3c6b3f`, "Lab Pi 5") as a discovered device. The web installer still
+does not install packages by design, so this remains a documented device
+prerequisite, not an installer guarantee.
+
+**Test coverage caveat.** The server half of this change (page routes, the
+posted key, a malformed request target) runs in the default offline suite
+(`python3 -B -m unittest discover -s tests`). The half that *is* the reported
+bug — a refused key forgotten and named, the keyless probe still running, an
+unverified key never persisted, and the page working without
+`AbortSignal.timeout` — lives in `tests/test_web_browser.py`, which is skipped
+unless `DEBRA_BROWSER_TEST=1`. The default run does not prove the browser
+behaviour, and this record does not claim it does.

@@ -57,6 +57,12 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
    long one widened the phone layout instead of wrapping. */
 #output, #error, #audio-notice { overflow-wrap: anywhere; }
 #error { color: #ffc8b8; }
+#pair-status { color: #ffc8b8; margin: 10px 0 0; }
+/* Never hidden, only emptied: a live region that is display:none is not
+   reliably announced when it later gains text, and this region exists to name
+   a refused key. An empty paragraph would still add its margin, so the gap is
+   removed until there is something to say. */
+#pair-status:empty { margin: 0; }
 /* A write outcome beside its control. Empty is the normal state, and an empty
    paragraph would still add its margins, so the gap is removed until there is
    something to say. It is never hidden: a live region that is display:none is

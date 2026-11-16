@@ -22,6 +22,7 @@ FIXTURE = r"""
 "use strict";
 window.testState = {
   posts: [], percent: 36, muted: false, delay: false, release: null, fail: false,
+  heldStatus: false,
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
   holdSetup: false, releaseSetup: null, failSetup: false,
@@ -31,6 +32,14 @@ window.testState = {
   // only what arrives after a check has installed a wrapper of its own.
   requests: [],
   probe: new URLSearchParams(location.search).get("probe"), probes: 0, html401: false,
+  // `?refuse=key` refuses every key the page sends, so a check can reproduce a
+  // stored key the device no longer accepts. `?noabort=1` removes
+  // AbortSignal.timeout, which older browsers lack.
+  refuseKey: new URLSearchParams(location.search).get("refuse") === "key",
+  noAbort: new URLSearchParams(location.search).get("noabort") === "1",
+  // `?status=offline` makes every status read fail with a non-401 error, so a
+  // check can prove an unverified key is not persisted for the next reload.
+  offline: new URLSearchParams(location.search).get("status") === "offline",
   cpu: {cpu: 12, cpu0: 24},
   longSink: new URLSearchParams(location.search).get("sink") === "long",
   cores: new URLSearchParams(location.search).get("cores") === "unavailable",
@@ -44,6 +53,9 @@ window.testState = {
   discovery: {enabled: false, found: 0, seconds_since_scan: null, error: null, refused: []}
 };
 const state = window.testState;
+// This fixture script runs before app.js (both are deferred, in order), so the
+// removal is the page's first look at the API.
+if (state.noAbort) { try { delete AbortSignal.timeout; } catch (error) { /* the check fails */ } }
 // `?hold=setup` holds the page's first Setup read, so a check can prove what
 // happens to a valid answer that is already in flight when something else
 // changes. The read is held once, not for every request.
@@ -125,6 +137,15 @@ window.fetch = async (path, options) => {
             json: async () => ({devices: state.devices, self: state.self, discovery: state.discovery})};
   }
   const authorized = Boolean(options.headers && options.headers.Authorization);
+  if (path === "/api/status" && authorized && state.refuseKey) {
+    // The device no longer accepts the key this tab holds.
+    return {ok: false, status: 401, json: async () => ({error: "Access key refused"})};
+  }
+  if (path === "/api/status" && state.offline) {
+    // A read that fails for a reason other than a refusal: the key may be fine,
+    // but it has not been checked, so it must not be persisted.
+    throw new Error("fixture offline");
+  }
   if (path === "/api/status" && !authorized && state.probe) {
     state.probes++;
     if (state.probe === "html") return {ok: true, status: 200, json: async () => { throw new SyntaxError("HTML"); }};
@@ -176,7 +197,9 @@ window.fetch = async (path, options) => {
     audio, auth: state.noAuth ? "none" : "key"
   } : audio;
   if (state.delay && path === "/api/status") {
+    state.heldStatus = true;
     await new Promise(resolve => { state.release = resolve; });
+    state.heldStatus = false;
   }
   if (state.fail) throw new Error("offline fixture");
   return {ok: true, status: 200, json: async () => data};
@@ -757,6 +780,227 @@ window.addEventListener("load", async () => {
 });
 """
 
+CHECK_REFUSED_KEY = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // James's exact sequence: a key is stored in the tab, the device refuses it,
+    // and a reload replayed it forever without ever offering a way in. The page
+    // must forget it, name the refusal where the key was entered, and keep
+    // looking for keyless access instead of hiding the button behind the key.
+    for (let i = 0; i < 60 && !document.getElementById("pair-status").textContent; i++) await wait(30);
+    const status = document.getElementById("pair-status");
+    assert(document.getElementById("dashboard").hidden, "a refused key opened the dashboard");
+    assert(!document.getElementById("pair").hidden, "the welcome card is not shown");
+    assert(/refused/i.test(status.textContent), "the refusal is not named on the welcome card");
+    assert(/forgotten/i.test(status.textContent), "the message does not say the key was forgotten");
+    assert(!sessionStorage.getItem("debra-key"), "the refused key is still stored in the tab");
+    assert(document.getElementById("bypass").hidden, "a key-only device offered the development bypass");
+    assert(document.getElementById("bypass-note").hidden,
+           "a key-only device showed the bypass warning");
+    assert(location.hash === "", "the key fragment was left in the address");
+    // A refused key is not a dead end: the next key the device accepts connects,
+    // and only then is it persisted.
+    testState.refuseKey = false;
+    document.getElementById("key").value = "y".repeat(40);
+    document.getElementById("pair-form").dispatchEvent(
+      new Event("submit", {cancelable: true, bubbles: true}));
+    for (let i = 0; i < 60 && document.getElementById("dashboard").hidden; i++) await wait(30);
+    assert(!document.getElementById("dashboard").hidden,
+           "a valid key after a refusal did not connect");
+    assert(document.getElementById("pair").hidden, "the welcome card stayed after a valid key");
+    assert(!status.textContent, "the refusal message stayed after a valid key");
+    assert(sessionStorage.getItem("debra-key") === "y".repeat(40),
+           "an accepted key was not stored for the tab");
+    const writes = testState.requests.filter(request => request.method !== "GET");
+    assert(writes.length === 0, "pairing sent a write: " + JSON.stringify(writes));
+    result.textContent = "PASS: a refused key is forgotten, named, and the next key connects";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_REFUSED_KEYLESS = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // The case the reported bug was really about: the tab holds a key, the
+    // device refuses it, but the device also runs without a key. The keyless
+    // probe must still run, or the one way in stays hidden behind the dead key.
+    for (let i = 0; i < 60 && document.getElementById("bypass").hidden; i++) await wait(30);
+    const status = document.getElementById("pair-status");
+    assert(!document.getElementById("bypass").hidden,
+           "a refused key hid the device's keyless access");
+    assert(!document.getElementById("bypass-note").hidden,
+           "the keyless warning is missing beside the bypass control");
+    assert(/refused/i.test(status.textContent), "the refusal is not named on the welcome card");
+    assert(/continue without one/i.test(status.textContent),
+           "the message does not offer the keyless way in");
+    assert(!sessionStorage.getItem("debra-key"),
+           "a key that was never accepted was stored in the tab");
+    assert(document.getElementById("dashboard").hidden, "a refused key opened the dashboard");
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 60 && document.getElementById("dashboard").hidden; i++) await wait(30);
+    assert(!document.getElementById("dashboard").hidden,
+           "the bypass did not connect after a refused key");
+    assert(!sessionStorage.getItem("debra-key"), "the bypass stored a key");
+    result.textContent = "PASS: a refused key still reveals keyless access";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_UNVERIFIED_KEY = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // A key arrives in the fragment and the device cannot be read. The key has
+    // not been checked, so it must stay out of the tab: a reload must not start
+    // by replaying it. The failure must still be named.
+    for (let i = 0; i < 80 && !document.getElementById("pair-status").textContent; i++) await wait(30);
+    const status = document.getElementById("pair-status");
+    assert(!sessionStorage.getItem("debra-key"),
+           "an unverified key was persisted for the next reload");
+    assert(document.getElementById("dashboard").hidden, "an unread device opened the dashboard");
+    assert(status.textContent.length > 0, "the probe failure is not named on the welcome card");
+    assert(/did not answer/i.test(status.textContent),
+           "the message does not say the device did not answer: " + status.textContent);
+    assert(document.getElementById("error").textContent.includes("fixture offline"),
+           "the read failure is not named");
+    assert(testState.posts.length === 0, "an offline device was written to");
+    result.textContent = "PASS: an unverified key is not persisted and the failure is named";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_PAIR_BUSY = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // A person presses Connect while a status read is still in flight. Before
+    // the guard, the handler cleared the box and the message and then returned
+    // without doing anything: the click looked ignored until the poll finished.
+    // Wait until the page can read at all, or refresh() would return before
+    // reaching the fetch and the window under test would not exist.
+    for (let i = 0; i < 60 && document.getElementById("bypass").hidden; i++) await wait(30);
+    assert(!document.getElementById("bypass").hidden, "the page never became ready to read");
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 60 && document.getElementById("dashboard").hidden; i++) await wait(30);
+    assert(!document.getElementById("dashboard").hidden, "the keyless dashboard never opened");
+    testState.delay = true;
+    refresh();
+    for (let i = 0; i < 60 && !testState.heldStatus; i++) await wait(30);
+    assert(testState.heldStatus, "no status read was held, so the busy window was not exercised");
+    const status = document.getElementById("pair-status");
+    const typed = "z".repeat(40);
+    document.getElementById("key").value = typed;
+    document.getElementById("pair-form").dispatchEvent(
+      new Event("submit", {cancelable: true, bubbles: true}));
+    await wait(60);
+    assert(/still checking/i.test(status.textContent),
+           "a submit during an in-flight read gave no feedback: " + JSON.stringify(status.textContent));
+    assert(document.getElementById("key").value === typed,
+           "a submit that could not run still cleared the typed key");
+    assert(!testState.requests.some(request => request.method === "POST"),
+           "a submit during an in-flight read reached the device");
+    testState.delay = false;
+    testState.release();
+    await wait(120);
+    result.textContent = "PASS: a submit during an in-flight read says so and keeps the key";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_QUERY_KEY = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait(120);
+    const status = document.getElementById("pair-status");
+    // A native form submit sends GET /?key=...; the server serves the page, and
+    // the page must name the rejected address instead of replaying it.
+    assert(location.search === "", "the rejected key was left in the address");
+    assert(status.textContent.length > 0, "a key in the address was not named on the welcome card");
+    assert(/address/i.test(status.textContent), "the message does not mention the address");
+    assert(!sessionStorage.getItem("debra-key"), "a key in the address was stored in the tab");
+    assert(document.getElementById("dashboard").hidden,
+           "a key in the address opened the dashboard");
+    assert(!testState.requests.some(request => request.path.includes("not-a-real-key")),
+           "the address key was sent to the device");
+    result.textContent = "PASS: a key in the address is named, not replayed";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_TIMEOUT_FALLBACK = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // The fixture removed AbortSignal.timeout before app.js ran. Without the
+    // fallback the page threw before fetch, so the welcome card offered no
+    // bypass button and said nothing about why.
+    assert(typeof AbortSignal.timeout !== "function",
+           "the fixture did not remove AbortSignal.timeout");
+    for (let i = 0; i < 60 && document.getElementById("bypass").hidden; i++) await wait(30);
+    assert(!document.getElementById("bypass").hidden,
+           "the keyless probe failed without AbortSignal.timeout, so no bypass was offered");
+    // loadDevices() used the same API directly and swallowed the throw, so the
+    // "Switch to another Debra" card vanished with no explanation.
+    for (let i = 0; i < 60 && document.getElementById("device-links").children.length === 0; i++) await wait(30);
+    assert(document.getElementById("device-links").children.length === 1,
+           "the device list silently failed without AbortSignal.timeout");
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 60 && document.getElementById("dashboard").hidden; i++) await wait(30);
+    assert(!document.getElementById("dashboard").hidden,
+           "a status read without AbortSignal.timeout did not connect");
+    assert(!document.getElementById("error").textContent,
+           "a connection without AbortSignal.timeout reported an error: "
+           + document.getElementById("error").textContent);
+    result.textContent = "PASS: the page connects without AbortSignal.timeout";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_PROBE = r"""
 "use strict";
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -775,6 +1019,11 @@ window.addEventListener("load", async () => {
       assert(!document.getElementById("bypass").hidden, "successful retry did not offer bypass");
     } else if (mode === "none") {
       assert(!document.getElementById("bypass").hidden, "explicit auth none did not offer bypass");
+    } else if (mode === "key") {
+      // A definite "this device wants a key" is not retried: it cannot change.
+      await wait(300);
+      assert(document.getElementById("bypass").hidden, "key mode offered bypass");
+      assert(testState.probes === 1, `key mode was retried ${testState.probes} times`);
     } else {
       await wait(700);
       assert(document.getElementById("bypass").hidden, `${mode} incorrectly offered bypass`);
@@ -1499,7 +1748,11 @@ class BrowserTests(unittest.TestCase):
                                    "/check-token-none.js", "/check-audio-notice.js",
                                    "/check-setup-race.js", "/check-setup-current.js",
                                    "/check-setup-marker.js",
-                                   "/check-disconnect-write.js"):
+                                   "/check-disconnect-write.js",
+                                   "/check-refused-key.js", "/check-query-key.js",
+                                   "/check-pair-busy.js",
+                                   "/check-refused-keyless.js", "/check-timeout.js",
+                                   "/check-unverified-key.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -1515,7 +1768,13 @@ class BrowserTests(unittest.TestCase):
                               "/check-setup-race.js": CHECK_SETUP_RACE,
                               "/check-setup-marker.js": CHECK_SETUP_MARKER,
                               "/check-setup-current.js": CHECK_SETUP_CURRENT,
-                              "/check-disconnect-write.js": CHECK_DISCONNECT_WRITE}[self.path]
+                              "/check-disconnect-write.js": CHECK_DISCONNECT_WRITE,
+                              "/check-refused-key.js": CHECK_REFUSED_KEY,
+                              "/check-refused-keyless.js": CHECK_REFUSED_KEYLESS,
+                              "/check-query-key.js": CHECK_QUERY_KEY,
+                              "/check-pair-busy.js": CHECK_PAIR_BUSY,
+                              "/check-timeout.js": CHECK_TIMEOUT_FALLBACK,
+                              "/check-unverified-key.js": CHECK_UNVERIFIED_KEY}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -1648,6 +1907,37 @@ class BrowserTests(unittest.TestCase):
 
     def test_setup_card_renders_disabled_choices_with_reasons(self):
         self.run_browser("#key=" + "x" * 40, "check-setup.js")
+
+    def test_a_refused_key_is_forgotten_and_named(self):
+        # The exact sequence that left the page showing no way in: a key stored
+        # in the tab, refused by the device, replayed on every reload.
+        self.run_browser("?auth=key&refuse=key#key=" + "x" * 40,
+                         "check-refused-key.js", budget=6000)
+
+    def test_a_refused_key_still_reveals_a_keyless_device(self):
+        # The regression the reported bug was about: the keyless probe used to
+        # run only when no key was stored, so a refused key hid the only way in.
+        self.run_browser("?auth=none&refuse=key#key=" + "x" * 40,
+                         "check-refused-keyless.js", budget=6000)
+
+    def test_a_key_in_the_address_is_named_not_replayed(self):
+        self.run_browser("?auth=key&key=not-a-real-key", "check-query-key.js")
+
+    def test_a_submit_during_an_in_flight_read_says_so(self):
+        # The click used to empty the box and the message and then do nothing,
+        # which is the "hidden failure" this change exists to remove.
+        self.run_browser("?auth=none", "check-pair-busy.js", budget=6000)
+
+    def test_an_unverified_key_is_never_persisted(self):
+        # A fragment key the device could not check must not be replayed by the
+        # next reload, and the read failure must be named.
+        self.run_browser("?auth=key&status=offline#key=" + "x" * 40,
+                         "check-unverified-key.js", budget=6000)
+
+    def test_the_page_connects_without_abort_signal_timeout(self):
+        # Older browsers lack AbortSignal.timeout. The page threw before fetch
+        # ran, so the welcome card showed no bypass button and no explanation.
+        self.run_browser("?auth=none&noabort=1", "check-timeout.js", budget=6000)
 
     def test_real_browser_interactions_with_no_native_audio(self):
         self.run_browser("#key=" + "x" * 40, "check.js")

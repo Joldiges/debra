@@ -15,8 +15,20 @@ and [roadmap](../../docs/roadmap.md#browser-first-device-control).
   PulseAudio/PipeWire sink, linking its channels. Mute is a separate write.
 - The outcome of a write is reported beside the control that caused it, under
   Apply and the slider: a rejection or an unanswered change explains itself
-  where the person is looking. The page's global error line carries read and
-  pairing failures, not write outcomes.
+  where the person is looking. The page-level error region carries read
+  failures; a refused key is named on the welcome card instead.
+- **A refused key is forgotten and named.** A key the device rejects (`401`) is
+  removed from the tab, the welcome card says so, and the page still checks
+  whether the device runs without a key — a dead credential must not hide the
+  one way in. A key is written to the tab only after a status read has accepted
+  it; one that has not been accepted yet stays in memory and is retried by the
+  poll, never replayed from storage on the next reload.
+- **A key in the address is named, not replayed.** The form posts, so a submit
+  without JavaScript does not put the key in the URL; an older `/?key=...`
+  address is served the page, which says it will not accept a key there.
+- A page that cannot check for keyless access says why on the welcome card,
+  including when the device does not answer or answers with an error. Older
+  browsers without `AbortSignal.timeout` use a fallback.
 - Starting, installing, polling, reconnecting and stopping never restore or set
   volume. No sound, microphone recording or test tone is generated.
 - Most status is cached for two seconds; the selected sink's audio state is
@@ -62,8 +74,10 @@ without a key. Use it only if that exposure is acceptable.
 this is not a browser enrollment or revocation status.
 
 The key is kept in
-an owner-only file on the device and browser `sessionStorage` for the tab;
-Disconnect clears that tab, not other tabs or already submitted operations.
+an owner-only file on the device and browser `sessionStorage` for the tab, and
+only after the device has accepted it; until then it stays in memory and the
+poll may retry it, but a reload cannot replay it from storage. Disconnect clears
+that tab, not other tabs or already submitted operations.
 Protected status and Setup reads are bound to the session they started in, so a
 response that was still in flight when the tab disconnected is discarded instead
 of repainting the previous device's readings or build choices. The public
@@ -75,10 +89,11 @@ timeouts. These are useful safeguards, **not a hostile-LAN/DoS guarantee**.
 
 Requests a browser marks `Sec-Fetch-Site: cross-site` are refused, with one
 deliberate exception: a top-level navigation (`Sec-Fetch-Mode: navigate`,
-`Sec-Fetch-Dest: document`) for the page's own static files. That is what a
+`Sec-Fetch-Dest: document`) for a page route. That is what a
 Switch link from another Debra looks like, and refusing it showed the person a
 JSON error instead of the device. The exception covers no API path and no write,
-and the page it serves is the same one anyone reaches by typing the address.
+the query is ignored and never reflected, and the page it serves is the same one
+anyone reaches by typing the address.
 Production enrollment, TLS, key rotation and multi-user access remain backlog.
 An overall 15-second deadline closes slow-drip requests, bounds backend waiting
 and command timeouts, and prevents expired queued writes from starting. An
@@ -91,6 +106,12 @@ Do not run the installer on the development computer by mistake. Use the ordinar
 user that owns the device's PipeWire/PulseAudio session. Prerequisites: Linux,
 Python 3.10+, `pactl` with JSON support, systemd user services, and an already
 working audio session. No dependency manager is needed for this stdlib slice.
+Discovery additionally needs `avahi-browse` from the Debian `avahi-utils`
+package on the machine running the server; without it the page reports
+"Discovery problem: avahi-browse is not installed" instead of listing devices.
+The page itself needs a JavaScript-capable browser: with scripting off it cannot
+read status or offer the development bypass, and it says so in a `<noscript>`
+line. Neither dependency is installed by this installer.
 
 1. Copy the reviewed `control/web/` directory to a private staging directory on
    the device, or use a reviewed checkout. The installer copies only five fixed
