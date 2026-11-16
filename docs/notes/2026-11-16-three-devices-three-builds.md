@@ -63,3 +63,44 @@ Not verified: no card, radio, SSH, systemd or browser session against any of the
 three devices. The device rows above are HTTP responses and Git blob matches,
 nothing more. `debra-f943dc`'s board model is unknown because its status needs a
 key this host does not have.
+
+## Outcome, added the same day after the updates
+
+The sections above are the pre-change snapshot and are left as written. What
+happened next:
+
+| Endpoint | Release now | Note |
+| --- | --- | --- |
+| `debra-3c6b3f` (Pi 5) | `80108697c869…` | Updated to branch `web/version-id`; `/api/status` reports `version.short` and `restart_required: false`. |
+| `debra-f943dc` | `9f532517e4fe…` | Untouched. Already at committed `main`. |
+| `debra-8518d6` | `054631e3a7ab…` | Untouched. Changed under this session during the work: the other session redeployed it twice. |
+| host `127.0.0.1:8787` | runs the working tree | Restarted from the shared checkout, so `/index.html` is 200 instead of 404. It carries no version report until `web/version-id` merges, because it runs code that predates it. |
+
+`debra-f943dc` is a **Raspberry Pi Zero W Rev 1.1, `armv6l`**, running the web
+server on Raspbian 13 with Python 3.13.5. That is the first evidence that this
+prototype runs at all on ARMv6; it is not evidence about audio, the HAT, or the
+setup service there.
+
+### A false "damaged" report blocked the rollback it was warning about
+
+Deploying to the Pi 5 printed `damaged_releases` naming both of its retained
+releases, and "rolling back to one would start a broken service". Both are
+intact: they were installed before `discovery.py` joined `PAYLOAD`, so they hold
+four files, and their `server.py` never imported it — one had been running for a
+day. `release_digest` hashed today's five-file list, raised `OSError` on the
+absent file, and `release_problem` ran the same checklist, so `--restore` refused
+both. The check now hashes the files actually in the directory, and the digest is
+the completeness proof. Fixed in `a411d45`; both units are now reported
+RESTORABLE on the device.
+
+This is the second time in two rounds that a guard protected against the wrong
+thing by assuming today's shape is the only valid one. It is worth asking of
+every remaining check: *whose* payload does it assume?
+
+### Limits
+
+No rollback was performed, only shown to be permitted. Nothing was installed on
+`debra-f943dc` or `debra-8518d6`. The version report is on the Pi 5 only until
+`web/version-id` merges, which it cannot do while another session holds
+uncommitted changes in the same files.
+
