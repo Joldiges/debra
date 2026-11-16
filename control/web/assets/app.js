@@ -32,6 +32,9 @@ let busy = false;
 let refreshing = false;
 let session = 0;
 let revision = 0;
+// When the device last answered. A failed read leaves the previous readings on
+// screen, and they are only honest if the page says how old they are.
+let lastReadAt = null;
 // Only these mean "the device refused and changed nothing". Anything else,
 // including 503, may have run the native command before failing.
 const DEFINITE = new Set([400, 401, 403, 404, 405, 413]);
@@ -107,6 +110,12 @@ function showPairStatus(message) {
   if (!node) return;
   node.textContent = message || "";
 }
+function showPairCheck(message) {
+  // A neutral line, not the refusal region: "still finding out" and "that key
+  // was wrong" are different messages and only one of them is a fault.
+  const node = el("pair-check");
+  if (node) node.textContent = message || "";
+}
 function forgetKey(message) {
   // A key the device refused is not a key to retry on every reload. Clearing it
   // is what lets the keyless probe run and what stops a dead credential from
@@ -121,7 +130,9 @@ function forgetKey(message) {
   draft = false;
   volumeOp = null;
   muteOp = null;
+  lastReadAt = null;
   el("error").textContent = "";
+  el("stale-notice").textContent = "";
   el("pair").hidden = false;
   el("dashboard").hidden = true;
   el("connection").textContent = "Not connected";
@@ -499,6 +510,10 @@ async function refresh() {
     }
     if (bypass) setBypassAvailable(true);
     render(result);
+    lastReadAt = Date.now();
+    // A successful read makes the readings current again, so the staleness
+    // warning goes with them.
+    el("stale-notice").textContent = "";
     // Only a key the device has just accepted is persisted. A credential that
     // could not be checked is kept in memory for the retry but never written to
     // the tab, so a reload cannot start by replaying it.
@@ -532,6 +547,13 @@ async function refresh() {
     el("error").textContent = error.message;
     showNotices();
     el("connection").textContent = "Not connected · readings may be stale";
+    // The numbers below are the last ones the device sent. Leaving them
+    // unlabelled is how "36%" reads as current when the device has been gone
+    // for a minute.
+    el("stale-notice").textContent = lastReadAt
+      ? `The device is not answering. These readings are the last ones it sent, at ${
+          new Date(lastReadAt).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}, and may be out of date.`
+      : "";
     for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
     return false;
   } finally {
@@ -817,6 +839,10 @@ async function probeKeyless() {
 
 async function start() {
   loadDevices();
+  // A device that is slow to answer used to show the key prompt with nothing
+  // saying anything was happening: on a keyless device the card asked for a key
+  // it does not want, and "waiting" looked exactly like "broken".
+  el("connection").textContent = "Checking this device…";
   if (token) {
     if (await refresh()) {
       await loadSetup();
@@ -826,10 +852,20 @@ async function start() {
     // another reason keeps the key, but the probe still runs so a device that
     // offers keyless access is not hidden behind a dead token.
     if (token) await probeKeyless();
-    return;
+  } else {
+    el("pair").hidden = false;
+    showPairCheck("Checking whether this device needs an access key…");
+    await probeKeyless();
+    showPairCheck("");
   }
-  el("pair").hidden = false;
-  await probeKeyless();
+  // Anything still on the welcome card is waiting for a choice. Saying so beats
+  // leaving "checking" on screen for ever, and it must not ask for a key the
+  // device has just said it does not want.
+  if (!el("pair").hidden) {
+    el("connection").textContent = bypassAvailable
+      ? "Not connected · choose how to continue"
+      : "Not connected · waiting for the access key";
+  }
 }
 
 start();

@@ -20,6 +20,10 @@
       <p class="eyebrow">WELCOME</p><h1>Your device, within reach.</h1>
       <p>Enter this device’s access key. It stays in this browser tab. Use this prototype only on a trusted local network.</p>
       <form id="pair-form" method="post"><label for="key">Device access key</label><div class="row"><input id="key" type="password" autocomplete="off" required><button>Connect</button></div></form>
+      <!-- What the page is doing before it knows whether a key is wanted. A
+           keyless device is common here, and the card used to ask for a key
+           while it was still finding out. -->
+      <p id="pair-check" class="detail" role="status"></p>
       <p id="pair-status" class="bad" role="alert"></p>
       <noscript><p class="bad">This page needs JavaScript. Without it the device page cannot read status or change volume, and a key submitted here is not checked — it is posted rather than put in the address, and nothing is stored. Turn JavaScript on and enter it again.</p></noscript>
       <p id="key-source" class="detail">The key was created when this device was installed and is kept on the device; this page never shows it. Handing it to you from a setup screen is planned, not built.</p>
@@ -28,6 +32,11 @@
     </section>
     <div id="dashboard" hidden>
       <p id="auth-mode-warning" class="bad" role="status" hidden>This device is running with its access key switched off. Anyone who can reach it can read its status, change its volume and change its mute.</p>
+      <!-- Staleness is about the readings, so it sits above them rather than in
+           the header: the header is the first thing that scrolls away, and a
+           person reading "36%" further down needs the warning next to it. Empty
+           is the normal state; `:empty` removes the box. -->
+      <p id="stale-notice" class="action-notice" role="status"></p>
       <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div><button id="disconnect" class="secondary">Disconnect this tab</button></div>
       <nav aria-label="Sections"><a href="#audio">Audio</a><a href="#setup">Setup</a><a href="#device">Device</a><a href="#health">Health</a><a href="#components">Components</a></nav>
       <section id="audio" class="card">

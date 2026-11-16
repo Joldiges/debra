@@ -58,6 +58,8 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 #output, #error, #audio-notice { overflow-wrap: anywhere; }
 #error { color: #ffc8b8; }
 #pair-status { color: #ffc8b8; margin: 10px 0 0; }
+/* An empty neutral line must not leave a gap where a message would be. */
+#pair-check:empty { margin: 0; }
 /* Never hidden, only emptied: a live region that is display:none is not
    reliably announced when it later gains text, and this region exists to name
    a refused key. An empty paragraph would still add its margin, so the gap is

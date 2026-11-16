@@ -21,7 +21,10 @@ CHROMIUM = shutil.which("chromium-browser") or shutil.which("chromium")
 FIXTURE = r"""
 "use strict";
 window.testState = {
-  posts: [], percent: 36, muted: false, delay: false, release: null, fail: false,
+  posts: [], percent: 36, muted: false,
+  // `?delay=1` holds every status read until the check releases it, so a check
+  // can inspect the page while the device has not answered yet.
+  delay: new URLSearchParams(location.search).get("delay") === "1", release: null, fail: false,
   heldStatus: false,
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
@@ -621,6 +624,96 @@ window.addEventListener("load", async () => {
     result.textContent = "PASS: setup card renders disabled choices with reasons "
       + "and writes nothing when they or their labels are touched, and the planned "
       + "tasks are labelled with what each waits on and offer no control";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_CHECKING = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // The status read is held: the device has not answered yet. Before this,
+    // the page showed the key prompt with nothing saying anything was
+    // happening, so "waiting" and "broken" looked the same.
+    for (let i = 0; i < 40 && !testState.heldStatus; i++) await wait();
+    assert(testState.heldStatus, "the held status read never started");
+    assert(document.getElementById("connection").textContent === "Checking this device…",
+           "the header does not say it is checking: "
+           + document.getElementById("connection").textContent);
+    assert(/Checking whether this device needs an access key/.test(
+             document.getElementById("pair-check").textContent),
+           "the key card does not say it is checking: "
+           + document.getElementById("pair-check").textContent);
+    // Nothing has been decided, so no refusal may be shown yet.
+    assert(document.getElementById("pair-status").textContent === "",
+           "a refusal was shown before the device answered");
+    // The device answers, and offers keyless access.
+    testState.delay = false;
+    testState.release();
+    for (let i = 0; i < 80 && document.getElementById("bypass").hidden; i++) await wait();
+    assert(!document.getElementById("bypass").hidden, "the keyless option never appeared");
+    assert(document.getElementById("pair-check").textContent === "",
+           "the checking line stayed after the device answered: "
+           + document.getElementById("pair-check").textContent);
+    const settled = document.getElementById("connection").textContent;
+    assert(settled !== "Checking this device…",
+           "the header still says it is checking after the answer");
+    // A keyless device must not be described as waiting for a key.
+    assert(!/waiting for the access key/.test(settled),
+           "a keyless device is described as waiting for a key: " + settled);
+    result.textContent = "PASS: the page says it is checking before it decides, and stops when it knows";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_STALE = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    assert(document.getElementById("stale-notice").textContent === "",
+           "a staleness warning is shown while the device is answering");
+    const before = document.getElementById("volume-value").textContent;
+    // The device stops answering. The last readings stay on screen, so the page
+    // has to say they are old instead of letting "36%" read as current.
+    testState.offline = true;
+    await refresh();
+    const notice = document.getElementById("stale-notice").textContent;
+    assert(/not answering/.test(notice),
+           "the stale notice does not say the device stopped: " + notice);
+    assert(/last ones it sent/.test(notice),
+           "the stale notice does not say the readings are old: " + notice);
+    assert(/\d{1,2}:\d{2}/.test(notice),
+           "the stale notice does not say when the last answer was: " + notice);
+    assert(document.getElementById("volume-value").textContent === before,
+           "the stale state changed the reading instead of labelling it");
+    assert(document.getElementById("apply").disabled && document.getElementById("mute").disabled,
+           "the controls stayed usable against a device that is not answering");
+    // It answers again: the warning must go and the controls come back.
+    testState.offline = false;
+    await refresh();
+    assert(document.getElementById("stale-notice").textContent === "",
+           "the stale notice stayed after the device answered again");
+    assert(!document.getElementById("apply").disabled,
+           "the controls stayed disabled after the device returned");
+    result.textContent = "PASS: old readings are labelled as old, and the label clears when the device returns";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -1752,7 +1845,8 @@ class BrowserTests(unittest.TestCase):
                                    "/check-refused-key.js", "/check-query-key.js",
                                    "/check-pair-busy.js",
                                    "/check-refused-keyless.js", "/check-timeout.js",
-                                   "/check-unverified-key.js"):
+                                   "/check-unverified-key.js", "/check-checking.js",
+                                   "/check-stale.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -1774,7 +1868,9 @@ class BrowserTests(unittest.TestCase):
                               "/check-query-key.js": CHECK_QUERY_KEY,
                               "/check-pair-busy.js": CHECK_PAIR_BUSY,
                               "/check-timeout.js": CHECK_TIMEOUT_FALLBACK,
-                              "/check-unverified-key.js": CHECK_UNVERIFIED_KEY}[self.path]
+                              "/check-unverified-key.js": CHECK_UNVERIFIED_KEY,
+                              "/check-checking.js": CHECK_CHECKING,
+                              "/check-stale.js": CHECK_STALE}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -1807,6 +1903,14 @@ class BrowserTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr[-2000:])
             self.assertIn('<pre id="browser-test-result">PASS:', result.stdout,
                           result.stdout[-3000:] + result.stderr[-1000:])
+
+    def test_a_slow_device_says_it_is_checking(self):
+        # The device has not answered, so the page must not look like it has
+        # already decided that a key is needed.
+        self.run_browser("?auth=none&delay=1", "check-checking.js", budget=12000)
+
+    def test_a_device_that_stops_answering_labels_the_readings_as_old(self):
+        self.run_browser("?auth=none", "check-stale.js", budget=12000)
 
     def test_development_bypass_and_device_links(self):
         self.run_browser("?auth=none", "check-noauth.js")
