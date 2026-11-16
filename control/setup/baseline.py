@@ -35,9 +35,21 @@ from pathlib import Path
 # device with no Bluetooth or no Music Assistant is normal.
 CAPTURE = (
     "etc/NetworkManager/system-connections",
+    # netplan is the other common way a Debian/Ubuntu image stores its Wi-Fi
+    # configuration, and NetworkManager reads it through a generator rather
+    # than keeping a profile of its own.
+    "etc/netplan",
     "etc/hostname",
     "etc/timezone",
     "etc/wpa_supplicant",
+    # Raspberry Pi OS provisions Wi-Fi from a cloud-init seed on the boot
+    # partition, not through NetworkManager. On a device imaged with Raspberry
+    # Pi Imager, `etc/NetworkManager/system-connections` is empty and the live
+    # profile lives in `/run` (tmpfs, regenerated at boot), so without these
+    # the baseline holds no Wi-Fi credentials at all and cannot restore the
+    # network. `boot/network-config` is the pre-Bookworm layout.
+    "boot/firmware/network-config",
+    "boot/network-config",
     "var/lib/debra",
 )
 

@@ -13,6 +13,7 @@ import os
 import socket
 import stat
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -784,6 +785,27 @@ class BaselineTests(Temp):
         self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE((self.baseline_dir / manifest["archive"].replace(
             ".tar.gz", ".json")).stat().st_mode), 0o600)
+
+    def test_a_baseline_captures_a_cloud_init_network_config(self):
+        """A Raspberry Pi Imager device has no NetworkManager profile.
+
+        Its Wi-Fi lives in a cloud-init seed on the boot partition, and the
+        live profile is a tmpfs copy under /run. Capturing only
+        etc/NetworkManager/system-connections would produce a baseline with no
+        Wi-Fi credentials, which cannot restore the network.
+        """
+        root = self.dir / "root"
+        (root / "etc" / "NetworkManager" / "system-connections").mkdir(parents=True)
+        (root / "boot" / "firmware").mkdir(parents=True)
+        (root / "boot" / "firmware" / "network-config").write_text(
+            "network:\n  wifis:\n    wlan0:\n      access-points:\n"
+            '        "HomeWiFi":\n          password: "correct horse"\n')
+        manifest = baseline_module.capture(self.baseline_dir, root=str(root))
+        self.assertIn("boot/firmware/network-config", manifest["captured"])
+        archive = self.baseline_dir / manifest["archive"]
+        with tarfile.open(archive, "r:gz") as tar:
+            member = tar.extractfile("boot/firmware/network-config")
+            self.assertIn(b"correct horse", member.read())
 
     def test_a_baseline_is_taken_once_after_the_first_join(self):
         network = FakeNetwork()
