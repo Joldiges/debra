@@ -12,7 +12,7 @@ validated**, see the [evidence summary](guides/current-status.md).
 
 This is a **tracked planning snapshot, not a live device/worker monitor**.
 Status comes from the [roadmap](roadmap.md) and [work queue](work-queue.md).
-Source fingerprint: `2a04b9dd529c`. Regenerate after changing either source.
+Source fingerprint: `20adda16239a`. Regenerate after changing either source.
 
 ## Colour key
 
@@ -30,7 +30,7 @@ a partial/in-review packet can still have unmet prerequisites. The packet
 tables below retain both. Grey means no *recorded* progress, not proof no
 one has ever investigated it. Neither colour nor readiness grants device permission.
 
-**75 roadmap packets:** 2 finished · 0 in progress · 13 in review · 14 partial · 46 blocked · 0 untouched.
+**75 roadmap packets:** 3 finished · 0 in progress · 12 in review · 14 partial · 46 blocked · 0 untouched.
 Counts are packets, **not a percentage complete**; packet sizes differ.
 
 ## Product overview
@@ -125,7 +125,7 @@ flowchart TD
 ## Recorded active work
 
 - Acceptance review `code-r10` — WEB01.
-- Re-review `docs-r4` — Z01, T01.
+- Re-review `docs-r5` — Z01.
 - Re-review `setup-r8` — N02.
 
 This is what the queue records, not a liveness check. See
@@ -163,7 +163,7 @@ flowchart TD
     N01["N01 · Onboarding research<br/>IN REVIEW"]:::review
     Z01["Z01 · ARMv6 dependency reconnaissance<br/>IN REVIEW"]:::review
     B01["B01 · Recovery backend research<br/>IN REVIEW"]:::review
-    T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
+    T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     F00 --> F01
     R04 --> F02
     N01 --> F02
@@ -188,7 +188,7 @@ flowchart TD
 | F00 · Planning foundation | FINISHED | done | — | — |
 | F01 · Clean base and ownership | FINISHED | done | F00 | — |
 | F02 · Architecture decisions | BLOCKED | blocked | R04, N01, B01, Z01 | R04, N01, B01, Z01 |
-| F03 · Shared contracts and test layout | BLOCKED | blocked | F01, F02, T01 | F02, T01 |
+| F03 · Shared contracts and test layout | BLOCKED | blocked | F01, F02, T01 | F02 |
 | F04 · License and provenance | IN REVIEW | review | F00 | — |
 | F06 · Project-scoped agent permissions | IN REVIEW | review | F01 | — |
 | F05 · Worker permission pilot | PARTIAL | ready | F01 | — |
@@ -210,7 +210,7 @@ flowchart TD
     R05["R05 · Comparisons and choose-your-path<br/>PARTIAL"]:::partial
     R06["R06 · Beginner and builder guides<br/>BLOCKED"]:::blocked
     R07["R07 · Alternative boards<br/>IN REVIEW"]:::review
-    T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
+    T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     T02["T02 · Repeatable integrated slice<br/>BLOCKED"]:::blocked
     F00 --> R01
     F00 --> R02
@@ -239,7 +239,7 @@ flowchart TD
 | R02 · Complete alternatives | IN REVIEW | review | F00 | — |
 | R03 · Music transports and servers | IN REVIEW | review | F00 | — |
 | R04 · Upstream reuse | IN REVIEW | review | F00 | — |
-| R05 · Comparisons and choose-your-path | PARTIAL | review | R01, R02, R03, R04, R07, T01 | R01, R02, R03, R04, R07, T01 |
+| R05 · Comparisons and choose-your-path | PARTIAL | review | R01, R02, R03, R04, R07, T01 | R01, R02, R03, R04, R07 |
 | R06 · Beginner and builder guides | BLOCKED | blocked | T02, R05 | T02, R05 |
 | R07 · Alternative boards | IN REVIEW | review | F00 | — |
 
@@ -258,7 +258,7 @@ flowchart TD
     L02["L02 · Device binding and leases<br/>BLOCKED"]:::blocked
     L03["L03 · Repeatable lab reset<br/>BLOCKED"]:::blocked
     B03["B03 · Demonstrate on-target file restore<br/>PARTIAL"]:::partial
-    T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
+    T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     F01 --> L01
     T01 --> L01
     L01 --> L02
@@ -275,7 +275,7 @@ flowchart TD
 
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
-| L01 · Lab inventory, scope and recovery | BLOCKED | blocked | F01, T01 | T01 |
+| L01 · Lab inventory, scope and recovery | BLOCKED | blocked | F01, T01 | — |
 | L02 · Device binding and leases | BLOCKED | blocked | L01, F03 | L01, F03 |
 | L03 · Repeatable lab reset | BLOCKED | blocked | L02, B03 | L02, B03 |
 
@@ -472,7 +472,7 @@ flowchart TD
     V02["V02 · Pinned voice adapter<br/>PARTIAL"]:::partial
     M01["M01 · Pinned Sendspin adapter<br/>PARTIAL"]:::partial
     B03["B03 · Demonstrate on-target file restore<br/>PARTIAL"]:::partial
-    T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
+    T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     R01 --> A01
     R04 --> A01
     T01 --> A01
@@ -497,7 +497,7 @@ flowchart TD
 
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
-| A01 · Exact-board audio baseline | PARTIAL | blocked | R01, R04, T01, L01 | R01, R04, T01, L01 |
+| A01 · Exact-board audio baseline | PARTIAL | blocked | R01, R04, T01, L01 | R01, R04, L01 |
 | A02 · Tested HAT profiles | BLOCKED | blocked | A01, C02, B03 | A01, C02, B03 |
 | A03 · Duck or pause, then resume | BLOCKED | blocked | A02, V02, M01, C01 | A02, V02, M01, C01 |
 | A04 · HAT LEDs, buttons and mute | BLOCKED | blocked | A02, C02, V02 | A02, C02, V02 |
@@ -566,7 +566,7 @@ flowchart TD
     M03["M03 · Optional Snapcast adapter<br/>BLOCKED"]:::blocked
     M04["M04 · Multi-stack coexistence<br/>BLOCKED"]:::blocked
     B03["B03 · Demonstrate on-target file restore<br/>PARTIAL"]:::partial
-    T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
+    T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     R03 --> M01
     A02 --> M01
     C02 --> M01
@@ -592,7 +592,7 @@ flowchart TD
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
 | M01 · Pinned Sendspin adapter | PARTIAL | blocked | R03, A02, C02, B03 | R03, A02, C02, B03 |
-| M02 · Multiroom measurements | BLOCKED | blocked | M01, L02, T01 | M01, L02, T01 |
+| M02 · Multiroom measurements | BLOCKED | blocked | M01, L02, T01 | M01, L02 |
 | M03 · Optional Snapcast adapter | BLOCKED | blocked | R03, C02, A02, B03 | R03, C02, A02, B03 |
 | M04 · Multi-stack coexistence | BLOCKED | blocked | M03, A03, M02 | M03, A03, M02 |
 
@@ -618,7 +618,7 @@ flowchart TD
     Z04["Z04 · Zero W resource and audio profiling<br/>BLOCKED"]:::blocked
     Z05["Z05 · Resolve bottlenecks and retest<br/>BLOCKED"]:::blocked
     B03["B03 · Demonstrate on-target file restore<br/>PARTIAL"]:::partial
-    T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
+    T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     F00 --> Z01
     Z01 --> Z02
     F03 --> Z02
@@ -645,7 +645,7 @@ flowchart TD
 | Z01 · ARMv6 dependency reconnaissance | IN REVIEW | ready | F00 | — |
 | Z02 · Missing-artifact build recipes | BLOCKED | blocked | Z01, F03 | Z01, F03 |
 | Z03 · Execute on original Zero W | BLOCKED | blocked | Z02, L02, B03 | Z02, L02, B03 |
-| Z04 · Zero W resource and audio profiling | BLOCKED | blocked | Z03, V02, M01, T01 | Z03, V02, M01, T01 |
+| Z04 · Zero W resource and audio profiling | BLOCKED | blocked | Z03, V02, M01, T01 | Z03, V02, M01 |
 | Z05 · Resolve bottlenecks and retest | BLOCKED | blocked | Z04, V03, A03 | Z04, V03, A03 |
 
 </details>
@@ -822,7 +822,7 @@ flowchart LR
     B04["B04 · Pre-change checkpoints<br/>BLOCKED"]:::blocked
     U02["U02 · Manual update and rollback<br/>BLOCKED"]:::blocked
     I03["I03 · Two-board flash and boot trial<br/>BLOCKED"]:::blocked
-    T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
+    T01["T01 · Acceptance matrix and test tiers<br/>FINISHED"]:::finished
     T02["T02 · Repeatable integrated slice<br/>BLOCKED"]:::blocked
     T03["T03 · Failure and soak tests<br/>BLOCKED"]:::blocked
     T04["T04 · Offline CI<br/>BLOCKED"]:::blocked
@@ -856,7 +856,7 @@ flowchart LR
 
 | Packet / step | Progress | Roadmap state | Prerequisites (original wording) | Open packet prerequisites |
 | --- | --- | --- | --- | --- |
-| T01 · Acceptance matrix and test tiers | IN REVIEW | ready | F00 | — |
+| T01 · Acceptance matrix and test tiers | FINISHED | done | F00 | — |
 | T02 · Repeatable integrated slice | BLOCKED | blocked | F03, C03, A02, V02, M01, B03 | F03, C03, A02, V02, M01, B03 |
 | T03 · Failure and soak tests | BLOCKED | blocked | T02, M02, V04, A03, U02, B04 | T02, M02, V04, A03, U02, B04 |
 | T04 · Offline CI | BLOCKED | blocked | F03, C03, B02 | F03, C03, B02 |
