@@ -1,18 +1,15 @@
 # First boot: from a flashed card to a working device
 
-**Status: partly implemented, 2026-11-15. This tree has not run on a device; one
-run of the other line's tree is recorded below.**
+**Status: partly implemented, 2026-11-16. This tree has run on a device only
+through the online path; nothing here has raised a radio or served the page.**
 
 The phase machine, the setup page and the first baseline exist as code under
 `control/setup/` and pass offline tests against a recorded fake NetworkManager.
-One device run has happened since, on the other line's tree at `a90cfba` (the
-Zero 2 W; [result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)):
-the online path, the hardware-derived rename, a baseline over a real root, a
-manual start and then a boot with the unit enabled all worked. The run showed the
-service leaving `/etc/hosts` and `avahi-daemon` on the old name until the next
-boot, which repaired both. The setup access point was never raised on that
-device, and none of this tree's own code has run at all. Its system unit and
-installer are tested offline — see
+One Zero 2 W has installed the service, been renamed from its serial, captured a
+baseline, and run the unit as part of a boot
+([result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)). No
+radio has been raised by it, no page has been served, and no join has been
+performed by it. Its system unit and installer are tested offline — see
 [the setup service](../../control/setup/README.md). Read
 [implemented today versus planned](#implemented-today-versus-planned)
 before relying on a step.
@@ -112,16 +109,16 @@ the operating system is at most `partial`.
 | Step | What it is | Status | What is missing |
 | --- | --- | --- | --- |
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
-| Applying the name | `hostnamectl set-hostname`, so the running system answers to the recorded name | partial | The call exists, a name that would not resolve is refused before it runs, and a boot on the device run's tree applied the recorded name (that is why `/etc/hosts` and avahi were left behind). What no device has done is *choose* a name on its first boot. A failure is logged rather than retried |
+| Applying the name | `hostnamectl set-hostname`, the `/etc/hosts` alias, and a restart of the mDNS responder, so the running system answers to the recorded name | partial | Ran once on a Zero 2 W: a live rename kept the connection and the device answered `hostname -f` and `sudo` afterwards. Unproven: a rename by a *first* boot, and an image whose cloud-init metadata pins a hostname |
 | State across reboots | Versioned JSON schema (`SCHEMA = 3`), atomic owner-only writes, refuses unknown keys and phases; a schema-1 or schema-2 record is migrated on read | implemented | Nothing on the schema. A record from an earlier schema is dropped of retired keys, has the few fields an earlier build could lack filled from a blank record, and is written back; a combination the current rules refuse (`connecting` with no token, `hotspot` with no described network, `online` with one) is resolved the way the next boot resolves it. Schema 2's `hotspot_password` is moved into `setup-secret` and `wpa` into `setup-security` before the record is read, so the first boot after an upgrade cannot open a network that was protected; only then is the key dropped. If the mode file itself cannot be written the boot is still protected and the next one falls back to the installer's flag. A record from a *newer* schema, one whose version never existed, or one missing a core key such as `phase`, is still refused, so a corrupt file is an error and not a silent reset. 1→3 and 2→3 are tested offline; no device has carried a record across an upgrade |
-| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist. The unit has been enabled, started and booted on the device run's tree, where it decided "online" and did nothing. The other branch, raising the setup network, has never run, and there is no image |
+| Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) are installed and enabled on one Zero 2 W, and the unit has run as part of a boot, taking the online path. The access-point path has never run on a radio, and there is no image |
 | Raising the setup network | An explicit NetworkManager profile this code writes (`wifi.mode=ap`, `ipv4.method=shared`, `wifi-sec.key-mgmt` of `wpa-psk` or `none`), reloaded and activated | partial | Never executed on a radio. `nmcli device wifi hotspot` was the first mechanism and is **unusable**: its manual says a password is *generated* when none is given, so it cannot express an open setup network at all, and a password-less call would have raised a WPA2 network nobody could join. The password now lives in the profile file (`0600`), never in argv; the address the profile got is what the page is bound to. The mode is read back after activation and a mismatch removes the profile. `none` is the **current default** (`DEFAULT_SETUP_SECURITY`), and the page can switch modes without a reinstall. No idle timeout, no pinned channel |
 | Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. The operating systems' captive-portal probe paths are answered with a redirect to the page, built from the bound address rather than the request's `Host`, but whether a phone's probe reaches the access point at all depends on the setup network's DNS, which Debra does not configure; that is unverified, and the card-note address remains the fallback. No phone has been tried. Nearby networks are scanned once, before the access point is raised, and offered in a picker; typing the name still works and is the fallback when the scan finds nothing |
 | Country | The country already on the device is read with `iw reg get`; the page asks only when there is none; `raspi-config nonint do_wifi_country` sets it | partial | The read is untested on a device. On a dual-band board with no country the radio is off, so the setup network cannot start at all, and asking inside the portal is still the wrong place to ask |
 | Joining | An owner-only keyfile written into NetworkManager's own profile directory, staged under a name the keyfile plugin ignores and renamed into place, pinned to the setup radio, loaded with `nmcli connection load`, activated with `connection up`, checked for a routable IPv4 address, a default route, the loaded profile being the active connection and that connection being on the setup radio, then promoted to `autoconnect=yes` | partial | Never executed. The profile check matters because a connected radio is not proof that the intended network came up — an older saved profile can win. The directory matters because a profile the keyfile plugin will not read again is not a saved network. The staging name matters because the plugin watches that directory and would parse a half-written profile. A promotion that keeps failing is a failed join, not a warning: an unsaved profile works until the next reboot and then strands the device. No DNS or HTTP probe, so a LAN with no internet is still reported as success |
 | Wrong password | Setup network returns with a one-line reason; the page shows it and a retry | partial | The decision and the page are real and tested; whether `nmcli` produces that message, and how long the return takes, is unverified. nmcli's raw text is classified into one of five sentences and never shown or stored, so an error that echoes the passphrase cannot leak it |
 | Attempt limits | One submission per 5 seconds, 10 attempts, then a 10-minute cooldown; a successful join resets the count | partial | The cooldown is tested offline only. The page now says to wait ten minutes, because the counter lives in the state file and a power cycle does not clear it. The note asks for 5 per 10 minutes with the limit shown in the form |
-| First baseline | One owner-only archive plus manifest, captured once after the first successful join and retried on any online boot that has none | implemented | The capture code is real and tested against a temporary root. It has run on a Pi once, at `a90cfba`: 9449 bytes, 8 files, `0600`, `missing: []`, and a manifest that says the archive holds the household passphrase. That tree did not exclude the setup state directory, which this one does, so this tree's exclusions have only ever run against a temporary root. The archive and manifest are written as `.part` files and renamed, so an interrupted capture leaves nothing that looks complete, and a failure is recorded in `baseline_error` rather than silently absent |
+| First baseline | One owner-only archive plus manifest, captured once after the first successful join and retried on any online boot that has none | implemented | Ran once on a Zero 2 W: 8 files, 9449 bytes, `0600 root`, including both NetworkManager keyfiles. The archive and manifest are written as `.part` files and renamed, so an interrupted capture leaves nothing that looks complete, and a failure is recorded in `baseline_error` rather than silently absent. This tree also excludes the setup state directory and the access-point profile from every archive, and that exclusion has only ever run against a temporary root. Nothing restores from one |
 | Finding the device afterwards | The last page names the device page URL and says what to do if it does not open | planned | No `debra-address.txt` and no mDNS announcement from this code. The address is the web prototype's port `8787`, which an image does not install |
 | Re-entry | A physical input, or N boots without an uplink, raises the setup network again | partial | The [boot unit](../../control/setup/README.md) raises the setup network when the last phase was `online` and the network is not reachable. No physical input, no boot counter, no bounded hotspot window. A device that failed with no access point at all is refused a join rather than crashing the page |
 | Account enrolment | First admin credential, SSH keys | planned | Nothing exists; see [N03](../roadmap.md) |
@@ -187,6 +184,7 @@ archive and one manifest, capturing the files that make this device this device:
 | --- | --- |
 | `etc/NetworkManager/system-connections` | The network profiles, so the device can be put back on a network |
 | `etc/hostname` | The name it answers to |
+| `etc/hosts` | Not captured: the loopback alias is derived from the name, and a restore of a stale one is a device that resolves the wrong name. Applying the name rewrites it |
 | `etc/timezone` | The clock's local time |
 | `etc/wpa_supplicant` | Any supplicant configuration still in use |
 | `var/lib/debra` | Debra's own records. The setup service's own state directory (`var/lib/debra/setup`) is **excluded**: it holds the setup-network password and the chosen mode, and neither belongs in an archived copy |
@@ -282,13 +280,15 @@ The offline checks behind the tables above:
 
 ```bash
 python3 -B -m unittest tests.test_onboarding -v
+python3 -B -m unittest tests.test_setup_identity -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-266 onboarding tests, 46 installer tests and 27 browser scenarios, all passing
-on 2026-11-15 against the then-current tree. They check the decisions and the
-HTTP contract against the fake NetworkManager, with the page driven in a real
-Chromium. They prove nothing about a radio, a real keyfile read, or systemd.
+266 onboarding tests, 46 installer tests, 25 identity tests and 27 browser
+scenarios, all passing on 2026-11-16 against the then-current tree. They check
+the decisions and the HTTP contract against the fake NetworkManager, with the
+page driven in a real Chromium. They prove nothing about a radio, a real keyfile
+read, or systemd.
 The browser scenarios run only with `DEBRA_BROWSER_TEST=1` and an installed
 Chromium, so a plain run of this suite does not drive the page at all.
 

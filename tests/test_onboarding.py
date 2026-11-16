@@ -2931,16 +2931,22 @@ class HostnameTests(Temp):
         self.onboarder(network).ensure_identity()
         self.assertIn(("set_hostname", "debra-demo1"), network.calls)
 
-    def test_a_name_that_cannot_resolve_is_refused(self):
+    def test_an_invalid_name_never_reaches_hostnamectl(self):
         recorder = Recorder()
-        adapter = nm_module.Nmcli(runner=recorder)
+        # A temp hosts file: the real one is not this test's to write. The full
+        # contract for the alias and the responder is in test_setup_identity.py.
+        adapter = nm_module.Nmcli(runner=recorder, hosts_path=self.dir / "hosts")
         for bad in ("", "has space", "two.dots", "-leading", "x" * 64):
             with self.subTest(name=bad):
                 with self.assertRaises(nm_module.NmError):
                     adapter.set_hostname(bad)
         self.assertEqual(recorder.calls, [], "an invalid name reached hostnamectl")
         adapter.set_hostname("debra-3c6b3f")
-        self.assertEqual(recorder.calls, [["hostnamectl", "set-hostname", "debra-3c6b3f"]])
+        # The rename is issued first; the responder is only probed afterwards.
+        # The alias write is a file operation this recorder cannot see, and the
+        # hosts file here deliberately does not exist.
+        self.assertEqual(recorder.calls, [["hostnamectl", "set-hostname", "debra-3c6b3f"],
+                                          ["systemctl", "is-active", "avahi-daemon.service"]])
 
     def test_a_missing_hostnamectl_is_reported_without_losing_the_name(self):
         class Broken(FakeNetwork):

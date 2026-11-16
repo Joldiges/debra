@@ -5,7 +5,15 @@
 # /etc/systemd/system/debra-setup.service. See README.md.
 [Unit]
 Description=Debra first-boot setup (device name, Wi-Fi onboarding, baseline)
-After=NetworkManager.service network.target
+# cloud-init rewrites /etc/hosts on Raspberry Pi OS, from its own template,
+# during the boot. The writer is the stage that owns that module: cloud-init.service
+# before 24.3 and cloud-init-network.service on 25.2's single-process design.
+# Ordering after a unit that is not installed is ignored, so both names are
+# listed. cloud-config.service and cloud-final.service are deliberately NOT used:
+# they are ordered after network-online.target and, for cloud-final, after
+# multi-user.target, which this unit is itself wanted by. Naming them would
+# create an ordering cycle or delay the page until the network has timed out.
+After=NetworkManager.service network.target cloud-init.service cloud-init-network.service
 Wants=NetworkManager.service
 # Three failures in five minutes is left failed rather than looping on port 80.
 StartLimitIntervalSec=300

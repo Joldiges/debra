@@ -245,6 +245,12 @@ Use `changes-requested`, `blocked`, or `accepted` before integration, and record
 1. **Freeze the candidate.** Record base/candidate commits or, for an uncommitted
    handoff, the exact reviewed patch and its hash. Ensure no concurrent edits.
    Any later change invalidates the earlier approval for the changed candidate.
+   Prove the frozen tree's identity by comparing **every file with the Git blobs
+   of the named commit** (`git archive <sha> | tar -x`, then a file-by-file
+   comparison). A composite `find … | sha256sum` value is not that proof: it
+   changes with whether the printed paths are absolute or relative and with the
+   sort locale, so two honest reviewers can disagree about the same bytes. Report
+   the composite only as a convenience beside the blob comparison.
 2. **Scope and hygiene.** Review every changed path and actual diff, including
    new files. Check for secrets/private payloads, unauthorized config/pin changes,
    unrelated deletions, license/provenance gaps, and weakened tests. Check that

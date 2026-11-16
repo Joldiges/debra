@@ -47,7 +47,8 @@ moved.
 ## Verification
 
 - Working directory: the branch worktree; `python3 -B -m unittest discover -s tests`
-  — 763 tests, 50 skipped, OK (266 onboarding, 46 setup-installer cases in the files).
+  — 788 tests, 50 skipped, OK (266 onboarding, 46 setup-installer, 25 identity cases
+    in the files).
 - `DEBRA_BROWSER_TEST=1 python3 -B -m unittest discover -s tests -p 'test_*browser.py'`
   — 50 tests, OK, against an installed Chromium (27 setup, 23 web).
 - Devserver smoke, 2026-11-15: `GET /api/status` reports `security: none` and no
@@ -136,13 +137,15 @@ the service generates the password and the note at first boot.
 `a90cfba`). It is evidence about this tree in places and not in others, and the
 distinction is not obvious from the file, so:
 
-- **Transfers:** `ensure_identity` is byte-identical here, so the rename that
-  worked, and the two defects it left (`/etc/hosts` and `avahi-daemon` keeping
-  the old name), apply unchanged. The same result then rebooted the board and
+- **Transfers:** the rename that worked, and the two defects it left
+  (`/etc/hosts` and `avahi-daemon` keeping the old name), described this tree
+  exactly when they were found. The same result then rebooted the board and
   measured both repairing themselves at boot, one of them because cloud-init
-  rewrote `/etc/hosts` - a property of that image, not of Debra. The window that
-  matters, a rename on a running device, is unchanged and is named in this
-  tree's residuals rather than repaired here.
+  rewrote `/etc/hosts` - a property of that image, not of Debra, which is why
+  the window that matters is a rename on a running device. That window is now
+  closed: main's `99f0651` makes `Nmcli.set_hostname` rewrite the alias and
+  restart the responder as part of applying a name, and the merged tree carries
+  it with `tests/test_setup_identity.py`.
 - **Does not transfer:** that tree had no `NEVER_CAPTURE`, so its baseline
   archived `setup.json`. This tree excludes the whole state directory and the
   access-point profile, which is the safer behaviour and has only ever run
@@ -154,14 +157,12 @@ distinction is not obvious from the file, so:
 
 ## Residuals this work does not close
 
-- **`/etc/hosts` and `avahi-daemon` keep the old name after a live rename.** Both
-  were found by the device run. `ensure_identity` applies the name through
-  `hostnamectl` and stops there, so the loopback alias still names the old
-  device (every `sudo` warns) and mDNS answers to the old name until avahi is
-  restarted. At boot this self-corrects, because `/etc/hostname` is written
-  first; the case that was run — a first run on a running device — does not.
-  Not repaired here: it is identity work, and this branch's job is the setup
-  network's security.
+- **A rename applied by the fixed code has not run on a device.** The board
+  verified the *behaviour* with an earlier draft that wrote `/etc/hosts` in
+  place and restarted the responder only on a change; the atomic replace and the
+  unconditional reconcile that `set_hostname` now does are covered offline only
+  (`tests/test_setup_identity.py`). A rename by a *first* boot is also still
+  unexercised.
 
 - **An unreadable mode file fails open when the installed default is `none`.**
   `_stored_security()` logs and returns "no choice", so a device whose page chose
