@@ -43,6 +43,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
 | Acceptance review `code-r10` | WEB01 | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b16e0` (re-verified byte-identical), judging R9-01…R9-06, re-running the nine r9 survivor transforms and five new ones, and running the offline and browser suites in a scratch copy |
+| Re-review `docs-r5` | Z01 | `.local/reviews/docs-r5-20261115/` | independent, `gpt-6.1-sol`; hash-bound on the repaired Z01 (`c7e12b37…`, preimage = the r4 candidate), judging the three docs-r4 findings — the bubblewrap mount ordering, the target-environment wording, and the header's account of round 3 |
 | Re-review `setup-r8` | N02 | `.local/reviews/setup-r8-20261115/` | independent, `gpt-6.1-sol`; frozen on `ccc2b42` with the six setup files byte-identical to `5956db4` (tree `a7885881…`), judging R7-01…R7-04, re-running the four repair reversals plus five new ones, and reproducing the round-7 failing scenarios in a scratch copy |
 
 ## Done this round
