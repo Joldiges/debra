@@ -12,7 +12,7 @@ validated**, see the [evidence summary](guides/current-status.md).
 
 This is a **tracked planning snapshot, not a live device/worker monitor**.
 Status comes from the [roadmap](roadmap.md) and [work queue](work-queue.md).
-Source fingerprint: `116998efa9e0`. Regenerate after changing either source.
+Source fingerprint: `57c26269ee2c`. Regenerate after changing either source.
 
 ## Colour key
 
@@ -818,7 +818,7 @@ flowchart LR
     M02["M02 · Multiroom measurements<br/>BLOCKED"]:::blocked
     B02["B02 · Capture/verify/restore interface<br/>BLOCKED"]:::blocked
     B03["B03 · Demonstrate on-target file restore<br/>PARTIAL"]:::partial
-    B05["B05 · Deferred rescue and media-loss recovery<br/>BLOCKED"]:::blocked
+    B04["B04 · Pre-change checkpoints<br/>BLOCKED"]:::blocked
     U02["U02 · Manual update and rollback<br/>BLOCKED"]:::blocked
     I03["I03 · Two-board flash and boot trial<br/>BLOCKED"]:::blocked
     T01["T01 · Acceptance matrix and test tiers<br/>IN REVIEW"]:::review
@@ -838,7 +838,7 @@ flowchart LR
     V04 --> T03
     A03 --> T03
     U02 --> T03
-    B05 --> T03
+    B04 --> T03
     F03 --> T04
     C03 --> T04
     B02 --> T04
@@ -857,7 +857,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | T01 · Acceptance matrix and test tiers | IN REVIEW | ready | F00 | — |
 | T02 · Repeatable integrated slice | BLOCKED | blocked | F03, C03, A02, V02, M01, B03 | F03, C03, A02, V02, M01, B03 |
-| T03 · Failure and soak tests | BLOCKED | blocked | T02, M02, V04, A03, U02, B05 | T02, M02, V04, A03, U02, B05 |
+| T03 · Failure and soak tests | BLOCKED | blocked | T02, M02, V04, A03, U02, B04 | T02, M02, V04, A03, U02, B04 |
 | T04 · Offline CI | BLOCKED | blocked | F03, C03, B02 | F03, C03, B02 |
 | T05 · Fresh-user rehearsal | BLOCKED | blocked | I03, R06, T03 | I03, R06, T03 |
 
