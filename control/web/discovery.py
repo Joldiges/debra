@@ -85,31 +85,71 @@ def accept_record(record):
     return item, None
 
 
+def _unescape(field: str) -> str:
+    """Decode avahi-browse's escapes.
+
+    avahi-browse -t writes an escaped field as ``\\DDD`` with **three decimal**
+    digits — a space is ``\\032`` — and ``\\\\`` for a literal backslash. Taking
+    the backslash away and keeping the digits turned every unlabelled device's
+    name into ``Debra032debra-8518d6`` in another device's list, which is the one
+    place a person reads that name.
+    """
+    out, index = [], 0
+    while index < len(field):
+        char = field[index]
+        if char == "\\" and index + 1 < len(field):
+            digits = field[index + 1:index + 4]
+            if len(digits) == 3 and digits.isdigit() and int(digits) < 256:
+                out.append(chr(int(digits)))
+                index += 4
+                continue
+            # Any other escaped character stands for itself: \; -> ;, \\ -> \.
+            out.append(field[index + 1])
+            index += 2
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def _split(line: str) -> list[str]:
-    """Split an avahi-browse -p line on unescaped semicolons."""
-    fields, current, escaped = [], [], False
-    for char in line:
-        if escaped:
-            current.append(char)
-            escaped = False
-        elif char == "\\":
-            escaped = True
-        elif char == ";":
+    """Split an avahi-browse -p line on unescaped semicolons.
+
+    Escapes are kept intact: an escaped semicolon is not a separator, and the
+    decoder needs the digits avahi wrote. `_unescape` is applied to the fields
+    actually used as text.
+    """
+    fields, current, index = [], [], 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\" and index + 1 < len(line):
+            width = 4 if (index + 4 <= len(line) and line[index + 1:index + 4].isdigit()) else 2
+            current.append(line[index:index + width])
+            index += width
+            continue
+        if char == ";":
             fields.append("".join(current))
             current = []
         else:
             current.append(char)
+        index += 1
     fields.append("".join(current))
     return fields
 
 
 def _txt(field: str) -> dict[str, str]:
-    """Parse avahi's space-separated quoted TXT pairs."""
+    """Parse avahi's space-separated quoted TXT pairs, then decode each one.
+
+    Pairs are matched on the still-escaped text, so a value containing a quote
+    (avahi writes ``\\034``) cannot end the pair early, and the escape is decoded
+    afterwards.
+    """
     pairs = {}
     for item in re.findall(r'"([^"]*)"', field):
         key, _, value = item.partition("=")
+        key = _unescape(key)
         if key:
-            pairs[key] = value
+            pairs[key] = _unescape(value)
     return pairs
 
 
@@ -134,6 +174,9 @@ def parse(output: str, refused: list | None = None) -> list[dict]:
         _, _iface, protocol, instance, service, _domain, host, address, port, txt = fields[:10]
         if protocol not in ("IPv4", "IPv6") or service != SERVICE:
             continue
+        # avahi escapes a space as \032; undecoded, an unlabelled device showed
+        # up in another device's list as "Debra032debra-8518d6".
+        instance = _unescape(instance)
         attributes = _txt(txt)
         item, reason = accept_record({
             "name": attributes.get("name") or instance,

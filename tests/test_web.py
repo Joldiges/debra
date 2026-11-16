@@ -1399,6 +1399,30 @@ class DiscoveryTests(unittest.TestCase):
             {"name": "self", "url": "http://self.local:8787/", "label": "Debra self",
              "source": "discovered"}))
 
+    def test_an_escaped_space_in_the_instance_name_is_a_space(self):
+        # avahi-browse writes a space as \032 with three DECIMAL digits. Keeping
+        # the digits and dropping the backslash showed every unlabelled device in
+        # another device's list as "Debra032debra-8518d6", which is the one place
+        # a person reads that name.
+        line = ('=;wlan0;IPv4;Debra\\032debra-8518d6;_debra._tcp;local;'
+                'debra-8518d6.local;192.0.2.9;8787;"name=debra-8518d6"')
+        self.assertEqual(discovery.parse(line), [
+            {"name": "debra-8518d6", "url": "http://debra-8518d6.local:8787/",
+             "label": "Debra debra-8518d6", "host": "debra-8518d6.local",
+             "addresses": ["192.0.2.9"]}])
+
+    def test_an_escaped_label_keeps_its_spaces_and_quotes(self):
+        line = ('=;wlan0;IPv4;Debra\\032lab;_debra._tcp;local;lab.local;192.0.2.8;8787;'
+                '"label=Lab\\032\\034upstairs\\034" "name=lab"')
+        record = discovery.parse(line)[0]
+        self.assertEqual(record["label"], 'Lab "upstairs"')
+
+    def test_an_escaped_semicolon_is_still_not_a_separator(self):
+        line = ('=;eth0;IPv4;Debra\\;test;_debra._tcp;local;odd.local;192.0.2.7;8787;'
+                '"name=odd" "label=a\\;b"')
+        record = discovery.parse(line)[0]
+        self.assertEqual((record["name"], record["label"]), ("odd", "a;b"))
+
     def test_serve_starts_discovery_without_waiting_for_a_request(self):
         with tempfile.TemporaryDirectory(prefix="web-start-", dir="/tmp/opencode") as temp:
             argv = ["server.py", "serve", "--state-dir", temp, "--sink", SINK, "--auth", "none"]
