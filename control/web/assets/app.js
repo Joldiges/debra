@@ -278,8 +278,6 @@ function hatChoice(option) {
   const id = `setup-hat-${option.id}`;
   const row = setupRow(id, option.label, true);
   if (option.summary) row.append(detailLine(option.summary));
-  const control = document.createElement("div");
-  control.className = "choice-control";
   const radio = document.createElement("input");
   radio.type = "radio";
   radio.name = "setup-hat";
@@ -288,8 +286,9 @@ function hatChoice(option) {
   // so marking one would claim a selection the device does not have.
   radio.disabled = true;
   radio.setAttribute("aria-describedby", "setup-hardware-note");
-  control.append(radio);
-  row.append(control);
+  // The dot belongs beside the name it selects. On a line of its own it read as
+  // a stray mark: its label is the row title, which sits two paragraphs above.
+  row.querySelector(".choice-head").prepend(radio);
   const status = document.createElement("p");
   status.className = "choice-status";
   status.textContent = hatStatus(option);
