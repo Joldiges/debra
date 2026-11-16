@@ -179,13 +179,13 @@ assignments or authorization for installation, purchase or device work.
 | --- | --- |
 | Separate ESP32 BLE proxy | Candidate to extend HA coverage without putting proxy CPU use on the Pi; Wi-Fi sharing and power are unmeasured. |
 | NTP client only on Debra; no NTP server | Candidate for each device's clock; serving the household adds a listening service outside the satellite's role. |
-| Per-device health to HA, not a Debra dashboard | Proposed reporting to HA rather than another dashboard/database; transport and implementation are unverified. |
+| Per-device health also reported to HA | Reporting to HA complements the device's own page rather than replacing it; transport and implementation are unverified. |
 | SHT40 / BME280 environmental sensors | Candidates only; BME280's nominal v17 comparison is arithmetic, not physical fit, and SHT40 fit has not been calculated in the study. Heat bias, wiring, clearance and voice/music coexistence are untested. |
 | Separate Zigbee, Z-Wave and Thread infrastructure | Candidate to keep household coordinator/border-router duties independent of satellite updates and reboots; recovery and coexistence need evaluation. |
 | No Pi-hole / AdGuard Home on Debra | A room satellite becoming household DNS creates a wider outage dependency. |
 | No DHCP server on Debra | Address assignment is household infrastructure; faults or conflicting servers can disrupt other clients. |
 | No MQTT broker on Debra | A satellite-hosted broker duplicates household infrastructure and makes clients depend on that satellite; an MQTT client is a separate option. |
-| No Uptime Kuma, Homepage or Netronome-class dashboards on Debra | Monitoring/link dashboards add separate services and overlap with HA's role; the Netronome comparison itself is `unknown`, not independently sourced in the notes. |
+| No Uptime Kuma, Homepage or Netronome-class dashboards on Debra | Third-party monitoring/link dashboards add separate services and overlap with HA's role; the Netronome comparison itself is `unknown`, not independently sourced in the notes. This excludes the third-party stacks, not a Debra-native fleet view: see [one view across the fleet](#long-term-one-view-across-the-fleet). |
 
 ## Lab fleet and access
 
@@ -231,7 +231,7 @@ a bounded, separately reviewed native-volume slice.
 | --- | --- | --- |
 | WEB01 / prototype | Named target/recovery before deployment | [Reusable native-volume service/UI/installer](../control/web/README.md): explicit selected native sink, slider preview + Apply, independent mute, no startup/poll/install audio writes or sounds; local authenticated status; offline and real-browser tests. A prior version was [deployed to the lab](guides/web-control-quickstart.md); actual device rollback remains unproven. Independent review of `code-r5` requested changes; `code-r6` corrected the seven findings and returned one low finding about port 80, which was fixed and awaits reviewer re-check ([current status](guides/current-status.md)). The current candidate is not approved. |
 | WEB02 / ready | N02/N04 for final onboarding | Device address/identity, friendly room name, IP fallback and browser enrollment/access revocation; ordinary operation without SSH. Do not make full onboarding block use of a verified existing lab hostname. Acceptance criteria rewritten 2026-11-15 after review as offline fixture checks in [web control](design/web-control.md); the rewrite is itself unreviewed. |
-| WEB03 / ready | A01/A02 evidence before writes | Board/HAT selection, retained speaker information, detected-versus-selected hardware and actionable driver/compatibility/reboot state. Unknown is not auto-detection or a replacement recommendation. Acceptance criteria rewritten 2026-11-15 after review as offline fixture checks in [web control](design/web-control.md); the rewrite is itself unreviewed. |
+| WEB03 / ready | A01/A02 evidence before writes | Board/HAT selection, retained speaker information, detected-versus-selected hardware and actionable driver/compatibility/reboot state. Unknown is not auto-detection or a replacement recommendation. Acceptance criteria rewritten 2026-11-15 after review as offline fixture checks in [web control](design/web-control.md); the rewrite is itself unreviewed. The only evidence the page reads today is the HAT EEPROM, and **none of the three lab boards exposes one** — `detected_hat` is null on the Pi 5, the Zero 2 W and the Zero W. The available path is I²C codec evidence, which separates the v2 TLV320AIC310x path from the WM8960 path but cannot separate Seeed v1 from Waveshare WM8960, and play-and-listen cannot substitute for it ([note](notes/2026-11-16-hat-identification-evidence.md)). |
 | WEB04 / ready | Read-only detection independent; C02 for lifecycle writes | LVA/Sendspin/Snapcast/Bluetooth-proxy state: installed, enabled, configured, running, connected and working separately; exact versions, prerequisites, errors and server ownership. Acceptance criteria drafted 2026-11-15 in [web control](design/web-control.md), unreviewed; the current server can partly answer only enabled and running. |
 | WEB05 / blocked | A02/A03, V03, M01/M03/M04 for respective writes | Supported audio routing/output “all” options, capture/wake/runtime settings, pairing, duck/pause/resume and reply cancellation; preserve user changes and verify group effects/late events. |
 | WEB06 / blocked | A04 | Selectable three-LED profiles/event/color/brightness mapping plus supported physical button/mute actions; cosmetic versus actual mute explicit; safe apply/rollback. |
@@ -239,6 +239,41 @@ a bounded, separately reviewed native-volume slice.
 | WEB08 / blocked | C02, B02/B03, U01/U02 for respective writes | Browser maintenance: pinned/manual and per-component opt-in updates, plan/progress/errors/cancel/retry, on-target file capture/list/verify/restore and demonstrated rollback; deferred imaging/second-copy work is not a prerequisite. |
 | WEB09 / ready | WEB01 | Responsive accessible UI and browser security review; keyboard/mobile/error/stale states, trusted-LAN threat model, no secrets in logs/assets, no-write/race/failure tests; production transport/enrollment remains distinct. |
 | WEB10 / blocked | F02/F03/C01/C02 | Reuse-first shared browser/CLI/TUI operation/config authority; atomic validated changes, operation ownership, schema migration and recoverability without duplicating business logic. |
+
+### Long-term: one view across the fleet
+
+James's 2026-11-16 direction: a page **per device**, plus some way to see the
+whole fleet and apply a setting to all of it. This is a goal, not a packet and
+not authorization: nothing here is designed, estimated or scheduled, and no
+acceptance criteria exist yet.
+
+What already exists is the starting point, not the feature:
+
+- Every board serves its own page, and all three lab boards are on the same
+  payload as of the [three-board refresh](testing/results/2026-11-16-three-pis-web-refresh.md).
+- Each page publishes `_debra._tcp` and lists the other Debras it discovers, so
+  an overview already has a discovery layer
+  ([web control](../control/web/README.md), read-only).
+- Everything that writes is still local per device and one setting at a time.
+
+The open questions to settle before cutting packets:
+
+1. **Authority.** Who may apply a setting to every device, from which device, and
+   how is that authenticated and revoked? One compromised page becoming a fleet
+   write is a different risk class from one room's volume slider.
+2. **What "the same" means** across boards that are not the same: the Zero W's
+   stop-word default is deliberately off, the Zero 2 W has a different codec, and
+   the roadmap already requires that a board never inherit another board's
+   workaround. A fleet write must express intent ("stop word off on ARMv6")
+   rather than broadcast a value.
+3. **Topology.** Whether the overview is one device elected/configured as the
+   aggregator, a per-page fan-out to peers, or state published to HA, and what
+   happens when the aggregator is off or the fleet is mid-update.
+4. **Rollback.** A fleet write needs a fleet-sized undo, or the blast radius is
+   every room at once.
+
+Until those are answered, per-device pages remain the working interface, and
+`_debra._tcp` listing stays read-only.
 
 ## HATs, audio, and interruptions
 
