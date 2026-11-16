@@ -295,9 +295,14 @@ line. Neither dependency is installed by this installer.
    it in the page. Never paste it into chat, Git, logs or a query string. Optional
    `/#key=<device-key>` enrollment uses a fragment and removes it from the current
    URL, but copying links exposes the key and is not the preferred shared guide.
-6. First verify read-only status and unchanged native volume/mute. Do not click
-   Apply/mute or play a sound as a deployment test. Audio changes require the
-   user's deliberate interaction or separately authorized testing.
+6. Verify read-only status first: the selected sink is the one you intended, and
+   native volume/mute are what the device had. Then press **Test speaker** and
+   **Test microphone** — that is the deployment check, and it is expected, not
+   forbidden. Set a comfortable level before the speaker test rather than
+   leaving it wherever the device happened to be; a tone at full volume in a
+   quiet room is a fault in the check, not in the speaker. A microphone test
+   near zero catches a muted or unrouted capture path before anyone reports the
+   assistant "not hearing" them.
 
 ## Files and repeatability
 
