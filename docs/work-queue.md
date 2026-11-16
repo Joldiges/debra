@@ -94,8 +94,14 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 ## In review
 
+Coordinator-assigned subagent work creates no claim, so the activity TUI's Todos
+tab still lists Z01 and T01 under "Spawnable now" until the coordinator advances
+those chains. They are not available for reassignment: their deliverables exist
+and are waiting for the review rows below.
+
 | Item | Reviewer | Outcome |
 |---|---|---|
+| T01 acceptance and test tiers (`docs/testing/acceptance.md`) | — | **not yet reviewed**; written by a docs subagent (`gpt-6.1-terra#flex-high`) from the brief, evidence rules and roadmap. A review should check that every brief requirement is really covered and that no proposed threshold reads as approved policy |
 | Z01 ARMv6 reconnaissance (`docs/research/Z01-armv6.md`) | — | **not yet reviewed**; unreviewed evidence from a research subagent (`deepseek-v4.1-flash-1017#high`). It claims no artifact was installed or run, so a review should check the primary-source citations rather than re-run anything |
 | Browser control slice, r9 (`e170448`) | `gpt-6.1-sol`, independent | **changes requested** — the restore decoder accepted a larger language than it could reproduce (`\x20` read as `x20`), the release boundary was partial, four safety reversals survived every web test, an audio write could discard a valid Setup answer, and a write settling after Disconnect threw. All six repaired; `code-r10` reviews the repair. Verdict: `.local/reviews/code-r9-20261115/verdict.md` |
 | First-boot setup, r6 (`f9c5e7b`) | `gpt-6.1-sol`, independent | **changes requested, narrow** — four of five r5 findings repaired with executed proof; R5-05 unrepaired because the new test reached the pointer-write branch, and the dated record's "611 tests" and survivor claim were measured on the live tree. All eight findings repaired; `setup-r7` reviews the repair. Verdict: `.local/reviews/setup-r6-20261115/verdict.md` |
