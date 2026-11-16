@@ -44,6 +44,10 @@ window.testState = {
   // device that is ready to install, which is the interesting case.
   hatHelper: true, hatBootOverlay: "", hatInstallChanged: true,
   hatInstallRefusal: null, hatRestartCalls: 0,
+  // Whether the ALSA card the chosen board's driver creates is listed. A line in
+  // the file and a listed card are different facts, and the card must say which
+  // it has.
+  hatCardPresent: true,
   // The two deliberate audio tests, and a way to hold one so a check can press
   // the other button while it is running.
   holdTest: false, releaseTest: null, testOutputGone: false,
@@ -93,9 +97,8 @@ const setupPayload = () => ({
   writable: false,
   // The server's own words, so a check reads what the page was given.
   reason: "Nothing here proves a board works. The EEPROM product names a family, "
-    + "a listed sound card is not a passing test, and whether the driver binds "
-    + "after a restart is unknown until that restart has happened and the card is "
-    + "listed again.",
+    + "a listed sound card is not a passing test, and whether the microphone and "
+    + "speaker work is what the audio checks show.",
   hardware: {
     detected_hat: "ReSpeaker 2-Mics Pi HAT", detected_source: "fixture",
     retained_label: "ReSpeaker 2-Mics Pi HAT v2", retained_note: "fixture",
@@ -118,7 +121,8 @@ const setupPayload = () => ({
     options: [
       {id: "respeaker-2mic-hat-v2", label: "ReSpeaker 2-Mics Pi HAT v2",
        summary: "Two microphones and a codec.", detected: true,
-       card: {name: "seeed2micvoicec", present: true}, applied: true,
+       card: {name: "seeed2micvoicec", present: state.hatCardPresent},
+       applied: state.hatCardPresent,
        selected: state.hatChoice === "respeaker-2mic-hat-v2",
        overlay: "respeaker-2mic-v2_0",
        installable: {ok: true, reason: null},
@@ -126,7 +130,8 @@ const setupPayload = () => ({
        caveats: ["Positions are an estimate, not a measurement."]},
       {id: "respeaker-2mic-hat-v1", label: "ReSpeaker 2-Mics Pi HAT v1",
        summary: "The earlier WM8960 board.", detected: false,
-       card: {name: "wm8960soundcard", present: true}, applied: true,
+       card: {name: "wm8960soundcard", present: state.hatCardPresent},
+       applied: state.hatCardPresent,
        selected: state.hatChoice === "respeaker-2mic-hat-v1",
        overlay: "wm8960-soundcard",
        installable: {ok: true, reason: null},
@@ -2116,6 +2121,22 @@ window.addEventListener("load", async () => {
     for (let i = 0; i < 80 && !/boot configuration names wm8960-soundcard/.test(state()); i++) await wait();
     assert(/boot configuration names wm8960-soundcard/.test(state()),
            "the card does not report the line it wrote: " + state());
+    // The line being in the file and the card being listed are different facts,
+    // and neither is a test of the microphone.
+    assert(/lists the sound card it creates/.test(state()) &&
+           /Whether the microphone and speaker work/.test(state()),
+           "the card does not separate the line from the listed sound card: " + state());
+
+    // A line in the file with no card listed is the failure a person needs to
+    // see: it says what to try and what would mean the board is wrong.
+    testState.hatCardPresent = false;
+    await loadSetup();
+    for (let i = 0; i < 80 && !/but no sound card/.test(state()); i++) await wait();
+    assert(/but no sound card/.test(state()) && /not the one this overlay describes/.test(state()),
+           "a configured line with no listed card is not reported honestly: " + state());
+    testState.hatCardPresent = true;
+    await loadSetup();
+    for (let i = 0; i < 80 && !/lists the sound card it creates/.test(state()); i++) await wait();
 
     // Once the file says it, the control becomes Remove, and the restart is
     // offered because this tab made a change.

@@ -1124,10 +1124,13 @@ class Backend:
             "writable": False,
             # The card's opening paragraph says what it can change; this line is
             # the other half, so neither has to say everything twice.
+            # Deliberately not "the bind after a restart is unknown": on a board
+            # that has already restarted, that sentence was stale the moment the
+            # card appeared above it. What is always unproven is whether the
+            # microphone and speaker actually work.
             "reason": "Nothing here proves a board works. The EEPROM product names a "
                       "family, a listed sound card is not a passing test, and whether the "
-                      "driver binds after a restart is unknown until that restart has "
-                      "happened and the card is listed again.",
+                      "microphone and speaker work is what the audio checks show.",
             "hardware": {
                 "detected_hat": product,
                 "detected_source": "Device-tree HAT EEPROM product; empty means the HAT "

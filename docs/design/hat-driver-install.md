@@ -1,10 +1,11 @@
 # Installing an audio HAT's driver: what "Install" could mean
 
-Status: **route C implemented and tested offline; one round trip still needs a
-device.** Written 2026-11-16 while adding the board choice to the Setup card,
-and implemented the same day after James answered the open questions below: the
-dashboard must be able to do the full set, and a narrow `sudo` step is
-acceptable. What exists, what it refuses and what is still unproven are in
+Status: **route C implemented and exercised on all three lab boards.** Written
+2026-11-16 while adding the board choice to the Setup card, and implemented the
+same day after James answered the open questions below: the dashboard must be
+able to do the full set, and a narrow elevated step is acceptable. The elevated
+step turned out not to be `sudo` — see *why the socket won* below. What exists,
+what it refuses and what is still unproven are in
 [the helper's README](../../control/setup/README.md#the-audio-hat-helper-hat_installpy)
 and [the web README](../../control/web/README.md). This note is kept because the
 comparison of the three routes is still the reasoning behind the shape, not
@@ -12,11 +13,12 @@ because the decision is still open.
 
 ## The question
 
-The Setup card now records which audio board a person says is fitted
-([web control](../../control/web/README.md)). It deliberately does not install
-anything: the button that would do it is a **Planned** sentence. This note is
-about what that button would have to be, and why the web server must not be the
-thing that does it.
+When this note was written, the Setup card recorded which audio board a person
+says is fitted ([web control](../../control/web/README.md)) and installed
+nothing: the button that would have done it was a **Planned** sentence. This note
+is about what that button would have to be, and why the web server must not be
+the thing that does it. That reasoning is unchanged by the implementation; the
+button now exists and the server still never writes the file.
 
 ## What installing actually is on this device
 

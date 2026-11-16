@@ -712,9 +712,27 @@ function renderHatInstall(hardware) {
     return;
   }
   if (configured) {
-    state.textContent = choice.overlay
-      ? `The boot configuration names ${choice.overlay}. A restart applies it; the sound-card list above shows whether it is loaded now.`
-      : "An audio-HAT overlay this page manages is in the boot configuration. Choosing No HAT and removing it takes it out.";
+    if (!choice.overlay) {
+      state.textContent = "An audio-HAT overlay this page manages is in the boot configuration. Choosing No HAT and removing it takes it out.";
+      return;
+    }
+    // Three separate facts, said separately: the line is in the file, the
+    // sound card the driver creates is (or is not) listed now, and neither is a
+    // test of the microphone or the speaker. Saying "a restart applies it" to a
+    // device that has already restarted told a person to do what was done.
+    const card = choice.card || {};
+    if (card.present === true) {
+      state.textContent = `The boot configuration names ${choice.overlay}, and this device lists ` +
+        `the sound card it creates (${card.name}). Whether the microphone and speaker work is ` +
+        `what the audio checks show.`;
+    } else if (card.present === false) {
+      state.textContent = `The boot configuration names ${choice.overlay}, but no sound card ` +
+        `named ${card.name} is listed. It takes effect at the next restart, and if it is ` +
+        `still missing after that the board is not the one this overlay describes.`;
+    } else {
+      state.textContent = `The boot configuration names ${choice.overlay}. This page cannot ` +
+        `read the sound-card list, so it cannot say whether the driver is loaded now.`;
+    }
     return;
   }
   state.textContent = hatNeedsRestart

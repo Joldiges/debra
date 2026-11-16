@@ -148,8 +148,15 @@ an observation time.
   whether the socket exists; whether it will answer is what pressing the button
   finds out, in one round trip.
 - Installing proves the **file** changed, not that the driver works. The card
-  says so: the boot line is one fact, the ALSA card is another, and whether the
-  codec binds is what the restart and `/proc/asound/cards` show afterwards.
+  says so, in three separate facts: the boot line, whether an ALSA card with the
+  driver's name is listed now, and that neither is a test of the microphone or
+  speaker. A configured line with no card listed says the board is not the one
+  the overlay describes.
+- On 2026-11-16 the Pi 5 closed the loop once: the page wrote the line, the
+  Restart button restarted the device, and `seeed2micvoicec` was listed again
+  after the boot ([result](../../docs/testing/results/2026-11-16-hat-install-through-the-page.md)).
+  That is one board with the board it already had; a *switch* to a different
+  overlay on a device has still not been tested after a restart.
 - The Setup card's HAT rows report a **family match**, not an identification: the
   EEPROM product names a ReSpeaker/Seeed two-microphone board, and the exact
   model and revision are not established. The two-microphone match has a number

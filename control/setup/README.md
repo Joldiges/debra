@@ -364,10 +364,13 @@ takes no arguments and refuses any it is given. Tests call the functions directl
 with a root path, a kernel release and a launcher, which is how the config edits
 are checked without root (`tests/test_hat_install.py`).
 
-**What enrollment does not prove:** that the codec binds, that the card survives
-a reboot, or that the overlay suits a board the repository has never had in hand.
-The WM8960 path has been measured on a Zero 2 W; the ReSpeaker v2 path uses the
-kernel's own overlay with a codec family mismatch that is still open. The helper
+**What enrollment does not prove:** that the codec binds, or that the overlay
+suits a board the repository has never had in hand. As of 2026-11-16 the Pi 5
+has done the full loop — the helper wrote the line, the device restarted, and the
+v2 driver bound again — so "the card survives a reboot" is measured on that board
+and still assumed everywhere else. The WM8960 path has been measured on a Zero 2
+W. The ReSpeaker v2 path uses the kernel's own overlay with a codec family
+mismatch that is still open. A bound card is not a working microphone. The helper
 refuses when the pieces are missing and says which one.
 
 ## What it writes
