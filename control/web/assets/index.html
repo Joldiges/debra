@@ -61,9 +61,15 @@
         <p class="eyebrow">LIVE CONTROL</p><h2>Speaker volume</h2>
         <p>Native device output · the sink this page controls. It is not proof that speech and music share it.</p>
         <p id="output" class="detail"></p>
-        <label for="volume">Output level <strong id="volume-value">—</strong></label>
-        <input id="volume" type="range" min="0" max="100" step="1" disabled>
-        <div class="row"><button id="apply" disabled>Apply volume</button><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
+        <!-- aria-busy marks the part of the page that is being rewritten by a
+             write. #audio-notice sits outside it on purpose: a live region
+             inside a busy subtree is not announced until the subtree is idle
+             again, which is exactly when the notice is no longer news. -->
+        <div id="audio-controls">
+          <label for="volume">Output level <strong id="volume-value">—</strong></label>
+          <input id="volume" type="range" min="0" max="100" step="1" disabled>
+          <div class="row"><button id="apply" disabled>Apply volume</button><button id="mute" class="secondary" disabled>Mute</button><span id="audio-status" role="status"></span></div>
+        </div>
         <!-- The outcome of a write sits here, beside the control that caused it.
              The global #error is at the top of the page, far from this control,
              so the two never compete for the same sentence. Polite: it follows

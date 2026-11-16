@@ -397,10 +397,20 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("volume-value").textContent.includes("applying"),
            "pending write still claimed not applied");
     assert(volume.disabled, "controls active while a write is pending");
+    // Assistive technology is told the region is changing, not that the device
+    // is refusing input. The notice lives outside this subtree so it is not
+    // held back until the write finishes.
+    const controls = document.getElementById("audio-controls");
+    assert(controls.getAttribute("aria-busy") === "true",
+           "the audio controls are not marked busy during a write");
+    assert(!controls.contains(document.getElementById("audio-notice")),
+           "the write notice is inside the busy subtree, so it is announced late");
     testState.holdWrite = false;
     testState.releaseWrite();
     await wait();
     assert(testState.percent === 40, "held write did not finish");
+    assert(document.getElementById("audio-controls").getAttribute("aria-busy") === "false",
+           "the audio controls stayed marked busy after the write finished");
     // An unavailable readback is unknown, not proof of non-application.
     testState.sinkGone = true;
     volume.value = "45";

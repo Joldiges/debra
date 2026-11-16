@@ -233,6 +233,9 @@ function forgetKey(message) {
   el("pair").hidden = false;
   el("dashboard").hidden = true;
   el("page-footer").hidden = true;
+  // A write that settles after this never repaints (currentAudio is cleared), so
+  // the busy flag would otherwise stay set for the next time the card is shown.
+  el("audio-controls").setAttribute("aria-busy", "false");
   el("connection").textContent = "Not connected";
   showPairStatus(message);
   showNotices();
@@ -243,6 +246,9 @@ function revokeBypass(message) {
   el("pair").hidden = false;
   el("dashboard").hidden = true;
   el("page-footer").hidden = true;
+  // A write that settles after this never repaints (currentAudio is cleared), so
+  // the busy flag would otherwise stay set for the next time the card is shown.
+  el("audio-controls").setAttribute("aria-busy", "false");
   // Nothing read under the bypass is still current once the device wants a key.
   currentAudio = null;
   lastReadAt = null;
@@ -296,6 +302,10 @@ function volumeLabel(data) {
 }
 function audio(data) {
   currentAudio = data;
+  // Announced as busy only while a write is in flight; the controls are already
+  // disabled, and this tells assistive technology that the region is changing
+  // rather than that the device is refusing input.
+  el("audio-controls").setAttribute("aria-busy", busy ? "true" : "false");
   for (const id of ["volume", "apply", "mute"]) el(id).disabled = !data.available || busy;
   if (data.available) {
     el("output").textContent = data.description ? `${data.description} (${data.sink})` : data.sink;
@@ -764,6 +774,9 @@ el("disconnect").addEventListener("click", () => {
   el("setup-status").textContent = "";
   el("dashboard").hidden = true;
   el("page-footer").hidden = true;
+  // A write that settles after this never repaints (currentAudio is cleared), so
+  // the busy flag would otherwise stay set for the next time the card is shown.
+  el("audio-controls").setAttribute("aria-busy", "false");
   el("pair").hidden = false;
   el("connection").textContent = "Disconnected";
   // What the card offers next: the key field when the device wants a key, the
