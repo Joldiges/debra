@@ -227,6 +227,12 @@ not work.
 Suggested labels: performance, and the bug label only if maintainers agree the
 idle inference is unintended.
 
+## Also checked, not a saving
+
+`--output-only` only changes which `supported_features` are advertised
+(`satellite.py:89-96`); the wake and stop models still load and run, so it saves no
+CPU. Established by reading the code, not by running the flag.
+
 ## Handoff and correction links
 
 - Base: LVA `v1.1.18` (`b55d36a`) on the Pi Zero W; this repository's `main` at the
@@ -239,6 +245,10 @@ idle inference is unintended.
 - Next action: reviewed confirmation (a second idle sample and, ideally, a human
   voice), then decide whether Debra carries this as a scoped patch or waits for an
   upstream release; then implement V05's setting.
+- Local workarounds are scripted in
+  [`tools/device/lab-zero-w/`](../../tools/device/lab-zero-w/README.md): a pinned
+  ARMv6 TFLite library and this patch, both hash-checked, with the upstream PRs
+  that retire them recorded there.
 - Authorization: task dispatch is **closed** (`python tools/taskchain.py list`);
   V05 is a prepared card and is `blocked` on V02/C01, so it is not claimable. The
   Debra-side setting needs that card and the wider config/architecture packets.

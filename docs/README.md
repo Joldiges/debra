@@ -43,6 +43,7 @@ evidence. Do not maintain competing "human" and "AI" versions.
 | [Lab Pi 5 voice + Sendspin result](testing/results/2026-11-15-lab-pi5-lva-sendspin.md) | Pinned satellite/player and observed end-to-end reply; earlier power faults are historical, and James reports improvement with the replacement supply |
 | [Lab Pi 5 audio levels](testing/results/2026-11-15-lab-pi5-audio-levels.md) | Historical tone measurements; read the linked correction before using its arithmetic or conclusions; not authorization for audible testing |
 | [Lab Pi 5 device scripts](../tools/device/lab-pi5/README.md) | Historical audio/mixer/satellite/player bring-up references; not verified fresh-card replay or a blind execution sequence |
+| [Zero W voice runtime scripts](../tools/device/lab-zero-w/README.md) | Pinned LVA v1.1.18 plus two hash-checked ARMv6 workarounds (TFLite library, stop-word gate); install, verify and revert are scripted, but there is no fresh-card replay |
 | [3D models](../models/README.md) | Parametric SolidCraft part and assembly sources, each with renders in an `assets/` folder |
 | [Enclosure arrangements](design/enclosure-arrangements.md) | Why the flat stack read as a plank, the three arrangements, and the four-step path from component envelope to case part |
 | [HAT microphone research](research/2026-11-15-respeaker-microphone.md) | The HAT's microphones are top-port MSM321A3729H9BP, which decides which way the boards must face |

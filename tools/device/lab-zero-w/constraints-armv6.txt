@@ -1,0 +1,16 @@
+# Dependency pins verified on the original Pi Zero W (ARMv6).
+#
+# piwheels has no armv6l wheel for the newest release of each of these, and pip
+# would otherwise resolve to a version with no wheel and try to build it. These
+# are the newest versions with a wheel that were checked on Raspbian 13 with
+# CPython 3.13. Re-check each pin when the interpreter or OS changes.
+#
+# Used by 20-lva.sh through PIP_CONSTRAINT; it is copied into the LVA checkout
+# because script/setup recreates .venv from scratch.
+
+# numpy 2.5.5 has no armv6l wheel; 2.5.4 does and passes dot/fft/matmul here.
+numpy==2.5.4
+# av 19.0.2 has no armv6l wheel; 16.1.0 does and links Trixie's FFmpeg 7.1.
+av==16.1.0
+# zeroconf 0.154.0 has no cp313 armv6l wheel; 0.151.5 does.
+zeroconf==0.151.5

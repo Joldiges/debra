@@ -1,0 +1,32 @@
+# Linux Voice Assistant (Debra Zero W)
+[Unit]
+Description=Linux Voice Assistant (Debra Zero W)
+After=network-online.target pipewire.service wireplumber.service
+Wants=network-online.target pipewire.service
+PartOf=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/linux-voice-assistant
+Environment=PATH=%h/linux-voice-assistant/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=PULSE_SERVER=unix:/run/user/%U/pulse/native
+Environment=PREFERENCES_FILE=%h/linux-voice-assistant/preferences.json
+Environment="CLIENT_NAME=Debra Zero W"
+Environment=ENABLE_DEBUG=1
+# Pin the audio endpoints. The HAT is the only sink today, but naming it means a
+# hotplugged HDMI or USB device cannot silently take the voice output.
+Environment=AUDIO_OUTPUT_DEVICE=pipewire/alsa_output.platform-soc_sound.stereo-fallback
+Environment=MUSIC_OUTPUT_DEVICE=pipewire/alsa_output.platform-soc_sound.stereo-fallback
+# No echo cancellation on this HAT, so the reply is picked up by the microphones.
+# A longer refractory window stops the tail of a reply starting a second run.
+Environment=REFACTORY_SECONDS=3
+ExecStart=%h/linux-voice-assistant/docker-entrypoint.sh
+StandardOutput=append:%h/lab/lva.log
+StandardError=append:%h/lab/lva.log
+# always, not on-failure: this is an appliance, and a clean exit is still a fault.
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
