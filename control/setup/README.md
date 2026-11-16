@@ -304,6 +304,72 @@ so. Filling that in would turn a damaged file into an apparently unconfigured
 device that raises a new setup access point. A record that is refused is left
 untouched, so the evidence survives.
 
+## The audio-HAT helper (`hat_install.py`)
+
+This folder also holds the one program in Debra that writes the boot
+configuration, because it is a device-setup action rather than a web one. It is
+**not** installed by `install.py` above: it is a separate, deliberate step, and
+the web installer prints the command for it.
+
+```sh
+sudo python3 -B control/setup/hat_install.py --enroll
+```
+
+Run once, by the device's owner, with a password. It writes four files and tells
+systemd about two of them:
+
+| Path | What it is |
+| --- | --- |
+| `/usr/local/sbin/debra-hat-install` | The helper, root-owned and executable |
+| `/usr/local/lib/debra/hats.py` | The board table, the same file the page's table comes from |
+| `/etc/systemd/system/debra-hat.socket` | The socket the page connects to, mode `0660`, group = the page's account |
+| `/etc/systemd/system/debra-hat@.service` | One helper per connection, with the connection as stdin/stdout |
+
+It then runs `systemctl daemon-reload` and `systemctl enable --now
+debra-hat.socket`, and reports a refusal from either rather than claiming
+success.
+
+**Why a socket and not `sudo`.** The web unit ships `NoNewPrivileges=yes`, so a
+setuid `sudo` cannot escalate from the service at all. Removing that line to
+make `sudo` work would trade a real hardening measure for a convenience. A
+socket-activated unit needs no setuid binary, so the service keeps its hardening
+and the helper runs as root only for the length of one request. There is no
+passwordless `sudo` rule on the device. An earlier, unreleased enrolment wrote
+one; enrolment now removes that file if — and only if — its first line is
+Debra's own marker.
+
+After enrollment the page sends one JSON request down the socket:
+
+| Request | What it does |
+| --- | --- |
+| `{"verb": "install", "board": "<id>"}` | Write that board's overlay line (or remove it, for `none`) |
+| `{"verb": "remove"}` | Take every managed audio-HAT overlay out |
+| `{"verb": "reboot"}` | Restart the device after a two-second delay, in a transient unit |
+
+What the write does, in order: refuse an unknown board id or an unexpected field;
+refuse a board whose `.dtbo` overlay or codec `.ko` this image does not carry;
+copy `config.txt` to `config.txt.debra-<timestamp>` (never overwriting an
+existing copy); write a temporary file in the same directory, `fsync` it, keep
+the original mode, and rename it over the real file; read the file back and check
+it names exactly one managed overlay and enables I2C when the board needs it; and
+if that check fails, copy the backup back before reporting anything. Every line
+that is not a managed overlay survives byte for byte — the graphics overlay, the
+USB mode and anything added by hand.
+
+It never reboots as part of an install. Restarting is its own verb, asked for by
+its own button, after the page has confirmed with the person.
+
+The passwordless path is exactly one connection carrying one request; the helper
+takes no arguments and refuses any it is given. Tests call the functions directly
+with a root path, a kernel release and a launcher, which is how the config edits
+are checked without root (`tests/test_hat_install.py`).
+
+**What enrollment does not prove:** that the codec binds, that the card survives
+a reboot, or that the overlay suits a board the repository has never had in hand.
+The WM8960 path has been measured on a Zero 2 W; the ReSpeaker v2 path uses the
+kernel's own overlay with a codec family mismatch that is still open. The helper
+refuses when the pieces are missing and says which one.
+
 ## What it writes
 
 | Path on device | Mode | Purpose |

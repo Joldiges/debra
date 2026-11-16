@@ -186,9 +186,20 @@
           </div>
           <p id="hat-state" class="detail"></p>
           <p id="hat-note" class="detail"></p>
-          <div id="setup-hats" class="choices">
-            <div class="choice"><div class="choice-head"><span class="choice-title">Install this board’s driver</span><span class="badge planned">Planned</span></div><p class="choice-detail">Installing a HAT means writing a device-tree overlay and its driver, which needs privileges this page does not have. Recording your choice above is separate: it does not install anything.</p></div>
+          <!-- Installing is one boot-configuration line, written by a small root
+               helper the page is allowed to call and nothing else. The button
+               follows the recorded choice, including "No HAT", which removes the
+               overlay rather than adding one. It is hidden when it cannot work,
+               and the reason is said in words rather than shown as a dead
+               control. -->
+          <div id="hat-install" class="row" role="group" aria-label="Install the chosen board’s driver" hidden>
+            <button id="hat-install-button" class="secondary" type="button">Install driver</button>
+            <button id="hat-remove-button" class="secondary" type="button" hidden>Remove driver</button>
+            <button id="hat-restart-button" class="secondary" type="button" hidden>Restart device</button>
           </div>
+          <p id="hat-install-state" class="action-notice" role="status" aria-live="polite"></p>
+          <p id="hat-install-note" class="detail">Installing writes one overlay line into the boot configuration, keeps a timestamped copy of the file beside it, and takes effect after a restart. It does not restart anything by itself.</p>
+          <p id="hat-enrol-note" class="detail" hidden>Installing needs one setup step on the device first: run <code>sudo python3 -B control/setup/hat_install.py --enroll</code> from the Debra tree, once, and answer the password prompt. It installs a small root helper behind a socket that only this page’s account can open, and starts it. No passwordless <code>sudo</code> rule is involved.</p>
           <h3>Tools and settings</h3>
           <div id="setup-settings" class="choices">
             <div class="choice"><div class="choice-head"><span class="choice-title">Music player</span><span class="badge planned">Planned</span></div><p class="choice-detail">Choose the music receiver; no music-player choice is stored by this page yet.</p></div>
@@ -238,7 +249,7 @@
          end up below it: a footer followed by another card reads as a page that
          ended and then carried on. Hidden until the dashboard opens, so the
          welcome card does not carry prototype notes and an unknown build. -->
-    <footer id="page-footer" hidden>Early reusable prototype · No updates, installs, restarts, Wi-Fi changes, LED writes, or automatic volume restoration.<br><span id="build">Build: unknown</span></footer>
+    <footer id="page-footer" hidden>Early reusable prototype · No component updates, Wi-Fi changes, LED writes, service restarts or automatic volume restoration. Installing an audio HAT’s driver writes one boot line and needs a restart you press yourself.<br><span id="build">Build: unknown</span></footer>
   </main>
 </body>
 </html>

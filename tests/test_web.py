@@ -352,7 +352,13 @@ class BackendTests(unittest.TestCase):
         self.assertIs(respeaker["detected"], True)
         self.assertIsNone(none["detected"])
         self.assertEqual(set(none), {"id", "label", "summary", "detected", "card", "applied",
-                                     "selected", "caveats"})
+                                     "selected", "caveats", "installable", "configured",
+                                     "overlay"})
+        # The alternative has no overlay of its own, so there is nothing for the
+        # image to lack: it is always "installable", and what it installs is a
+        # removal.
+        self.assertTrue(none["installable"]["ok"])
+        self.assertIsNone(none["installable"]["reason"])
         self.assertIs(web.hat_family_match("ReSpeaker 2-Mics Pi HAT", web.HAT_OPTIONS[1]), None)
 
     def test_reject_implicit_sink_and_command_injection(self):

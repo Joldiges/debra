@@ -28,8 +28,16 @@ from urllib.parse import urlsplit
 
 if __package__:
     from . import discovery
+    from . import hats
 else:
     import discovery
+    import hats
+
+# Which audio boards exist, how to recognise them and what installing one
+# means lives in `hats.py`, because the root helper that writes the boot
+# configuration has to read the same table. A second copy there would be a
+# second answer to "which overlay is this board".
+HAT_OPTIONS = hats.HAT_OPTIONS
 
 
 ASSETS = Path(__file__).with_name("assets")
@@ -40,7 +48,8 @@ STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/
 # the digest of exactly these files, so hashing the same list here lets a device
 # say which build it is running without being told at install time, and two
 # devices on the same build report the same string.
-PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css", "assets/app.js")
+PAYLOAD = ("server.py", "discovery.py", "hats.py",
+           "assets/index.html", "assets/style.css", "assets/app.js")
 SERVICES = (
     ("Linux Voice Assistant", "linux-voice-assistant.service", True),
     ("Sendspin", "sendspin.service", True),
@@ -49,76 +58,18 @@ SERVICES = (
     ("PipeWire", "pipewire.service", True),
     ("WirePlumber", "wireplumber.service", True),
 )
-# The audio hardware this repository has evidence for, and how to recognise it.
-# `match` needs a vendor word and a two-microphone model word, both present in
-# the device-tree HAT EEPROM product. One word alone is not recognition: the
-# previous test matched any product containing "seeed" or "respeaker", so a
-# ReSpeaker 4-mic array and an unrelated Seeed sensor HAT were both reported as
-# this exact board. Even a full match establishes the *family*, not the model or
-# revision. `card` is the ALSA card name the tested overlay creates. Neither
-# proves a working microphone, and no write exists to change either.
-HAT_OPTIONS = (
-    {"id": "respeaker-2mic-hat-v2",
-     "label": "ReSpeaker 2-Mics Pi HAT v2",
-     "summary": "TLV320AIC3104 codec, two microphones, three APA102 LEDs, a user button, "
-                "3.5 mm and JST speaker outputs.",
-     "match": {"vendor": ("respeaker", "seeed"),
-               # Matched as a pattern, with a number boundary either side of the
-               # 2: plain substring matching read `2-mic` inside `12-Mics` and
-               # reported a twelve-microphone board as this two-microphone one.
-               # `2-microphone` is the same board described in full.
-               "model": (r"(?<![0-9])2[-\s]?(?:mics?|microphones?)(?![a-z0-9])",)},
-     "card": "seeed2micvoicec",
-     "caveats": (
-         "Microphone and LED positions are an estimate, not a measurement of this board: "
-         "they come from Seeed's v1 Eagle layout plus a photograph cross-check, and a v2 "
-         "board could have moved a part. Heights are unmeasured.",
-         "The LEDs (APA102 on SPI) and the button (GPIO17) are not audio: no audio driver "
-         "provides them.",
-     )},
-    {"id": "respeaker-2mic-hat-v1",
-     "label": "ReSpeaker 2-Mics Pi HAT v1",
-     "summary": "The earlier Seeed board: a WM8960 codec, two microphones, 3.5 mm and "
-                "screw-terminal speaker outputs, and a user button.",
-     # Nothing here can read the revision. Seeed's EEPROM product string for the
-     # 2-Mics HAT does not carry one, and the difference between the revisions is
-     # the codec (WM8960 here, TLV320AIC3104 on v2), which this page does not
-     # interrogate. Claiming a match from the product name alone would report
-     # both revisions as present at once.
-     "match": (),
-     "card": "wm8960soundcard",
-     "caveats": (
-         "The WM8960 card being present is the only evidence this page has, and it "
-         "cannot name which board bound it.",
-         "The one device that bound this board used the in-tree "
-         "`wm8960-soundcard` overlay with dummy regulators, so the codec's supplies "
-         "are not controlled by that driver.",
-     )},
-    {"id": "waveshare-wm8960",
-     "label": "Waveshare WM8960 Audio HAT",
-     "summary": "Waveshare's WM8960 board: two MEMS microphones, 3.5 mm output and "
-                "screw terminals for the speakers it ships with.",
-     # A WM8960 codec does not name its vendor. Presenting a WM8960 card as proof
-     # of this board would equally be proof of the Seeed v1 HAT above.
-     "match": (),
-     "card": "wm8960soundcard",
-     "caveats": (
-         "A WM8960 card is consistent with this board and with the Seeed v1 HAT; "
-         "the driver does not say which one is fitted.",
-         "Waveshare sells several audio HATs. The vendor name does not identify a "
-         "model, a revision or its driver.",
-     )},
-    {"id": "none",
-     "label": "No HAT: 3.5 mm jack or USB audio",
-     "summary": "The board's own headphone output, or a USB sound card.",
-     "match": (),
-     "card": None,
-     "caveats": (
-         "This page cannot tell which output is in use; the Audio card names the selected sink.",
-     )},
-)
 REQUEST_TIMEOUT = 15
 COMMAND_TIMEOUT = 2
+# The socket that starts the one program allowed to write the boot
+# configuration. The server never writes config.txt: it sends one request over
+# this socket, and the helper validates the board against the same table. A
+# socket rather than `sudo`, because this service runs with NoNewPrivileges=yes
+# and a setuid helper could not escalate from it at all.
+HELPER_SOCKET = "/run/debra-hat/control.sock"
+HELPER_TIMEOUT = 10
+BOOT_CONFIGS = ("/boot/firmware/config.txt", "/boot/config.txt")
+BOOT_OVERLAY = re.compile(r"^\s*dtoverlay\s*=\s*([A-Za-z0-9_\-]+)")
+BOOT_I2C = re.compile(r"^\s*dtparam\s*=\s*i2c_arm\s*=\s*on\b")
 DISCOVERY_INTERVAL = 30
 # The two checks a person runs to answer "is this thing actually working?" are
 # bounded by these. Both are short on purpose: a tone long enough to locate the
@@ -319,6 +270,11 @@ class Unavailable(Exception):
     """A probe/control failed; raw command output must not reach the browser."""
 
 
+class HelperRefused(Exception):
+    """The root helper would not do this, or the page may not ask it. The reason
+    is written for a person and never contains command output."""
+
+
 class RequestExpired(TimeoutError):
     """The overall request budget expired; do not begin any more commands."""
 
@@ -445,6 +401,113 @@ def read_optional(root, name):
         return (root / name.lstrip("/")).read_text()
     except (OSError, UnicodeError):
         return None
+
+
+def boot_configuration(root=Path("/")):
+    """What the boot configuration says, read-only.
+
+    This is the page's only contact with config.txt: it reads the overlay lines
+    so the card can say whether the boot configuration already names a board.
+    Writing is the helper's job, and the page says so.
+    """
+    for relative in BOOT_CONFIGS:
+        text = read_optional(root, relative)
+        if text is None:
+            continue
+        overlays, i2c = [], False
+        for line in text.splitlines():
+            # A commented line is not a setting. Splitting on `#` first keeps
+            # `#dtparam=i2c_arm=on` from reading as enabled.
+            body = line.split("#", 1)[0].strip()
+            match = BOOT_OVERLAY.match(body)
+            if match:
+                overlays.append(match.group(1))
+            elif BOOT_I2C.match(body):
+                i2c = True
+        return {"path": relative, "readable": True, "overlays": overlays, "i2c": i2c}
+    return {"path": None, "readable": False, "overlays": [], "i2c": None}
+
+
+def image_contents(root=Path("/")):
+    """Which overlays and codec modules this image carries.
+
+    A boot line naming an overlay the image lacks, or an overlay whose codec
+    module is missing, is a device that restarts into exactly the state it was
+    in. The page checks this before offering the button; the helper checks it
+    again before writing, because a page is not a boundary.
+    """
+    overlays = set()
+    for relative in ("boot/firmware/overlays", "boot/overlays"):
+        directory = Path(root) / relative
+        if directory.is_dir():
+            overlays = {path.stem for path in directory.glob("*.dtbo")}
+            break
+    release = platform.release()
+    builtin = read_optional(root, "/lib/modules/%s/modules.builtin" % release) or ""
+    modules = {line.rsplit("/", 1)[-1].split(".ko")[0]
+               for line in builtin.splitlines() if line.strip()}
+    codecs = Path(root) / "lib/modules" / release / "kernel/sound/soc/codecs"
+    if codecs.is_dir():
+        modules |= {path.name.split(".ko")[0] for path in codecs.glob("*.ko*")}
+    return {"overlays": overlays, "modules": modules}
+
+
+def run_helper(request, *, timeout):
+    """Send one request to the root helper over its socket and return its answer.
+
+    The socket is root-owned and group-writable only for this account's group, so
+    a device that has not been enrolled fails here with a reason a person can act
+    on, rather than with a permission error from somewhere deeper.
+    """
+    try:
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection.settimeout(timeout)
+        connection.connect(HELPER_SOCKET)
+    except FileNotFoundError as exc:
+        raise HelperRefused(
+            "The install helper is not running on this device, so nothing here can "
+            "change the boot configuration. It is enabled once with the command the "
+            "installer printed.") from exc
+    except PermissionError as exc:
+        raise HelperRefused(
+            "This device does not allow the page to reach the install helper. The "
+            "socket belongs to the account that runs this page; re-run the enrolment "
+            "command for the right user.") from exc
+    except OSError as exc:
+        raise HelperRefused(
+            "The install helper could not be reached, so nothing was changed.") from exc
+    try:
+        with connection:
+            connection.sendall(json.dumps(request).encode() + b"\n")
+            connection.shutdown(socket.SHUT_WR)
+            chunks, total = [], 0
+            while total < 65536:
+                chunk = connection.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+    except socket.timeout as exc:
+        raise Unavailable("The install helper did not answer in time") from exc
+    except OSError as exc:
+        raise HelperRefused(
+            "The install helper closed the connection without answering, so this "
+            "page cannot say what changed.") from exc
+    try:
+        answer = json.loads(b"".join(chunks) or b"{}")
+    except ValueError:
+        answer = {}
+    if not isinstance(answer, dict) or not answer:
+        # sudo refused, or the helper died before answering. sudo's own text can
+        # name the account and the command, so it is never shown: the page says
+        # what to do instead.
+        raise HelperRefused(
+            "This device has not allowed the page to change its boot configuration. "
+            "Enable the helper once on the device with the command the installer "
+            "printed, then try again.")
+    if not answer.get("ok"):
+        raise HelperRefused(str(answer.get("reason") or "The helper refused without a reason."))
+    return answer
 
 
 CARD_LINE = re.compile(r"^\s*\d+\s+\[([^]]+)\]")
@@ -682,11 +745,17 @@ def metrics(root, previous=None, elapsed=None):
 
 class Backend:
     def __init__(self, sink, metadata, runner=run_command, root=Path("/"),
-                 capture=run_capture, state=None):
+                 capture=run_capture, state=None, helper=run_helper):
         if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.:-]*", sink):
             raise ValueError("Use an explicit native sink name, not a default alias")
         self.sink, self.metadata, self.runner, self.root = sink, metadata, runner, root
         self.capture = capture
+        # How this backend asks the root helper to change the boot configuration.
+        # Injected so tests never run sudo, exactly like `runner` and `capture`.
+        self.helper_call = helper
+        # The image contents, which cannot change without the restart that
+        # restarts this server.
+        self._image = None
         # Where the person's HAT choice is kept. None means this backend has no
         # device state (a test), and the card then offers no control rather than
         # a control that silently forgets.
@@ -860,6 +929,57 @@ class Backend:
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
 
+    def install_hat(self, payload, deadline=None):
+        """Write the recorded board into the boot configuration, via the helper.
+
+        The board is not in the request. It is the one the person recorded, so
+        this page cannot install a board that was never chosen, and a stray
+        request body cannot name an overlay.
+        """
+        if payload:
+            raise ValueError("This request takes no fields; the recorded choice is used")
+        if self.state is None:
+            raise ValueError("This server has no device state, so there is no choice to install")
+        board = hardware_choice(self.state)
+        if not board:
+            raise ValueError("Choose a board first. Installing changes the boot "
+                             "configuration, so it uses the board you recorded.")
+        return self.helper({"verb": "install", "board": board}, deadline)
+
+    def remove_hat(self, payload, deadline=None):
+        """Take the managed audio overlay out of the boot configuration."""
+        if payload:
+            raise ValueError("This request takes no fields")
+        return self.helper({"verb": "remove"}, deadline)
+
+    def restart_device(self, payload, deadline=None):
+        """Restart the device, only when the request says so in as many words."""
+        if payload != {"confirm": "restart"}:
+            raise ValueError('Restarting needs {"confirm": "restart"}; nothing was restarted')
+        return self.helper({"verb": "reboot"}, deadline)
+
+    def helper(self, request, deadline=None):
+        """Ask the root helper one thing. Never writes anything itself."""
+        # The socket is created when the unit is installed and started. Checking
+        # it here answers "this device cannot install" without a connection
+        # attempt, and `run_helper` checks again for the race.
+        if not Path(HELPER_SOCKET).exists():
+            raise HelperRefused("The install helper is not running on this device, so "
+                                "nothing here can change the boot configuration. It is "
+                                "enabled once with the command the installer printed.")
+        budget = min(HELPER_TIMEOUT,
+                     remaining(deadline) if deadline is not None else HELPER_TIMEOUT)
+        answer = self.helper_call(request, timeout=budget)
+        if deadline is not None:
+            remaining(deadline)
+        return answer
+
+    def image_probe(self):
+        """The image's overlays and codec modules, cached for this process."""
+        if self._image is None:
+            self._image = image_contents(self.root)
+        return self._image
+
     def components(self, deadline=None):
         probes = {}
         for user in (True, False):
@@ -953,11 +1073,42 @@ class Backend:
                 # A listed card is the only evidence available here. It does not
                 # prove capture, playback, or that the overlay survives a reboot.
                 "applied": present,
+                # The line this board's driver needs, so the card can name the
+                # thing it would write rather than describe it. Null for the
+                # alternative, which has no overlay of its own.
+                "overlay": option["overlay"],
                 "caveats": list(option["caveats"]),
             })
         choice = hardware_choice(self.state) if self.state is not None else ""
+        boot = boot_configuration(self.root)
+        image = self.image_probe()
         for option in options:
+            entry = hats.option(option["id"])
             option["selected"] = bool(choice) and option["id"] == choice
+            # Whether pressing Install for this board would do anything: the
+            # image must carry the overlay and the codec driver, or the write
+            # would only be undone by the next boot. Reported per board so the
+            # card can say which piece is missing instead of failing later.
+            missing = []
+            if entry["overlay"]:
+                if entry["overlay"] not in image["overlays"]:
+                    missing.append("the %s overlay" % entry["overlay"])
+                missing += ["the %s module" % name for name in entry["modules"]
+                            if name not in image["modules"]]
+            option["installable"] = {
+                "ok": not missing,
+                "reason": None if not missing else
+                          "This image does not carry " + " or ".join(missing) + "."}
+            # What the boot configuration currently says about this board, which
+            # is a different fact from "the sound card is present": the card
+            # proves the running kernel has it, the line proves the next boot
+            # will.
+            # For a board, "configured" is about that board's overlay. For "No
+            # HAT" it is the useful question instead: is any overlay this page
+            # manages in the way?
+            option["configured"] = (
+                entry["overlay"] in boot["overlays"] if entry["overlay"]
+                else any(name in boot["overlays"] for name in hats.MANAGED_OVERLAYS))
         services = {row["name"]: row for row in self.components(deadline)}
 
         def observed(name):
@@ -966,12 +1117,16 @@ class Backend:
                     "enabled": row.get("enabled")}
 
         return {
-            # Not "writable": the one thing this card can change is which board
-            # a person says is fitted, and that is a note, not a device setting.
+            # Not "writable": this server writes no device setting itself. It can
+            # record which board a person says is fitted, and it can ask a root
+            # helper to write one overlay line, but every write is the helper's
+            # and every setting below is still read-only.
             "writable": False,
             "reason": "This page reports what the device is built to do. It can record which "
-                      "audio board you have; it cannot install a driver or change any other "
-                      "setting yet.",
+                      "audio board you have, ask a small root helper to write that board's "
+                      "overlay into the boot configuration, and restart the device. It "
+                      "cannot make the driver work: whether a board binds is what the "
+                      "restart and the sound-card list show.",
             "hardware": {
                 "detected_hat": product,
                 "detected_source": "Device-tree HAT EEPROM product; empty means the HAT "
@@ -986,14 +1141,29 @@ class Backend:
                 # privileged write that this server never performs.
                 "selectable": self.state is not None,
                 "choice": choice or None,
+                "boot": boot,
+                # Two separate permissions, because they fail separately: the
+                # helper must exist, and sudo must allow this account to run it.
+                "helper": {"path": HELPER_SOCKET,
+                           # The socket exists when the unit is installed and
+                           # started. Whether it will answer is what pressing the
+                           # button finds out, in one round trip.
+                           "present": Path(HELPER_SOCKET).exists(),
+                           "enrol_note": "Enrolling is one command, run once on the device "
+                                         "with a password: sudo python3 -B "
+                                         "control/setup/hat_install.py --enroll, from the "
+                                         "Debra tree (the installer prints the full path). "
+                                         "It installs the helper and allows this page to "
+                                         "call it. Until then nothing here can change the "
+                                         "boot configuration."},
                 "installed": None,
-                "reason": "Applying a HAT change means writing a device-tree overlay and a "
-                          "driver configuration. This page can record which board you have "
-                          "chosen; installing and enabling that board's driver is not "
-                          "something it can do (roadmap A02, WEB03).",
-                "choice_note": "A recorded choice is what you asked for. It is not proof "
-                               "that the driver for that board is installed, and this page "
-                               "does not install one.",
+                "reason": "This page can record which board you have chosen, and it can ask "
+                          "a small root helper to write that board's overlay into the boot "
+                          "configuration. It cannot make the driver work: whether a board "
+                          "binds is what the restart and the sound-card list show.",
+                "choice_note": "A recorded choice is what you asked for. Installing is a "
+                               "separate step, it changes a file that decides whether the "
+                               "device boots, and it only takes effect after a restart.",
                 "options": options,
             },
             "settings": {
@@ -1315,7 +1485,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path not in ("/api/audio/volume", "/api/audio/mute",
                              "/api/audio/test-output", "/api/audio/test-input",
-                             "/api/setup/hat"):
+                             "/api/setup/hat", "/api/setup/hat/install",
+                             "/api/setup/hat/remove", "/api/setup/restart"):
             self.reply(404, {"error": "Not found"})
             return
         try:
@@ -1338,6 +1509,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, self.server.backend.choose_hat(payload,
                                                                deadline=self.deadline))
                 return
+            if self.path.startswith("/api/setup/"):
+                action = {"/api/setup/hat/install": self.server.backend.install_hat,
+                          "/api/setup/hat/remove": self.server.backend.remove_hat,
+                          "/api/setup/restart": self.server.backend.restart_device}[self.path]
+                self.reply(200, action(payload, deadline=self.deadline))
+                return
             route = self.path.rsplit("/", 1)[1]
             if route == "test-output":
                 result = self.server.backend.test_output(deadline=self.deadline)
@@ -1347,15 +1524,27 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.server.backend.change_audio(route, payload,
                                                           deadline=self.deadline)
             self.reply(200, result)
+        except HelperRefused as exc:
+            # The helper's own reason, written for a person, or the page's note
+            # that this device has not allowed it yet. 409: the request was
+            # understood and refused, which is not a malformed request.
+            self.reply(409, {"error": str(exc)})
         except (ValueError, UnicodeError) as exc:
             # A HAT choice is not an audio command: it has its own reason, which
             # is written here and never contains command output.
-            if self.path == "/api/setup/hat":
+            if self.path.startswith("/api/setup/"):
                 self.reply(400, {"error": str(exc) or "That choice was not accepted"})
             else:
                 self.reply(400, {"error": "Invalid audio request"})
         except (Unavailable, RequestExpired):
-            self.reply(503, {"error": "Audio control unavailable; no fallback or restart attempted"})
+            if self.path.startswith("/api/setup/"):
+                # A timeout may have happened after the helper wrote the file,
+                # so this cannot promise that nothing changed.
+                self.reply(503, {"error": "The device did not finish answering, so the page "
+                                          "cannot say what changed. Check the boot "
+                                          "configuration before trying again."})
+            else:
+                self.reply(503, {"error": "Audio control unavailable; no fallback or restart attempted"})
 
 
 HARDWARE_CHOICES = tuple(option["id"] for option in HAT_OPTIONS) + ("",)

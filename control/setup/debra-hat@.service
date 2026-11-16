@@ -1,0 +1,16 @@
+[Unit]
+Description=Debra audio-HAT helper (one request)
+# Started by debra-hat.socket, one instance per connection. The connection is
+# this program's standard input and output: one JSON request in, one JSON answer
+# out, then it exits.
+
+[Service]
+ExecStart=/usr/local/sbin/debra-hat-install
+StandardInput=socket
+StandardOutput=socket
+# The helper is root because it writes the boot configuration, and it needs no
+# privilege beyond that: it cannot gain any, cannot see the home directories,
+# and gets a private temporary directory.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes

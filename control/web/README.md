@@ -113,18 +113,43 @@ an observation time.
   and the card says why, in the device's own words. With nothing to read, the
   level says **No level** rather than showing the slider's default position as
   though it were a measurement.
-- The Setup card offers **one real control**: a list of the boards a person
-  might have fitted (ReSpeaker 2-Mics v2, ReSpeaker 2-Mics v1, Waveshare WM8960,
-  or no HAT), which records the choice in `hardware.json` in the private state
-  directory. That record is what the person asked for. It is **not** an
-  installation and not a detection: applying a choice means a device-tree
-  overlay and a driver configuration, which is a privileged write this server
-  never performs, so installing the driver stays a **Planned** sentence under
-  the list. A device with no state directory to keep the choice in shows no
+- The Setup card offers a list of the boards a person might have fitted
+  (ReSpeaker 2-Mics v2, ReSpeaker 2-Mics v1, Waveshare WM8960, or no HAT), which
+  records the choice in `hardware.json` in the private state directory. That
+  record is what the person asked for: it is not a detection and it changes
+  nothing. A device with no state directory to keep the choice in shows no
   control at all rather than a dropdown that forgets. Next to the list the card
   states three separate facts, because a silent speaker otherwise has no
-  traceable cause: what the EEPROM named, what was recorded, and whether an ALSA
-  card with the driver's name is present.
+  traceable cause: what the EEPROM named, what was recorded, and whether an
+  ALSA card with the driver's name is present.
+- **Install driver** acts on the recorded choice, not on a request body: the
+  server sends `{"verb": "install", "board": "<recorded id>"}` to a small root
+  helper ([`control/setup/hat_install.py`](../setup/hat_install.py)) and never
+  writes the boot configuration itself. The helper validates the id against the
+  same table the page reads ([`hats.py`](hats.py)), refuses a board whose overlay
+  or kernel module this image does not carry, copies `config.txt` beside itself
+  first, writes atomically, reads the file back, and restores the copy if what
+  came out is not what was asked for. **Remove driver** takes the managed overlay
+  out again; choosing "No HAT" does the same thing. A **Restart device** button
+  appears only after this tab has changed the file, and asks for confirmation
+  before sending `{"confirm": "restart"}`. The helper never restarts as a side
+  effect, and no restart happens without that button.
+- The helper must be **enrolled once**, by the device's owner, with a password:
+  `sudo python3 -B control/setup/hat_install.py --enroll`, which the installer
+  prints. It installs the helper to `/usr/local/sbin/debra-hat-install`, its
+  table to `/usr/local/lib/debra/hats.py`, and a **socket-activated unit** that
+  runs it as root for one request. The request arrives as JSON on the socket
+  connection, which only the page's own account group can open. Until then the
+  card shows that one command and no control at all.
+- The transport is a socket rather than `sudo` because this service runs with
+  `NoNewPrivileges=yes`: a setuid `sudo` could not escalate from it at all, and
+  removing that line to allow one would trade real hardening for convenience.
+  There is no passwordless `sudo` rule on the device. The card only knows
+  whether the socket exists; whether it will answer is what pressing the button
+  finds out, in one round trip.
+- Installing proves the **file** changed, not that the driver works. The card
+  says so: the boot line is one fact, the ALSA card is another, and whether the
+  codec binds is what the restart and `/proc/asound/cards` show afterwards.
 - The Setup card's HAT rows report a **family match**, not an identification: the
   EEPROM product names a ReSpeaker/Seeed two-microphone board, and the exact
   model and revision are not established. The two-microphone match has a number
@@ -282,6 +307,11 @@ line. Neither dependency is installed by this installer.
 | `~/.config/debra/web/access.key` | Persistent device key, owner-only regular file |
 | `~/.config/debra/web/.access-key.staged-*` | Private key-publication artifacts; retained, not alternative active keys |
 | `~/.config/debra/web/hardware.json` | Optional retained `hat`/`speaker` string labels plus the board a person chose (`hat_choice`); not hardware verification and not an installation |
+| `/usr/local/sbin/debra-hat-install` | The root helper, installed only by `--enroll`; writes the boot configuration for one board |
+| `/usr/local/lib/debra/hats.py` | The board table the helper reads; the same file the page's table comes from |
+| `/etc/systemd/system/debra-hat.socket` | The socket the page connects to, `0660`, group = the page's account |
+| `/etc/systemd/system/debra-hat@.service` | One helper process per connection, `StandardInput`/`Output=socket` |
+| `/boot/firmware/config.txt.debra-<stamp>` | Timestamped copy the helper makes before every change; never overwritten |
 | `~/.config/debra/web/devices-<sha256>.json` | Private, content-addressed device list referenced by its unit; previous lists retained |
 | `~/.config/systemd/user/debra-web.service` | Generated user service; no key in arguments |
 | `~/.local/share/debra/web/previous-units/` | Previous generated service files, retained for rollback |
@@ -294,7 +324,11 @@ file this server writes always passes that check, because a file it writes but
 cannot start from is a service that stops coming back. A
 choice is written by `POST /api/setup/hat` with `{"choice": "<option id>"}` (or
 `""` to clear it), atomically and owner-only, keeping every other retained field;
-an unknown id is refused with a `400` and changes nothing.
+an unknown id is refused with a `400` and changes nothing. The three boot actions
+are separate paths and take no board: `POST /api/setup/hat/install` (`{}`),
+`POST /api/setup/hat/remove` (`{}`) and `POST /api/setup/restart`
+(`{"confirm": "restart"}`). A helper refusal is a `409` with the helper's own
+sentence; a request body that names a board is a `400`.
 The generated unit retries on failure, and stops retrying after four attempts in
 five minutes (`StartLimitIntervalSec=300`, `StartLimitBurst=4`, in `[Unit]`).
 Without that limit a unit that cannot start — a refused `hardware.json`, for

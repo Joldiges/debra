@@ -39,6 +39,11 @@ window.testState = {
   holdSetup: false, releaseSetup: null, failSetup: false, hatChoice: "",
   // Whether this device can keep a board choice at all.
   hatSelectable: true,
+  // Installing: whether the root helper is enrolled, which overlay the boot
+  // configuration names, and what the helper answers. The defaults describe a
+  // device that is ready to install, which is the interesting case.
+  hatHelper: true, hatBootOverlay: "", hatInstallChanged: true,
+  hatInstallRefusal: null, hatRestartCalls: 0,
   // The two deliberate audio tests, and a way to hold one so a check can press
   // the other button while it is running.
   holdTest: false, releaseTest: null, testOutputGone: false,
@@ -87,16 +92,26 @@ if (new URLSearchParams(location.search).get("hold") === "setup") state.holdSetu
 const setupPayload = () => ({
   writable: false,
   // The server's own words, so a check reads what the page was given.
-  reason: "This page reports what the device is built to do. It can record which audio "
-    + "board you have; it cannot install a driver or change any other setting yet.",
+  reason: "This page reports what the device is built to do. It can record which "
+    + "audio board you have, ask a small root helper to write that board's overlay "
+    + "into the boot configuration, and restart the device. It cannot make the "
+    + "driver work: whether a board binds is what the restart and the sound-card "
+    + "list show.",
   hardware: {
     detected_hat: "ReSpeaker 2-Mics Pi HAT", detected_source: "fixture",
     retained_label: "ReSpeaker 2-Mics Pi HAT v2", retained_note: "fixture",
     cards: ["seeed2micvoicec", "vc4hdmi0"], cards_source: "/proc/asound/cards",
     selectable: state.hatSelectable, installed: null,
     choice: state.hatChoice,
-    reason: "Applying a HAT change is a device-tree and driver write (A02).",
-    choice_note: "A recorded choice is what you asked for, not proof a driver is installed.",
+    reason: "This page can record which board you have chosen, and it can ask a small "
+      + "root helper to write that board's overlay into the boot configuration.",
+    choice_note: "A recorded choice is what you asked for. Installing is a separate step, "
+      + "it changes a file that decides whether the device boots, and it only takes "
+      + "effect after a restart.",
+    boot: {path: "/boot/firmware/config.txt", readable: true,
+           overlays: state.hatBootOverlay ? [state.hatBootOverlay] : [], i2c: true},
+    helper: {path: "/run/debra-hat/control.sock", present: state.hatHelper,
+             enrol_note: "Enrolling is one command."},
     // The shape the server really sends: the alternative is not a board the
     // EEPROM can name, so the server reports no verdict for it, and the two
     // WM8960 boards are listed apart because a codec name names neither.
@@ -105,15 +120,24 @@ const setupPayload = () => ({
        summary: "Two microphones and a codec.", detected: true,
        card: {name: "seeed2micvoicec", present: true}, applied: true,
        selected: state.hatChoice === "respeaker-2mic-hat-v2",
+       overlay: "respeaker-2mic-v2_0",
+       installable: {ok: true, reason: null},
+       configured: state.hatBootOverlay === "respeaker-2mic-v2_0",
        caveats: ["Positions are an estimate, not a measurement."]},
       {id: "respeaker-2mic-hat-v1", label: "ReSpeaker 2-Mics Pi HAT v1",
        summary: "The earlier WM8960 board.", detected: false,
        card: {name: "wm8960soundcard", present: true}, applied: true,
        selected: state.hatChoice === "respeaker-2mic-hat-v1",
+       overlay: "wm8960-soundcard",
+       installable: {ok: true, reason: null},
+       configured: state.hatBootOverlay === "wm8960-soundcard",
        caveats: ["The WM8960 card cannot name which board bound it."]},
       {id: "none", label: "No HAT: 3.5 mm jack or USB audio", summary: "Board output.",
        detected: null, card: {name: null, present: null}, applied: null,
        selected: state.hatChoice === "none",
+       overlay: null,
+       installable: {ok: true, reason: null},
+       configured: Boolean(state.hatBootOverlay),
        caveats: ["This page cannot tell which output is in use."]}
     ]
   },
@@ -220,6 +244,37 @@ window.fetch = async (path, options) => {
       }
       state.hatChoice = body.choice;
       return {ok: true, status: 200, json: async () => ({choice: body.choice || null})};
+    }
+    // The three boot-configuration actions. A refusal is 409 with the helper's
+    // own sentence, which is the shape the server really sends.
+    if (path === "/api/setup/hat/install" || path === "/api/setup/hat/remove") {
+      if (state.hatInstallRefusal) {
+        return {ok: false, status: 409,
+                json: async () => ({error: state.hatInstallRefusal})};
+      }
+      if (path.endsWith("/remove")) {
+        state.hatBootOverlay = "";
+      } else if (state.hatChoice && state.hatChoice !== "none") {
+        state.hatBootOverlay = state.hatChoice === "respeaker-2mic-hat-v1"
+          ? "wm8960-soundcard" : "respeaker-2mic-v2_0";
+      } else {
+        state.hatBootOverlay = "";
+      }
+      return {ok: true, status: 200, json: async () => ({
+        ok: true, changed: state.hatInstallChanged,
+        note: state.hatInstallChanged
+          ? "Written. It applies after the next restart; the running system is unchanged."
+          : "The boot configuration already says this; nothing was written."})};
+    }
+    if (path === "/api/setup/restart") {
+      if (body.confirm !== "restart") {
+        return {ok: false, status: 400,
+                json: async () => ({error: "Restarting needs confirm: restart"})};
+      }
+      state.hatRestartCalls += 1;
+      return {ok: true, status: 200, json: async () => ({
+        ok: true, rebooting: true,
+        note: "The device is restarting. The page will come back on its own."})};
     }
     if (path === "/api/audio/test-input") {
       if (state.holdTest) await new Promise(resolve => { state.releaseTest = resolve; });
@@ -603,18 +658,21 @@ window.addEventListener("load", async () => {
     const status = document.getElementById("setup-status").textContent;
     assert(/can record which audio board you have/.test(status),
            "the status does not say what the card can do: " + status);
-    assert(/cannot install a driver/.test(status),
+    assert(/ask a small root helper to write/.test(status),
+           "the status does not say how installing works: " + status);
+    assert(/cannot make the driver work/.test(status),
            "the status does not say what the card cannot do: " + status);
     // THE CARDINAL RULE: a planned capability is static text, never a control.
     // A disabled control is still a control: it promises a shape the page
     // cannot honour, and a handler on it runs the moment it is enabled.
-    const staticRows = [...document.querySelectorAll("#setup-hats .choice, #setup-settings .choice, #setup-updates .choice")];
-    // Four. The three update rows (check/install/roll back) each described the
+    const staticRows = [...document.querySelectorAll("#setup-settings .choice, #setup-updates .choice")];
+    // Three. The three update rows (check/install/roll back) each described the
     // same absent mechanism, and none was per component: they are one sentence
     // in this card plus one row in Components, where a person looks for a single
     // component's version. Choosing a board stopped being a planned row because
-    // it is now a real control; installing its driver still is one.
-    assert(staticRows.length === 4, "expected four planned setup rows, saw " + staticRows.length);
+    // it is now a real control, and so did installing its driver: that one is a
+    // button, hidden until the device can honour it.
+    assert(staticRows.length === 3, "expected three planned setup rows, saw " + staticRows.length);
     for (const row of staticRows) {
       assert(row.querySelector(".badge.planned"), "a planned setup row is not labelled: " + row.textContent.slice(0, 40));
       assert((row.querySelector(".choice-detail")?.textContent || "").length > 30,
@@ -625,9 +683,16 @@ window.addEventListener("load", async () => {
     // else it shows stays text.
     const controls = [...document.querySelectorAll("#setup input, #setup select, #setup button, #setup textarea, #setup a[href]")]
       .filter(node => !node.closest("#access-details"));
-    assert(controls.length === 1 && controls[0].id === "hat-select",
-           "the setup card offers " + controls.length + " control(s): "
-           + controls.map(node => node.tagName + "#" + node.id).join(", "));
+    // One visible control before a board is chosen: the list a person answers.
+    // The install, remove and restart buttons exist in the markup and must not
+    // be *shown* until the device can honour them, so this page never presents
+    // a control that only looks usable. `getClientRects` is the question that
+    // matters: a button inside a hidden row is not offered, and the row is what
+    // the renderer hides.
+    const visible = controls.filter(node => node.getClientRects().length > 0);
+    assert(visible.length === 1 && visible[0].id === "hat-select",
+           "the setup card shows " + visible.length + " control(s): "
+           + visible.map(node => node.tagName + "#" + node.id).join(", "));
     const interactive = [...document.querySelectorAll("#setup [tabindex], #setup [role=button], #setup [role=link], #setup [role=switch], #setup [role=checkbox], #setup [role=radio]")];
     assert(interactive.length === 0,
            "the setup card offers interactive markup: " + interactive.length);
@@ -1776,7 +1841,7 @@ window.addEventListener("load", async () => {
     assert(rows().every(count => count > 0),
            "an audio write discarded a valid setup answer: " + rows());
     assert(document.getElementById("setup-status").textContent.includes(
-             "cannot install a driver"),
+             "cannot make the driver work"),
            "the reason is missing: " + document.getElementById("setup-status").textContent);
     result.textContent = "PASS: an audio write does not discard a Setup answer already in flight";
   } catch (error) {
@@ -1968,6 +2033,113 @@ window.addEventListener("load", async () => {
     testState.hatSelectable = true;
     result.textContent = "PASS: the board choice is one real control, records what was chosen, "
       + "and never claims to have installed anything";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_HAT_INSTALL = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+const shown = id => {
+  const node = document.getElementById(id);
+  return node && node.getClientRects().length > 0;
+};
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    const row = document.getElementById("hat-install");
+    const install = document.getElementById("hat-install-button");
+    const remove = document.getElementById("hat-remove-button");
+    const restart = document.getElementById("hat-restart-button");
+    const state = () => document.getElementById("hat-install-state").textContent;
+    const enrol = document.getElementById("hat-enrol-note");
+    for (let i = 0; i < 80 && !document.getElementById("hat-select").options.length; i++) await wait();
+
+    // Nothing chosen: there is nothing to install, and the card says so rather
+    // than offering a button for an unrecorded board.
+    assert(!shown("hat-install"), "an install control is offered before a board is chosen");
+    assert(!shown("hat-enrol-note"), "the enrolment note appears before a board is chosen");
+
+    const select = document.getElementById("hat-select");
+    select.value = "respeaker-2mic-hat-v1";
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+    for (let i = 0; i < 80 && testState.hatChoice !== "respeaker-2mic-hat-v1"; i++) await wait();
+    for (let i = 0; i < 80 && !shown("hat-install"); i++) await wait();
+    assert(shown("hat-install"), "a recorded board on an enrolled device offers no install control");
+    assert(/^Install driver$/.test(install.textContent),
+           "the button does not say what it does: " + install.textContent);
+    assert(!shown("hat-remove-button"), "a board that is not configured offers a remove control");
+
+    // A device without the helper shows the one command, and no control.
+    testState.hatHelper = false;
+    await loadSetup();
+    for (let i = 0; i < 80 && shown("hat-install"); i++) await wait();
+    assert(!shown("hat-install"), "a device with no helper still offers the install control");
+    assert(shown("hat-enrol-note"), "a device with no helper does not say how to enable it");
+    assert(/--enroll/.test(enrol.textContent), "the enrolment note does not name the command");
+    testState.hatHelper = true;
+    await loadSetup();
+    for (let i = 0; i < 80 && !shown("hat-install"); i++) await wait();
+
+    // A refusal from the helper is shown in its own words, and the page does
+    // not pretend the file changed.
+    testState.hatInstallRefusal = "This image has no wm8960-soundcard overlay, "
+      + "which is what ReSpeaker 2-Mics Pi HAT v1 needs. Nothing was changed.";
+    install.click();
+    for (let i = 0; i < 80 && !/no wm8960-soundcard overlay/.test(state()); i++) await wait();
+    assert(/no wm8960-soundcard overlay/.test(state()), "a refusal is not reported: " + state());
+    assert(!shown("hat-restart-button"), "a refused install offered a restart");
+    testState.hatInstallRefusal = null;
+
+    // Installing sends one empty body: the board is the recorded one, and the
+    // page does not get to name an overlay.
+    const before = testState.posts.length;
+    install.click();
+    for (let i = 0; i < 80 && testState.posts.length === before; i++) await wait();
+    const writes = testState.posts.slice(before);
+    assert(writes.length === 1, "expected one install write, saw " + writes.length);
+    assert(writes[0].path === "/api/setup/hat/install", "wrong path: " + writes[0].path);
+    assert(JSON.stringify(writes[0].body) === "{}",
+           "the install request carries fields: " + JSON.stringify(writes[0].body));
+    for (let i = 0; i < 80 && !/boot configuration names wm8960-soundcard/.test(state()); i++) await wait();
+    assert(/boot configuration names wm8960-soundcard/.test(state()),
+           "the card does not report the line it wrote: " + state());
+
+    // Once the file says it, the control becomes Remove, and the restart is
+    // offered because this tab made a change.
+    for (let i = 0; i < 80 && !shown("hat-remove-button"); i++) await wait();
+    assert(shown("hat-remove-button"), "a configured board offers no way to remove it");
+    assert(!shown("hat-install-button"), "a configured board still offers Install");
+    assert(shown("hat-restart-button"), "a change was made and no restart is offered");
+
+    // A restart asks first. Declining sends nothing at all.
+    window.confirm = () => false;
+    restart.click();
+    await wait(); await wait();
+    assert(testState.hatRestartCalls === 0, "declining the prompt still restarted the device");
+    assert(!testState.posts.some(post => post.path === "/api/setup/restart"),
+           "a declined restart was sent anyway");
+
+    // Agreeing sends the one body the server requires.
+    window.confirm = () => true;
+    restart.click();
+    for (let i = 0; i < 80 && testState.hatRestartCalls === 0; i++) await wait();
+    assert(testState.hatRestartCalls === 1, "agreeing did not restart the device");
+    const sent = testState.posts.filter(post => post.path === "/api/setup/restart").pop();
+    assert(JSON.stringify(sent.body) === '{"confirm":"restart"}',
+           "the restart request is not the one the server requires: " + JSON.stringify(sent.body));
+    for (let i = 0; i < 80 && !/restarting/.test(state()); i++) await wait();
+    assert(/restarting/i.test(state()), "the page does not say the device is restarting: " + state());
+    result.textContent = "PASS: install follows the recorded board, reports the helper's own "
+      + "answer, offers a restart only after a change, and asks before restarting";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -2394,7 +2566,7 @@ class BrowserTests(unittest.TestCase):
                                    "/check-stale.js", "/check-first-screen.js",
                                    "/check-nav.js", "/check-missing-readings.js",
                                    "/check-output-gone.js", "/check-audio-tests.js",
-                                   "/check-hat-choice.js"):
+                                   "/check-hat-choice.js", "/check-hat-install.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -2413,6 +2585,7 @@ class BrowserTests(unittest.TestCase):
                               "/check-disconnect-write.js": CHECK_DISCONNECT_WRITE,
                               "/check-audio-tests.js": CHECK_AUDIO_TESTS,
                               "/check-hat-choice.js": CHECK_HAT_CHOICE,
+                              "/check-hat-install.js": CHECK_HAT_INSTALL,
                               "/check-refused-key.js": CHECK_REFUSED_KEY,
                               "/check-refused-keyless.js": CHECK_REFUSED_KEYLESS,
                               "/check-query-key.js": CHECK_QUERY_KEY,
@@ -2571,6 +2744,12 @@ class BrowserTests(unittest.TestCase):
         # no traceable cause.
         self.run_browser("?auth=none", "check-hat-choice.js", budget=20000)
 
+    def test_installing_follows_the_recorded_board_and_asks_before_restarting(self):
+        # The privileged path, seen from the page: one empty request, the
+        # helper's own answer shown, no control until a board is recorded, and a
+        # restart that a person has to agree to.
+        self.run_browser("?auth=none", "check-hat-install.js", budget=20000)
+
     def test_browser_and_server_url_contract_and_literal_labels(self):
         for url, expected in URL_CASES.items():
             with self.subTest(url=url):
@@ -2592,11 +2771,13 @@ class BrowserTests(unittest.TestCase):
         # says what was actually read.
         self.run_browser("?auth=none", "check-labels.js")
 
-    def test_setup_card_offers_no_control_at_all(self):
-        # A disabled control is still a control. The card now reports what the
-        # device says as text and describes every planned choice as a sentence,
-        # and the check dispatches clicks, changes and touches across every one
-        # of them to prove no write path exists behind the text.
+    def test_setup_card_offers_only_controls_it_can_honour(self):
+        # A disabled control is still a control. The card reports what the device
+        # says as text, describes every planned choice as a sentence, and offers
+        # exactly one control before anything is chosen: the board list. The
+        # check dispatches clicks, changes and touches across every planned row
+        # to prove no write path exists behind the text, and proves the install
+        # controls are not shown until a board is chosen.
         self.run_browser("#key=" + "x" * 40, "check-setup.js")
 
     def test_a_refused_key_is_forgotten_and_named(self):

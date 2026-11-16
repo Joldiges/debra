@@ -27,9 +27,12 @@ TOKEN = "test_" + "a" * 40
 SETUP_KEYS = {"writable", "reason", "hardware", "settings", "updates"}
 HARDWARE_KEYS = {"detected_hat", "detected_source", "retained_label", "retained_note",
                  "cards", "cards_source", "selectable", "choice", "installed",
-                 "reason", "choice_note", "options"}
+                 "reason", "choice_note", "options", "boot", "helper"}
 OPTION_KEYS = {"id", "label", "summary", "detected", "card", "applied", "selected",
-               "caveats"}
+               "caveats", "installable", "configured", "overlay"}
+BOOT_KEYS = {"path", "readable", "overlays", "i2c"}
+HELPER_KEYS = {"path", "present", "enrol_note"}
+INSTALLABLE_KEYS = {"ok", "reason"}
 CARD_KEYS = {"name", "present"}
 SETTING_KEYS = {"id", "label", "summary", "value", "options", "selectable", "reason"}
 UPDATE_KEYS = {"available", "reason", "actions"}
@@ -37,7 +40,11 @@ ACTION_KEYS = {"id", "label", "enabled", "reason"}
 
 
 class SetupCommands:
-    """Only the probes the setup payload may issue: `systemctl show`."""
+    """Only the probes the setup payload may issue: `systemctl show`.
+
+    Reaching the install helper is a socket connection, not a command, so a
+    device with no helper never runs anything.
+    """
 
     def __init__(self):
         self.calls = []
@@ -76,8 +83,11 @@ class SetupPayloadTests(unittest.TestCase):
         self.assertEqual([option["id"] for option in payload["hardware"]["options"]],
                          ["respeaker-2mic-hat-v2", "respeaker-2mic-hat-v1",
                           "waveshare-wm8960", "none"])
+        self.assertEqual(set(payload["hardware"]["boot"]), BOOT_KEYS)
+        self.assertEqual(set(payload["hardware"]["helper"]), HELPER_KEYS)
         for option in payload["hardware"]["options"]:
             self.assertEqual(set(option), OPTION_KEYS)
+            self.assertEqual(set(option["installable"]), INSTALLABLE_KEYS)
             self.assertEqual(set(option["card"]), CARD_KEYS)
         self.assertEqual(list(payload["settings"]), ["music", "interruption", "update_policy"])
         for setting in payload["settings"].values():
@@ -281,7 +291,7 @@ class HatChoiceTests(unittest.TestCase):
         self.backend.choose_hat({"choice": "waveshare-wm8960"})
         hardware = self.backend.setup()["hardware"]
         self.assertIsNone(hardware["installed"])
-        self.assertIn("not proof", hardware["choice_note"])
+        self.assertIn("separate step", hardware["choice_note"])
         option = next(o for o in hardware["options"] if o["id"] == "waveshare-wm8960")
         self.assertFalse(option["applied"], "a recorded choice was reported as applied")
 
@@ -554,10 +564,25 @@ class PageTests(unittest.TestCase):
         self.css = (SOURCE / "assets/style.css").read_text()
 
     def test_page_has_the_setup_card_and_its_containers(self):
-        for identifier in ("setup", "setup-hats", "setup-settings", "setup-updates",
+        for identifier in ("setup", "hat-install", "hat-install-button",
+                           "hat-remove-button", "hat-restart-button", "hat-install-state",
+                           "hat-enrol-note", "setup-settings", "setup-updates",
                            "setup-hardware-source", "setup-hardware-note", "setup-status"):
             self.assertIn(f'id="{identifier}"', self.html, identifier)
         self.assertIn('href="#setup"', self.html)
+
+    def test_the_install_control_starts_hidden(self):
+        # A control that cannot work yet is a promise, and this page keeps that
+        # promise in words. The row is in the markup so the renderer can reveal
+        # it, and it is hidden until the device says the helper is allowed.
+        row = self.html.split('id="hat-install"')[1].split(">")[0]
+        self.assertIn("hidden", row)
+
+    def test_the_enrolment_note_names_the_one_command(self):
+        # A person who cannot install from the page needs the exact step, not a
+        # reference to a guide they have not been given.
+        self.assertIn("--enroll", self.html)
+        self.assertIn("sudo python3 -B control/setup/hat_install.py", self.html)
 
     def test_page_loads_the_setup_endpoint(self):
         self.assertIn('"/api/setup"', self.js)
@@ -575,13 +600,14 @@ class PageTests(unittest.TestCase):
         # component, which is where a person looks for it.
         # Choosing a HAT stopped being a planned row: it is a real control now,
         # because recording a choice is something this page can do honestly.
-        # Installing that board's driver still cannot be done, and stays a row.
+        # Installing that board's driver stopped being a row too: it is a real
+        # control, written by a root helper, and it is hidden until it can work
+        # rather than shown as a disabled button.
         rows = [
             "Choose the music receiver",
             "Choose whether music becomes quieter or pauses",
             "Choose when component versions change",
             "Each component gets its own update",
-            "Install this board’s driver",
         ]
         chunks = self.html.split('<div class="choice">')
         for sentence in rows:
@@ -628,3 +654,302 @@ class PageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeHelper:
+    """Stands in for the root helper: records the request, returns an answer."""
+
+    def __init__(self, answer=None, raises=None):
+        self.calls = []
+        self.answer = {"ok": True, "changed": True,
+                       "note": "Written. It applies after the next restart."}
+        if answer is not None:
+            self.answer = answer
+        self.raises = raises
+
+    def __call__(self, request, *, timeout):
+        self.calls.append((dict(request), timeout))
+        if self.raises is not None:
+            raise self.raises
+        return dict(self.answer)
+
+
+class HatInstallTests(unittest.TestCase):
+    """Installing a board: the page asks a root helper and writes nothing itself.
+
+    The helper is a fake here, so what these tests hold is the contract between
+    the page and that boundary: which board is sent, what is refused before
+    anything is asked, and what the card reports about the file it never touches.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="web-hat-install-",
+                                                dir="/tmp/opencode")
+        self.addCleanup(self.temp.cleanup)
+        base = Path(self.temp.name)
+        self.state = base / "state"
+        self.state.mkdir(mode=0o700)
+        self.root = base / "root"
+        self.root.mkdir()
+        self.socket = base / "control.sock"
+        self.socket.write_text("")
+        self.use_helper(self.socket)
+        self.commands = SetupCommands()
+        self.helper = FakeHelper()
+        self.put("boot/firmware/config.txt", "[all]\ndtparam=audio=on\n")
+        self.put_image()
+
+    def use_helper(self, path):
+        patcher = patch.object(web, "HELPER_SOCKET", str(path))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def put(self, path, text):
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+
+    def put_image(self, overlays=("wm8960-soundcard", "respeaker-2mic-v2_0"),
+                  modules=("snd-soc-wm8960", "snd-soc-tlv320aic3x")):
+        import platform
+        for name in overlays:
+            self.put("boot/firmware/overlays/%s.dtbo" % name, "dtbo")
+        for name in modules:
+            self.put("lib/modules/%s/kernel/sound/soc/codecs/%s.ko.xz"
+                     % (platform.release(), name), "module")
+
+    def backend(self, helper=None):
+        return web.Backend(SINK, {}, self.commands, self.root, state=self.state,
+                           helper=helper or self.helper)
+
+    def choose(self, board, backend=None):
+        (backend or self.backend()).choose_hat({"choice": board})
+
+    def test_install_sends_the_recorded_choice_and_nothing_else(self):
+        backend = self.backend()
+        self.choose("respeaker-2mic-hat-v1", backend)
+        answer = backend.install_hat({})
+        self.assertTrue(answer["changed"])
+        self.assertEqual([request for request, _ in self.helper.calls],
+                         [{"verb": "install", "board": "respeaker-2mic-hat-v1"}])
+
+    def test_install_without_a_choice_is_refused(self):
+        with self.assertRaises(ValueError) as caught:
+            self.backend().install_hat({})
+        self.assertIn("Choose a board first", str(caught.exception))
+        self.assertEqual(self.helper.calls, [], "the helper was asked with no choice")
+
+    def test_install_does_not_accept_a_board_in_the_request(self):
+        # The board is the recorded one. A request body that names a board is a
+        # caller expecting to choose the overlay, which is not this endpoint.
+        backend = self.backend()
+        self.choose("respeaker-2mic-hat-v1", backend)
+        with self.assertRaises(ValueError):
+            backend.install_hat({"board": "waveshare-wm8960"})
+        self.assertEqual(self.helper.calls, [])
+
+    def test_the_helpers_refusal_reaches_the_page(self):
+        self.helper.raises = web.HelperRefused("This image has no such overlay.")
+        backend = self.backend()
+        self.choose("respeaker-2mic-hat-v1", backend)
+        with self.assertRaises(web.HelperRefused) as caught:
+            backend.install_hat({})
+        self.assertIn("no such overlay", str(caught.exception))
+
+    def test_a_device_without_the_helper_says_so_instead_of_failing_quietly(self):
+        self.use_helper(Path(self.temp.name) / "not-installed")
+        backend = self.backend()
+        self.choose("respeaker-2mic-hat-v1", backend)
+        with self.assertRaises(web.HelperRefused) as caught:
+            backend.install_hat({})
+        self.assertIn("not running on this device", str(caught.exception))
+
+    def test_install_writes_nothing_on_the_device(self):
+        backend = self.backend()
+        self.choose("respeaker-2mic-hat-v1", backend)
+        before = sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*"))
+        backend.install_hat({})
+        after = sorted(str(path.relative_to(self.root)) for path in self.root.rglob("*"))
+        self.assertEqual(after, before, "the page wrote to the device itself")
+
+    def test_restart_needs_the_word(self):
+        backend = self.backend()
+        for body in ({}, {"confirm": True}, {"confirm": "yes"}):
+            with self.subTest(body=body):
+                with self.assertRaises(ValueError):
+                    backend.restart_device(body)
+        self.assertEqual(self.helper.calls, [])
+
+    def test_restart_asks_for_one_thing(self):
+        self.backend().restart_device({"confirm": "restart"})
+        self.assertEqual([request for request, _ in self.helper.calls],
+                         [{"verb": "reboot"}])
+
+    def test_install_never_asks_for_a_restart(self):
+        backend = self.backend()
+        self.choose("respeaker-2mic-hat-v1", backend)
+        backend.install_hat({})
+        self.assertNotIn({"verb": "reboot"}, [request for request, _ in self.helper.calls])
+
+    def test_the_card_reports_what_the_boot_configuration_says(self):
+        self.put("boot/firmware/config.txt",
+                 "[all]\ndtparam=i2c_arm=on\ndtoverlay=wm8960-soundcard\n")
+        hardware = self.backend().setup()["hardware"]
+        self.assertEqual(hardware["boot"]["overlays"], ["wm8960-soundcard"])
+        self.assertTrue(hardware["boot"]["i2c"])
+        by_id = {option["id"]: option for option in hardware["options"]}
+        self.assertTrue(by_id["respeaker-2mic-hat-v1"]["configured"])
+        self.assertFalse(by_id["respeaker-2mic-hat-v2"]["configured"])
+
+    def test_no_hat_is_configured_when_a_managed_overlay_is_in_the_way(self):
+        self.put("boot/firmware/config.txt", "[all]\ndtoverlay=wm8960-soundcard\n")
+        by_id = {option["id"]: option for option in
+                 self.backend().setup()["hardware"]["options"]}
+        self.assertTrue(by_id["none"]["configured"])
+
+    def test_a_commented_overlay_is_not_configured(self):
+        self.put("boot/firmware/config.txt", "[all]\n#dtoverlay=wm8960-soundcard\n")
+        hardware = self.backend().setup()["hardware"]
+        self.assertEqual(hardware["boot"]["overlays"], [])
+
+    def test_an_unreadable_boot_configuration_is_reported_not_invented(self):
+        (self.root / "boot/firmware/config.txt").unlink()
+        hardware = self.backend().setup()["hardware"]
+        self.assertFalse(hardware["boot"]["readable"])
+        self.assertIsNone(hardware["boot"]["path"])
+        self.assertIsNone(hardware["boot"]["i2c"])
+
+    def test_a_board_this_image_lacks_is_not_installable(self):
+        (self.root / "boot/firmware/overlays/respeaker-2mic-v2_0.dtbo").unlink()
+        by_id = {option["id"]: option for option in
+                 self.backend().setup()["hardware"]["options"]}
+        self.assertFalse(by_id["respeaker-2mic-hat-v2"]["installable"]["ok"])
+        self.assertIn("respeaker-2mic-v2_0",
+                      by_id["respeaker-2mic-hat-v2"]["installable"]["reason"])
+        self.assertTrue(by_id["respeaker-2mic-hat-v1"]["installable"]["ok"])
+
+    def test_a_missing_codec_module_is_named(self):
+        import platform
+        path = (self.root / "lib/modules" / platform.release() /
+                "kernel/sound/soc/codecs/snd-soc-wm8960.ko.xz")
+        path.unlink()
+        by_id = {option["id"]: option for option in
+                 self.backend().setup()["hardware"]["options"]}
+        self.assertIn("snd-soc-wm8960",
+                      by_id["respeaker-2mic-hat-v1"]["installable"]["reason"])
+
+    def test_the_helper_is_reported_by_its_socket(self):
+        hardware = self.backend().setup()["hardware"]["helper"]
+        self.assertTrue(hardware["present"])
+        self.assertEqual(hardware["path"], str(self.socket))
+        # Reading the card runs no command at all: reaching the helper is a
+        # socket connection, and the card only says whether the socket is there.
+        self.assertEqual([call for call in self.commands.calls if "sudo" in call], [])
+
+    def test_a_device_with_no_socket_says_the_helper_is_absent(self):
+        self.use_helper(Path(self.temp.name) / "no-such.sock")
+        hardware = self.backend().setup()["hardware"]["helper"]
+        self.assertFalse(hardware["present"])
+
+    def test_the_helper_is_given_a_budget_inside_the_request(self):
+        backend = self.backend()
+        self.choose("respeaker-2mic-hat-v1", backend)
+        backend.install_hat({})
+        _, timeout = self.helper.calls[0]
+        self.assertLessEqual(timeout, web.REQUEST_TIMEOUT)
+
+
+class HatInstallHTTPTests(unittest.TestCase):
+    """The three setup writes over HTTP, including the refusal codes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory(prefix="web-hat-http-", dir="/tmp/opencode")
+        base = Path(cls.temp.name)
+        state = base / "state"
+        state.mkdir(mode=0o700)
+        sock = base / "control.sock"
+        sock.write_text("")
+        cls.helper_patch = patch.object(web, "HELPER_SOCKET", str(sock))
+        cls.helper_patch.start()
+        cls.commands = SetupCommands()
+        cls.helper = FakeHelper()
+        cls.backend = web.Backend(SINK, {}, cls.commands, base / "root", state=state,
+                                  helper=cls.helper)
+        cls.backend.choose_hat({"choice": "respeaker-2mic-hat-v1"})
+        cls.server = web.Server(("127.0.0.1", 0), cls.backend, TOKEN, [])
+        cls.host = f"127.0.0.1:{cls.server.server_port}"
+        cls.server.hosts = frozenset([cls.host])
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join()
+        cls.helper_patch.stop()
+        cls.temp.cleanup()
+
+    def setUp(self):
+        self.helper.calls.clear()
+        self.helper.raises = None
+
+    def post(self, path, body):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        connection.request("POST", path, body,
+                           {"Host": self.host, "Authorization": "Bearer " + TOKEN,
+                            "Origin": "http://" + self.host,
+                            "Content-Type": "application/json"})
+        response = connection.getresponse()
+        data = response.read()
+        connection.close()
+        return response.status, json.loads(data or b"{}")
+
+    def test_install_is_reachable_and_answers(self):
+        code, payload = self.post("/api/setup/hat/install", "{}")
+        self.assertEqual(code, 200)
+        self.assertTrue(payload["changed"])
+        self.assertEqual(self.helper.calls[0][0]["verb"], "install")
+
+    def test_a_refusal_is_409_not_a_broken_request(self):
+        # The request was understood and refused. 400 would tell a person their
+        # browser sent nonsense, which is not what happened.
+        self.helper.raises = web.HelperRefused("This image has no such overlay.")
+        code, payload = self.post("/api/setup/hat/install", "{}")
+        self.assertEqual(code, 409)
+        self.assertIn("no such overlay", payload["error"])
+
+    def test_a_body_with_a_board_is_400(self):
+        code, payload = self.post("/api/setup/hat/install", '{"board": "none"}')
+        self.assertEqual(code, 400)
+        self.assertTrue(payload["error"])
+
+    def test_restart_without_confirmation_is_400(self):
+        code, _ = self.post("/api/setup/restart", "{}")
+        self.assertEqual(code, 400)
+        self.assertEqual(self.helper.calls, [])
+
+    def test_restart_with_confirmation_asks_the_helper(self):
+        code, payload = self.post("/api/setup/restart", '{"confirm": "restart"}')
+        self.assertEqual(code, 200)
+        self.assertEqual(self.helper.calls[0][0], {"verb": "reboot"})
+
+    def test_remove_is_reachable(self):
+        code, _ = self.post("/api/setup/hat/remove", "{}")
+        self.assertEqual(code, 200)
+        self.assertEqual(self.helper.calls[0][0], {"verb": "remove"})
+
+    def test_an_unknown_setup_write_is_404(self):
+        self.assertEqual(self.post("/api/setup/hat/reflash", "{}")[0], 404)
+
+    def test_every_setup_write_needs_the_access_key(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        connection.request("POST", "/api/setup/hat/install", "{}",
+                           {"Host": self.host, "Origin": "http://" + self.host,
+                            "Content-Type": "application/json"})
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        self.assertEqual(response.status, 401)
+        self.assertEqual(self.helper.calls, [])

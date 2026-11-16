@@ -296,7 +296,15 @@ details, and see evidence-backed compatibility, driver and reboot requirements.
 | Detected HAT product | Current: `detected_hat` device-tree product or null; not proof of an exact revision or physical presence. Collector: evidence for any stronger claim. |
 | Selected board, HAT and revisions | Current: `selected_hardware.hat` is an optional retained string, not verified hardware; no selected board/revision. Collector: structured selection and its provenance. |
 | Speaker model, impedance, rating, connector and mounting | Current: optional `selected_hardware.speaker` label only. Collector: retained structured details; physical characteristics cannot be auto-detected without evidence. |
-| Driver/overlay, compatibility, evidence, pending change and reboot state | Collector: actual driver/overlay and boot state plus evidence-backed exact-version compatibility and change plan. Untested compatibility or reboot effect cannot be known. |
+| Driver/overlay, compatibility, evidence, pending change and reboot state | Current, partly: the page reads `config.txt` read-only and each board reports its overlay line, whether that line is in the file (`configured`), and whether this image carries the overlay and codec module (`installable`). The write exists as one overlay line via a socket-activated root helper, with a timestamped copy of the file and a read-back. Still missing: pending-versus-effective across a reboot (the page offers a restart but does not observe the boot that follows), and evidence-backed exact-version compatibility. Untested compatibility or reboot effect cannot be known. |
+
+What landed 2026-11-16 is the **write**, not the profile: one boot line, one
+board, a rollback by copy, and a refusal when the image lacks the pieces. The
+[install route comparison](hat-driver-install.md) records why it is a socket
+rather than `sudo`, and
+[the hardware result](../testing/results/2026-11-16-hat-install-through-the-page.md)
+records the round trip. Detected-versus-selected revision matching and a boot
+that is observed rather than assumed are still A01/A02 work.
 
 **Acceptance:**
 

@@ -1,9 +1,14 @@
 # Installing an audio HAT's driver: what "Install" could mean
 
-Status: **proposal, unreviewed, no code written.** Written 2026-11-16 while
-adding the board choice to the Setup card. It records the options for the one
-action the page cannot currently perform, so the decision is about a shape
-rather than a surprise later.
+Status: **route C implemented and tested offline; one round trip still needs a
+device.** Written 2026-11-16 while adding the board choice to the Setup card,
+and implemented the same day after James answered the open questions below: the
+dashboard must be able to do the full set, and a narrow `sudo` step is
+acceptable. What exists, what it refuses and what is still unproven are in
+[the helper's README](../../control/setup/README.md#the-audio-hat-helper-hat_installpy)
+and [the web README](../../control/web/README.md). This note is kept because the
+comparison of the three routes is still the reasoning behind the shape, not
+because the decision is still open.
 
 ## The question
 
@@ -84,19 +89,57 @@ What this costs:
 - a rollback that restores a working `config.txt` from the backup on a device
   that has already failed to boot once.
 
-## Recommendation
+## What was chosen
 
-Route **B** first: it is honest, needs no new privilege, and is useful to the
-person who is already comfortable in a shell. Route **C** only after A02, and
-only with the helper's verb list and validation reviewed as its own change — not
-as a feature of the web server. Until then the card keeps the **Planned** row,
-which is what it has now.
+Route **C**, with a socket-activated unit, after James's answer on 2026-11-16:
+the dashboard must be able to do the full set, and a selective elevated step is
+acceptable. A `sudo` rule was implemented first and **abandoned on the device**:
+the generated web unit ships `NoNewPrivileges=yes`, so a setuid `sudo` cannot
+escalate from the service at all. The only way to make it work would be to delete
+that line, which trades real hardening for one feature. The socket needs no
+setuid binary and leaves the hardening in place.
 
-## Open questions for James
+The narrowest version of C is one root program started by one socket:
 
-1. Is a copyable command worth having on the page, or is that a distraction from
-   the appliance goal?
-2. If the helper is wanted, is a socket-activated root unit acceptable on a
-   household device, or should installation stay a maintenance-TUI action?
-3. Should the page ever be allowed to ask for a reboot, or should that always be
-   a separate, deliberate step?
+- the socket starts **one path with no arguments**, and the request is JSON on
+  the connection, so nothing can use it to reach another command or argument;
+- the board is validated inside the helper against `control/web/hats.py`, the
+  same file the page reads, so there is one answer to "which overlay is this
+  board";
+- the server sends the **recorded** board id, never one from the request body, so
+  a page cannot install something nobody chose;
+- `config.txt` is copied first, written atomically, read back, and restored from
+  the copy if the read-back is wrong;
+- `reboot` is a separate verb and a separate button, and `install` never restarts.
+
+The earlier objection to the socket — "two units, a protocol and a group to
+review" — is real, but the alternative turned out not to exist: the sudo rule
+works from a shell and cannot work from the service. A boundary that cannot be
+used is not the simpler one. The group is the page's own account, so no new
+account or membership has to be created.
+
+Route B is not gone: the enrollment command is printed by the installer, and it
+is the only step that needs a password.
+
+## Open questions, answered
+
+1. *Is a copyable command worth having?* Yes, for exactly one thing: the
+   enrollment step. It is printed by the installer and shown on the card when the
+   helper is not enrolled, because no page can do it for the person.
+2. *Is a socket-activated root unit acceptable?* Yes — and it is what the device
+   requires. The `sudo` rule was implemented, failed on the Pi 5 because of
+   `NoNewPrivileges=yes`, and was replaced.
+3. *Should the page ever ask for a reboot?* Yes, but only as its own deliberate
+   step: a separate button, a browser confirmation, and a server that requires
+   `{"confirm": "restart"}` before it sends anything. The helper never restarts
+   on its own.
+
+## What A02 still owes
+
+- a measured install on a device for each supported board, and a boot that comes
+  back with the card bound;
+- the rollback proven on a device that has already failed to boot once;
+- the ReSpeaker v2 codec-family question: the kernel's `respeaker-2mic-v2_0`
+  overlay names `tlv320aic3x` while the v2 board carries a TLV320AIC3104;
+- whether the Waveshare board's pinout really matches the overlay measured with
+  a Seeed v1 board.

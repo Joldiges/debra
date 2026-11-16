@@ -1,0 +1,18 @@
+[Unit]
+Description=Debra audio-HAT helper socket
+Documentation=file:///usr/local/lib/debra/hats.py
+
+[Socket]
+# One Unix socket, owned root and group-writable only for the account that runs
+# the web page. A connection activates one instance of the helper, which reads
+# one request and exits. No setuid binary is involved, so the web service keeps
+# NoNewPrivileges=yes.
+ListenStream=/run/debra-hat/control.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=@GROUP@
+Accept=yes
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

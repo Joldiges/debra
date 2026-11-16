@@ -595,6 +595,14 @@ def main():
     print("Files prepared; no service started and no audio settings changed.")
     print("Next: systemctl --user daemon-reload")
     print("Then: systemctl --user enable --now debra-web.service")
+    # One step the page cannot do for itself, printed where a person is already
+    # copying commands. The path is this checkout's, because that is the tree the
+    # helper and its table have to come from.
+    helper = Path(__file__).resolve().parent.parent / "setup/hat_install.py"
+    if helper.is_file():
+        print()
+        print("To let the page install an audio HAT's driver (optional, once):")
+        print(f"  sudo python3 -B {helper} --enroll")
 
 
 if __name__ == "__main__":

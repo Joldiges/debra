@@ -40,6 +40,11 @@ let testing = false;
 // Writing a HAT choice takes a round trip; a second change while it is in
 // flight would race the first.
 let hatBusy = false;
+// A boot-configuration change is not in effect until the device restarts. The
+// page offers the restart only after it has made such a change in this tab, so
+// a person is never invited to restart a device nothing was written to.
+let hatNeedsRestart = false;
+let hatRestarting = false;
 let volumeTimer = 0;
 // Long enough that a drag is one command, short enough that a person who let go
 // does not wonder whether it took.
@@ -648,7 +653,127 @@ function renderHatChoice(hardware) {
   }
   el("hat-state").textContent = parts.join(" ");
   el("hat-note").textContent = hardware.choice_note || "";
+  renderHatInstall(hardware);
 }
+// The Install control follows the recorded choice: it installs what the person
+// chose, including "No HAT", which removes the overlay rather than adding one.
+// It is hidden rather than disabled when it cannot work, because a control that
+// does nothing is a worse answer than a sentence saying why.
+function renderHatInstall(hardware) {
+  const row = el("hat-install"), button = el("hat-install-button"),
+        remove = el("hat-remove-button"), restart = el("hat-restart-button"),
+        state = el("hat-install-state"), enrol = el("hat-enrol-note");
+  if (!row || !button || !remove || !restart || !state || !enrol) return;
+  const choice = (hardware.options || []).find(option => option.selected);
+  const helper = hardware.helper || {};
+  const boot = hardware.boot || {};
+  // The socket exists when the helper is installed and started. Whether it
+  // answers is what pressing the button finds out, in one round trip.
+  const allowed = helper.present === true;
+  // A device that has not been enrolled says so in words, once, and shows no
+  // control: there is nothing this page can do about it from here.
+  enrol.hidden = allowed || !choice;
+  if (!choice) {
+    row.hidden = true;
+    restart.hidden = true;
+    state.textContent = hardware.selectable
+      ? "Choose a board above to see what installing it would do."
+      : "";
+    return;
+  }
+  if (!allowed) {
+    row.hidden = true;
+    restart.hidden = true;
+    state.textContent = "This device does not have the install helper yet, so nothing "
+      + "here can change the boot configuration.";
+    return;
+  }
+  const configured = choice.configured === true;
+  const installable = choice.installable || {ok: true, reason: null};
+  row.hidden = false;
+  // Three states, one control each: install the chosen board, remove it again,
+  // or -- for "No HAT" -- take the managed overlay out. Nothing is offered that
+  // would not change the file.
+  const removing = choice.overlay === null;
+  const showRemove = Boolean(choice.overlay) && configured;
+  button.hidden = showRemove || (removing && !configured);
+  button.textContent = removing ? "Remove the audio-HAT overlay" : "Install driver";
+  button.disabled = hatBusy || hatRestarting || !installable.ok;
+  remove.hidden = !showRemove;
+  remove.disabled = hatBusy || hatRestarting;
+  restart.hidden = !hatNeedsRestart || hatRestarting;
+  restart.disabled = hatBusy || hatRestarting;
+  if (hatRestarting) {
+    state.textContent = "The device is restarting. This page will reconnect when it is back.";
+    return;
+  }
+  if (!installable.ok) {
+    state.textContent = `${installable.reason} Installing would write a line the next boot cannot use, so the button is off.`;
+    return;
+  }
+  if (configured) {
+    state.textContent = choice.overlay
+      ? `The boot configuration names ${choice.overlay}. A restart applies it; the sound-card list above shows whether it is loaded now.`
+      : "An audio-HAT overlay this page manages is in the boot configuration. Choosing No HAT and removing it takes it out.";
+    return;
+  }
+  state.textContent = hatNeedsRestart
+    ? "Written. Restart the device to apply it."
+    : "";
+}
+// One round trip for both actions. The device answers with the helper's own
+// words, which are the only account of what happened to the file.
+async function hatAction(path, body, busyText) {
+  const state = el("hat-install-state");
+  hatBusy = true;
+  state.textContent = busyText;
+  try {
+    const result = await api(path, body);
+    return result;
+  } catch (error) {
+    state.textContent = error.status === 401
+      ? "The device refused this tab's access. Enter its key again."
+      : `That did not happen: ${error.message}`;
+    return null;
+  } finally {
+    hatBusy = false;
+  }
+}
+el("hat-install-button").addEventListener("click", async () => {
+  if (hatBusy || hatRestarting) return;
+  const result = await hatAction("/api/setup/hat/install", {},
+    "Writing the boot configuration…");
+  if (!result) return;
+  hatNeedsRestart = Boolean(result.changed);
+  if (!result.changed) {
+    el("hat-install-state").textContent = result.note || "Nothing needed changing.";
+  }
+  await loadSetup();
+});
+el("hat-remove-button").addEventListener("click", async () => {
+  if (hatBusy || hatRestarting) return;
+  const result = await hatAction("/api/setup/hat/remove", {},
+    "Removing the overlay from the boot configuration…");
+  if (!result) return;
+  hatNeedsRestart = Boolean(result.changed);
+  await loadSetup();
+});
+el("hat-restart-button").addEventListener("click", async () => {
+  if (hatBusy || hatRestarting) return;
+  // A restart is the one action here a person cannot undo by waiting, so it
+  // asks first, in the browser, before anything is sent.
+  if (!window.confirm("Restart this device now? The page will disconnect for about a minute.")) return;
+  hatRestarting = true;
+  const result = await hatAction("/api/setup/restart", {confirm: "restart"},
+    "Restarting the device…");
+  if (!result) {
+    hatRestarting = false;
+    await loadSetup();
+    return;
+  }
+  el("hat-install-state").textContent = result.note ||
+    "The device is restarting. This page will reconnect when it is back.";
+});
 el("hat-select").addEventListener("change", async () => {
   const select = el("hat-select");
   if (hatBusy) return;
