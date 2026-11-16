@@ -148,6 +148,18 @@ class HostsNamingTests(Temp):
                          "127.0.0.1 router # localhost\n127.0.1.1 new new\n"
                          "127.0.0.1 localhost\n")
 
+    def test_a_comment_attached_to_the_name_does_not_count_as_localhost(self):
+        # R10-01. `#` starts a comment wherever it appears, so `router# localhost`
+        # names only `router`. Splitting the whole line first counted the
+        # comment's word and left the repaired file with no IPv4 localhost.
+        self.assertEqual(nm_module.hosts_naming("127.0.0.1 router# localhost\n", "new"),
+                         "127.0.0.1 router# localhost\n127.0.1.1 new new\n"
+                         "127.0.0.1 localhost\n")
+
+    def test_a_comment_after_a_real_localhost_entry_is_kept(self):
+        self.assertEqual(nm_module.hosts_naming("127.0.0.1 localhost# local\n", "new"),
+                         "127.0.0.1 localhost# local\n127.0.1.1 new new\n")
+
     def test_applying_the_same_name_twice_changes_nothing_the_second_time(self):
         once = nm_module.hosts_naming(DEBIAN_HOSTS, "debra-8518d6")
         self.assertEqual(once, nm_module.hosts_naming(once, "debra-8518d6"))
@@ -227,6 +239,29 @@ class SetHostnameTests(Temp):
         recorder = Recorder()
         self.adapter(recorder).set_hostname("debra-8518d6")
         self.assertIn("systemctl try-restart avahi-daemon.service", recorder.commands())
+
+    def test_a_truncated_hosts_file_is_repaired_through_the_adapter(self):
+        # R10-02. The pure helper tests covered these shapes, but nothing
+        # established that the adapter calls it and publishes the result: a
+        # mutant that returned early whenever no device-alias line existed
+        # passed all 30 identity tests.
+        shapes = {
+            "truncated name": "127.0.0.1 local\n",
+            "address only": "127.0.0.1\n",
+            "attached comment": "127.0.0.1 router# localhost\n",
+            "another name": "127.0.0.1 router\n",
+            "stock": DEBIAN_HOSTS,
+        }
+        for name, text in shapes.items():
+            with self.subTest(name):
+                self.write_hosts(text)
+                self.adapter(Recorder()).set_hostname("debra-8518d6")
+                published = self.hosts.read_text()
+                self.assertIn("127.0.1.1 debra-8518d6 debra-8518d6\n", published)
+                self.assertIn("127.0.0.1 localhost\n", published)
+                if name == "stock":
+                    self.assertIn("::1 localhost ip6-localhost ip6-loopback\n", published)
+                    self.assertIn("# Your system has configured", published)
 
     def test_a_stale_alias_is_repaired(self):
         self.write_hosts("127.0.1.1 debra-8518d6 debra-lab\n127.0.0.1 localhost\n")

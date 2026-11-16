@@ -317,9 +317,10 @@ def enable(root, *, unit=UNIT, wants=WANTS):
         # the card opened a host file and was accepted, while on the device the
         # same text names nothing at all.
         #
-        # Only two things write this link: this installer (`../<unit name>`) and
-        # `systemctl enable` (`/<unit path>`). Anything else is an operator's
-        # link or a damaged one, and is left exactly as it is.
+        # This installer writes `../<unit name>`, and `systemctl enable` is
+        # documented to write `/<unit path>`. A hand-made equivalent is not
+        # guessed at; anything else is an operator's link or a damaged one, and
+        # is left exactly as it is.
         relative = os.path.join("..", UNIT_NAME)
         absolute = "/" + Path(unit).as_posix()
         if target == relative:

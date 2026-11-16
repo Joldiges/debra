@@ -189,21 +189,18 @@ def hosts_naming(text, hostname):
     placed = False
     has_localhost = False
     for existing in text.splitlines():
-        fields = existing.split()
+        # A `#` starts a comment wherever it appears in the line, including
+        # attached to the alias before it: `127.0.0.1 router# localhost` names
+        # only `router`. Splitting the whole line first counted the comment's
+        # words as names, so this repair left a file with no localhost entry.
+        fields = existing.partition("#")[0].split()
         if fields[:1] == [HOSTS_ALIAS]:
             if not placed:
                 lines.append(alias)
                 placed = True
             continue
         if fields[:1] == ["127.0.0.1"]:
-            # Aliases stop at a comment: `127.0.0.1 router # localhost` names
-            # `router`, and the comment says nothing.
-            names = []
-            for field in fields[1:]:
-                if field.startswith("#"):
-                    break
-                names.append(field)
-            if "localhost" in names:
+            if "localhost" in fields[1:]:
                 has_localhost = True
         lines.append(existing)
     if not has_localhost:
@@ -211,7 +208,7 @@ def hosts_naming(text, hostname):
     if not placed:
         # Beside the localhost entry, where a person reading the file expects it.
         for index, existing in enumerate(lines):
-            if existing.split()[:1] == ["127.0.0.1"]:
+            if existing.partition("#")[0].split()[:1] == ["127.0.0.1"]:
                 lines.insert(index + 1, alias)
                 break
         else:

@@ -262,9 +262,9 @@ repository does it otherwise. It refuses a unit it did not write and refuses to
 replace anything already at that path. It accepts **exactly two spellings** of that
 link and leaves the tree alone when one is already there: the relative
 `../debra-setup.service` this installer writes, and the absolute
-`/etc/systemd/system/debra-setup.service` that `systemctl enable` writes. Any
-other text is refused with the link untouched — an operator's link, a link that
-carries the preparing host's mount point, or a damaged one. That is a
+`/etc/systemd/system/debra-setup.service` that `systemctl enable` is documented
+to write. Any other text is refused with the link untouched — an operator's link,
+a link that carries the preparing host's mount point, or a damaged one. That is a
 **deliberately narrow policy**, not a claim to recognise every spelling: systemd's
 own manual says an administrator may add or remove enablement links by hand, so a
 hand-made equivalent such as `.././debra-setup.service` is refused rather than
@@ -284,9 +284,11 @@ resolution errors and keeps normalizing — so comparing destinations accepted
 links the kernel could not open, and accepted a relative link that walked out to
 the preparing host's `/` and back into the card. On a
 running device, `systemctl enable` remains the right command: it also reloads
-the daemon. The installer's route has been booted - the device run enabled the
-unit and rebooted - but no real `systemctl enable` was run, so which link that
-route writes is still unconfirmed.
+the daemon. An earlier enabled unit was booted (see the
+[device result](../testing/results/2026-11-15-zero2w-setup-service-first-run.md)),
+but that record does not show which command created its link or what the link's
+target bytes were. It therefore establishes neither this installer's route nor a
+version-specific `systemctl` spelling.
 
 `setup.json` is migrated on read from schema 1 and from schema 2, because a
 device that already ran an earlier prototype must not be left with a state file
@@ -316,7 +318,7 @@ untouched, so the evidence survives.
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; this is where the passphrase is written (the baseline below archives a copy) |
 | `/etc/hosts` | (kept) | The loopback alias line, rewritten to the device's name so `hostname -f` and `sudo` resolve it. Replaced atomically, keeping the file's owner and mode; every other line keeps its text. cloud-init rewrites this file too, which is why the unit is ordered after it |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
-| `/etc/systemd/system/multi-user.target.wants/debra-setup.service` | (link) | Only with `--enable`: a link to the unit (relative, or the absolute one systemd writes), which starts it at the next boot |
+| `/etc/systemd/system/multi-user.target.wants/debra-setup.service` | (link) | Only with `--enable`: a link to the unit (relative, or the absolute spelling systemd is documented to write), which starts it at the next boot |
 | `/boot/firmware/debra-setup.txt` | (boot partition) | Setup-network name and password, written at runtime |
 
 `debra-setup.service` in this directory is the **template**: the installer
