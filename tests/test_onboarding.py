@@ -247,7 +247,7 @@ class StateTests(Temp):
                "country": "GB", "ssid": "HomeWiFi", "address": None,
                "last_error": None, "attempts": 1,
                "hotspot": {"ssid": "Debra-Setup-1", "interface": "wlan0"},
-               "baseline": None}
+               "baseline": None, "updated": "2026-11-01T00:00:00Z"}
         self.state_path.write_text(json.dumps(old))
         data = state_module.read(self.state_path)
         self.assertEqual(data["schema"], state_module.SCHEMA)
@@ -259,6 +259,28 @@ class StateTests(Temp):
         # The described hot spot had no stored password, so it is dropped.
         self.assertIsNone(data["hotspot"])
         self.assertEqual(data["phase"], "failed")
+
+    def test_a_schema_one_object_that_was_never_a_record_is_refused(self):
+        # Filling every missing field turned a file that described nothing into
+        # an `unconfigured` device, which then raised a new access point as
+        # though it had never been set up. Every schema-1 revision wrote these
+        # fields, so a record without them is damage, not an upgrade.
+        for broken in ({"schema": 1},
+                       {"schema": 1, "hostname": "debra-1", "ssid": "HomeWiFi",
+                        "baseline": None},
+                       {"schema": 1, "phase": "online", "hostname": "debra-1",
+                        "country": "GB", "ssid": "HomeWiFi", "address": None,
+                        "last_error": None, "attempts": 0, "hotspot": None,
+                        "baseline": None}):
+            with self.subTest(broken=sorted(broken)):
+                self.state_path.write_text(json.dumps(broken))
+                with self.assertRaisesRegex(ValueError, "not a setup record"):
+                    state_module.read(self.state_path)
+        # Nothing was written over the damaged file, so the evidence survives.
+        self.assertEqual(json.loads(self.state_path.read_text()), {"schema": 1, "phase": "online",
+                         "hostname": "debra-1", "country": "GB", "ssid": "HomeWiFi",
+                         "address": None, "last_error": None, "attempts": 0,
+                         "hotspot": None, "baseline": None})
 
     def test_a_schema_one_hotspot_is_dropped_so_it_can_be_raised_again(self):
         # The old schema stored no password, so the described access point
@@ -2860,6 +2882,67 @@ class HandlerBoundaryTests(Temp):
                          "the journal received the state path")
         self.assertNotIn("Traceback", stderr.getvalue(),
                          "socketserver printed a traceback for a handled failure")
+
+    def test_a_read_that_already_answered_gets_no_second_reply(self):
+        # The boundary answers 500 only when nothing was sent yet. Without that
+        # guard, a handler that had already replied and then failed appended a
+        # 500 to the reply: two status lines on one connection, which a client
+        # reads as a malformed response.
+        server, _onboarder, host = self.portal()
+
+        def replies_then_fails(handler):
+            handler._reply(200, {"status": "hotspot"})
+            raise OSError(5, "Input/output error")
+
+        request = ("GET /api/status HTTP/1.0\r\nHost: %s\r\n\r\n" % host).encode()
+        with patch.object(onboarding.PortalHandler, "_get", replies_then_fails), \
+                self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+            raw = self.raw(server, request)
+        self.assertEqual(raw.count(b"HTTP/1."), 1,
+                         "a second response went out on one connection: " + repr(raw[:2000]))
+        self.assertIn(b" 200 ", raw.split(b"\r\n", 1)[0])
+        self.assertIn(b'"status": "hotspot"', raw, "the first reply was not delivered")
+        self.assertIn("OSError", "\n".join(logs.output),
+                      "the journal did not name the failure class")
+
+    def test_a_redirect_counts_as_an_answer_even_when_its_body_fails(self):
+        # `_redirect_to_page` writes its own headers instead of using
+        # `_reply()`. A body write that fails part way used to leave `_replied`
+        # False, so the boundary appended a 500 to a partially sent 302.
+        handler = object.__new__(onboarding.PortalHandler)
+        handler._replied = False
+        handler.command = "GET"
+        handler.request_version = "HTTP/1.1"
+        handler.server = type("Portal", (), {"host": "10.42.0.1"})()
+        sent = []
+
+        def write(payload):
+            sent.append(payload)
+            raise OSError(32, "Broken pipe")
+
+        handler.wfile = type("Wfile", (), {"write": staticmethod(write)})()
+        handler.send_response = lambda code, message=None: sent.append(code)
+        handler.send_header = lambda key, value: None
+        handler.end_headers = lambda: None
+        with self.assertRaises(OSError):
+            handler._redirect_to_page()
+        self.assertTrue(handler._replied,
+                        "a partially sent redirect was reported as unanswered")
+        self.assertIn(302, sent)
+
+    def test_the_journal_names_the_failure_class_and_not_the_path(self):
+        # The class alone is what a person needs; the exception text can carry
+        # the state path. Dropping the class made every failure the same
+        # sentence, and no test noticed.
+        server, _onboarder, host = self.portal()
+        failure = OSError(5, "Input/output error: " + str(self.state_path))
+        with patch.object(server.onboarder, "status", side_effect=failure), \
+                self.assertLogs(onboarding.LOGGER, level="WARNING") as logs:
+            raw = self.raw(server, self.join_request(host))
+        journal = "\n".join(logs.output)
+        self.assertIn(b"500", raw.split(b"\r\n", 1)[0])
+        self.assertIn("OSError", journal, "the journal did not name the failure class")
+        self.assertNotIn(str(self.state_path), journal, "the journal received the state path")
 
     def test_a_worker_that_cannot_start_answers_once_and_gives_the_reservation_back(self):
         # The 202 is already on the wire when the thread starts. If starting it

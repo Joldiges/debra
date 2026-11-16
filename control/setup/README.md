@@ -176,13 +176,28 @@ A tree prepared from a host for a card has no running systemd to ask, so
 `/etc/systemd/system/multi-user.target.wants/debra-setup.service`. That link is
 what makes the service start on the card's first boot, and nothing in this
 repository does it otherwise. It refuses a unit it did not write and refuses to
-replace anything already at that path, but it accepts a link that resolves to
-the installed unit whether the text is the relative `../debra-setup.service` or
-the absolute `/etc/systemd/system/debra-setup.service` that `systemctl enable`
-writes, so a tree systemd already enabled is left alone. On a running device,
-`systemctl enable` remains the right command: it also reloads the daemon.
-Neither route has been booted, and no real `systemctl enable` was run to confirm
-which link it writes.
+replace anything already at that path. It accepts a link that **resolves** to
+the installed unit, whether the text is the relative
+`../debra-setup.service` or the absolute `/etc/systemd/system/debra-setup.service`
+that `systemctl enable` writes, so a tree systemd already enabled is left alone.
+"Resolves" is meant literally: the comparison follows symlinks, because the
+kernel does, and a link spelled through a symlinked directory (`../jump/../debra-setup.service`)
+is refused when it lands on a different file. An absolute target that carries
+the preparing host's mount point is also refused: it is a path on the device,
+and after boot it names nothing. On a running device, `systemctl enable` remains
+the right command: it also reloads the daemon. Neither route has been booted,
+and no real `systemctl enable` was run to confirm which link it writes.
+
+`setup.json` is migrated on read from schema 1, because a device that already
+ran an earlier prototype must not be left with a state file that stops the
+service. The migration fills every field the old record never wrote, which is
+what makes it an upgrade rather than a refusal. It has a floor: a record missing
+any field **every** schema-1 revision wrote (the phase, hostname, country, Wi-Fi
+name, address, last error, attempts, setup-network description, baseline pointer
+and timestamp) is damage or a foreign file, and is refused with a message saying
+so. Filling that in would turn a damaged file into an apparently unconfigured
+device that raises a new setup access point. A record that is refused is left
+untouched, so the evidence survives.
 
 ## What it writes
 

@@ -622,9 +622,44 @@ class EnableTests(Fixture):
         wants.mkdir(parents=True)
         link = wants / installer.UNIT_NAME
         link.symlink_to("/etc/systemd/system/something-else.service")
-        with self.assertRaisesRegex(ValueError, "different link"):
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
             installer.enable(self.root)
         self.assertEqual(os.readlink(link), "/etc/systemd/system/something-else.service")
+
+    def test_a_link_that_jumps_through_a_symlink_to_a_foreign_unit_is_refused(self):
+        # `normpath` removes `jump/..` without looking at `jump`. A link spelled
+        # `../jump/../debra-setup.service` therefore compared equal to the
+        # installed unit while the kernel resolved it into another directory.
+        # The comparison has to follow links, because the kernel does.
+        self.install()
+        system = self.root / "etc/systemd/system"
+        foreign = self.root / "foreign"
+        foreign.mkdir(parents=True)
+        (foreign / "debra-setup.service").write_text("not the installed unit\n", encoding="utf-8")
+        (system / "jump").symlink_to(foreign / "directory")
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.symlink_to("../jump/../debra-setup.service")
+        self.assertEqual(link.resolve(), (foreign / "debra-setup.service").resolve(),
+                         "the fixture does not resolve to the foreign unit")
+        with self.assertRaisesRegex(ValueError, "different link"):
+            installer.enable(self.root)
+        self.assertEqual(os.readlink(link), "../jump/../debra-setup.service",
+                         "enable replaced the operator's link")
+
+    def test_an_absolute_target_that_names_the_preparing_host_is_refused(self):
+        # An absolute target is a path on the device. A path that carries the
+        # preparing host's mount point names this unit only on the host, and
+        # nothing at all after boot.
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.symlink_to(str(self.unit))
+        with self.assertRaisesRegex(ValueError, "not this unit on the device"):
+            installer.enable(self.root)
+        self.assertEqual(os.readlink(link), str(self.unit))
 
     def test_enable_refuses_a_unit_the_installer_did_not_write(self):
         self.unit.parent.mkdir(parents=True, exist_ok=True)

@@ -41,6 +41,15 @@ PHASES = ("unconfigured", "hotspot", "connecting", "online", "failed")
 # them before the service could even report why.
 SCHEMA = 2
 
+# The fields every schema-1 revision wrote, and therefore the floor below which a
+# record is not a record this software wrote. The keys the revisions added later
+# are deliberately not here: their absence is an ordinary upgrade and is filled.
+# `phase` matters most: every revision required it, and filling it produced an
+# `unconfigured` device from a file that described nothing, which then raised a
+# new access point as though the device had never been set up.
+MANDATORY_1 = ("phase", "hostname", "country", "ssid", "address", "last_error",
+               "attempts", "hotspot", "baseline", "updated")
+
 
 def now():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -172,6 +181,13 @@ def _migrate_1(data):
     or `last_attempt` and still be a record this repository wrote. Refusing it
     on a missing key stopped the service on a device that had merely upgraded.
 
+    That leniency has a floor. `MANDATORY_1` is the set every prototype revision
+    wrote, so a record missing any of it was never a record this software wrote:
+    it is a damaged or foreign file, and filling it would turn damage into an
+    empty, unconfigured journey that then raises a fresh access point. A JSON
+    object as small as `{"schema": 1}` used to be accepted that way. Damage is
+    an error, which is what `read()` says it is.
+
     Schema 1 stored no setup-network password. It may still describe a hotspot,
     because the old code raised one and then wrote the note; after an upgrade
     the access point is not running. Keeping that description would leave a
@@ -179,6 +195,10 @@ def _migrate_1(data):
     `validate()` rightly refuses. The description is dropped instead, and the
     next boot raises the access point again with a fresh password.
     """
+    missing = [key for key in MANDATORY_1 if key not in data]
+    if missing:
+        raise ValueError("That state file is not a setup record this software wrote: "
+                         + ", ".join(missing) + " missing")
     migrated = dict(data)
     for key, value in blank().items():
         migrated.setdefault(key, value)
