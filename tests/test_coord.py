@@ -2,7 +2,8 @@
 
 They use a throwaway Git fixture and a throwaway records directory, stub the
 OpenCode API, and never start a model call, contact a device, or touch the real
-.local/coord state. Fixtures are retained under /tmp/opencode.
+.local/coord state. Fixtures live under /tmp/opencode; each run prunes earlier
+runs, keeping the newest few.
 """
 
 import io
@@ -22,8 +23,9 @@ if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
 import tools.coord as coord  # noqa: E402  (path set above)
+import tools.tmpfixtures as tmpfixtures  # noqa: E402  (path set above)
 
-FIXTURES = Path(tempfile.mkdtemp(prefix="debra-coord-tests-", dir="/tmp/opencode"))
+FIXTURES = tmpfixtures.root("debra-coord-tests-")
 # cwd alone cannot isolate Git: inherited GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE
 # can redirect commands into another checkout.
 ENV = {

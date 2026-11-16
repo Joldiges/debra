@@ -17,6 +17,11 @@ nav { display: flex; gap: 24px; padding: 12px 0 24px; flex-wrap: wrap; font-size
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 label { display: block; margin: 16px 0 10px; color: #d5e4e0; font-size: 14px; }
 #volume-value { float: right; font-size: 22px; color: var(--accent); }
+/* The number is the tallest thing on this line. Floating it out of a 14 px
+   line box left the label shorter than its own content (19 px of text, 30 px
+   of number), so the slider below was spaced from the wrong edge. A flow root
+   keeps the float inside the box it belongs to. */
+label[for="volume"] { display: flow-root; }
 input[type=range] { width: 100%; margin: 14px 0 24px; accent-color: var(--accent); }
 input[type=password] { min-width: 0; flex: 1; background: #101619; border: 1px solid #56716b; border-radius: 9px; color: white; padding: 12px; }
 button { border: 1px solid transparent; background: var(--accent); color: #10251d; border-radius: 9px; padding: 11px 18px; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
@@ -50,8 +55,15 @@ dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .device { flex-wrap: wrap; } .device-id { flex-basis: 100%; } }
 /* Identities are not prose: an ALSA sink name has no spaces to break at, so a
    long one widened the phone layout instead of wrapping. */
-#output, #error { overflow-wrap: anywhere; }
+#output, #error, #audio-notice { overflow-wrap: anywhere; }
 #error { color: #ffc8b8; }
+/* A write outcome beside its control. Empty is the normal state, and an empty
+   paragraph would still add its margins, so the gap is removed until there is
+   something to say. It is never hidden: a live region that is display:none is
+   not reliably announced when it later gains text. */
+.action-notice { margin: 12px 0 0; padding: 10px 14px; border: 1px solid #7a4a3c;
+  border-radius: 11px; background: #2a1c18; color: #ffc8b8; font-size: 13px; }
+.action-notice:empty { margin: 0; padding: 0; border: 0; }
 /* The keyless warning is a security statement, not a caption. It is read
    before the controls it describes, so it gets its own band. */
 #auth-mode-warning {

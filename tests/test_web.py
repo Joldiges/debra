@@ -33,6 +33,22 @@ with patch.dict(sys.modules, {"server": web}):
     spec.loader.exec_module(installer)
 
 
+def payload_copy(home, changed=False):
+    """A complete payload beside a fixture, optionally with different bytes.
+
+    Only the five fixed files are copied, because that is all a release is. The
+    changed copy gains one newline per file: enough for a different content
+    address, and still valid Python, JavaScript, CSS and HTML.
+    """
+    payload = Path(home) / ("payload-changed" if changed else "payload")
+    for name in installer.PAYLOAD:
+        target = payload / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = (SOURCE / name).read_bytes()
+        target.write_bytes(data + (b"\n" if changed else b""))
+    return payload
+
+
 class FakeCommands:
     def __init__(self):
         self.calls = []
@@ -115,6 +131,36 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(web.Unavailable):
             self.backend.change_audio("volume", {"percent": 36})
         self.assertEqual(self.commands.calls, [["pactl", "--format=json", "list", "sinks"]])
+
+    def test_a_two_mic_family_needs_a_number_boundary(self):
+        # `2-mic` occurs inside `12-Mics`, so a twelve-microphone product was
+        # reported as this two-microphone board.
+        option = web.HAT_OPTIONS[0]
+        for product, expected in (
+                ("ReSpeaker 2-Mics Pi HAT", True),
+                ("Seeed 2mic voice card", True),
+                ("ReSpeaker 2 Mic Array", True),
+                ("ReSpeaker 12-Mics Pi HAT", False),
+                ("ReSpeaker 22-mic array", False),
+                ("ReSpeaker 4 Mic Array", False),
+                ("Seeed unrelated sensor HAT", False)):
+            with self.subTest(product=product):
+                self.assertEqual(web.hat_family_match(product, option), expected)
+
+    def test_the_alternative_is_not_asked_about_the_eeprom(self):
+        # "No HAT" is an alternative, not a board the EEPROM can name. Reporting
+        # "the EEPROM does not name a ReSpeaker board" in that row said the
+        # opposite of the ReSpeaker row's evidence about the very same string.
+        # The payload keeps its documented shape: `detected` is null, which is
+        # the "nothing established" value it already had.
+        self.put("/sys/firmware/devicetree/base/hat/product", "ReSpeaker 2-Mics Pi HAT\0")
+        self.put("/proc/asound/cards", " 0 [seeed2micvoicec]: simple-card\n")
+        respeaker, none = self.backend.setup()["hardware"]["options"]
+        self.assertIs(respeaker["detected"], True)
+        self.assertIsNone(none["detected"])
+        self.assertEqual(set(none), {"id", "label", "summary", "detected", "card", "applied",
+                                     "caveats"})
+        self.assertIs(web.hat_family_match("ReSpeaker 2-Mics Pi HAT", web.HAT_OPTIONS[1]), None)
 
     def test_reject_implicit_sink_and_command_injection(self):
         for sink in ("@DEFAULT_SINK@", "", "-option", "test; touch foo", "has space", "a\nb"):
@@ -912,6 +958,28 @@ class DiscoveryTests(unittest.TestCase):
         # still two advertisements.
         self.assertEqual(len(cache.status()["refused"]), 2)
 
+    def test_two_refusals_with_one_name_and_reason_are_still_two_advertisements(self):
+        # Two advertised records that share an instance name and are refused for
+        # the same reason (one port 0, one port 65536) are two devices missing
+        # from the page. Reducing the cache to a set of display strings counted
+        # them as one.
+        text = "\n".join([
+            '=;eth0;IPv4;Collision;_debra._tcp;local;collision.local;192.0.2.1;0;'
+            '"name=Collision"',
+            '=;eth0;IPv4;Collision;_debra._tcp;local;collision.local;192.0.2.2;65536;'
+            '"name=Collision"',
+        ]) + "\n"
+        cache = web.DiscoveryCache(browse=discovery.browse)
+        with patch.object(discovery.subprocess, "run",
+                          return_value=subprocess.CompletedProcess([], 0, text, "")):
+            cache.scan()
+        refused = cache.status()["refused"]
+        self.assertEqual(len(refused), 2, refused)
+        # They are still one display string each: the count is what tells them
+        # apart, and the page prints "Refused 2 advertisements" from it.
+        self.assertEqual(set(refused), {"Collision: Device Collision: invalid URL: Invalid host or port"})
+        self.assertEqual(cache.snapshot(), ())
+
     def test_error_timeout_exception_and_empty_clear_previous_cache(self):
         record = {"name": "new", "url": "http://new.local:8787/", "label": "New"}
         for outcome in ("error", "timeout", "exception", "empty", "malformed"):
@@ -1097,8 +1165,8 @@ class InstallerTests(unittest.TestCase):
         self.state = self.home / ".config/debra/web"
         self.unit = self.home / ".config/systemd/user/debra-web.service"
 
-    def install(self, hosts=None, **kwargs):
-        return installer.install(self.home, SOURCE, SINK, "127.0.0.1", 8787,
+    def install(self, hosts=None, source=SOURCE, **kwargs):
+        return installer.install(self.home, source, SINK, "127.0.0.1", 8787,
                                  hosts or ["device.local:8787"], "/usr/bin/python3", **kwargs)
 
     def test_init_key_permissions_and_preservation(self):
@@ -1284,6 +1352,41 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             installer.quoted("arg\nExecStart=bad")
 
+    def test_the_unit_round_trips_through_the_systemd_decoder(self):
+        # The installer's own quoting has to survive the decoder that restore
+        # reads with. Restore used to split on whitespace and strip double
+        # quotes, so a HOME holding a space, a percent or a dollar decoded into
+        # a path that does not exist.
+        for value in ("/home/a b/.local", "/home/100%/.local", "/home/cost$5/.local",
+                      '/home/quote"back\\slash/.local', "plain"):
+            with self.subTest(value=value):
+                self.assertEqual(installer.systemd_argv(installer.quoted(value)), [value])
+        self.assertEqual(installer.systemd_argv("a  'b c' \"d e\" f"), ["a", "b c", "d e", "f"])
+        self.assertEqual(installer.systemd_argv("100%% 5$$"), ["100%", "5$"])
+
+    def test_the_start_command_is_read_from_the_service_section_only(self):
+        # systemd ignores ExecStart in [Unit] and treats an empty ExecStart= as
+        # a reset, so neither unit has a start command. Finding the first
+        # literal ExecStart anywhere reported both as restorable.
+        cases = {
+            "plain": installer.MARKER + "[Service]\nExecStart=/usr/bin/true\n",
+            "spaced": installer.MARKER + "[Service]\nExecStart = /usr/bin/true\n",
+            "ignore-failure": installer.MARKER + "[Service]\nExecStart=-/usr/bin/true\n",
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(installer.service_commands(text.encode()), [["/usr/bin/true"]])
+        for name, text in {
+            "commented": installer.MARKER + "[Service]\n# ExecStart=/usr/bin/true\n",
+            "wrong-section": installer.MARKER + "[Unit]\nExecStart=/usr/bin/true\n",
+            "reset": installer.MARKER + "[Service]\nExecStart=/usr/bin/true\nExecStart=\n",
+            "empty": installer.MARKER + "[Service]\nExecStart=\n",
+            "two-arguments": installer.MARKER + "[Service]\nExecStart=/usr/bin/true one two\n",
+        }.items():
+            with self.subTest(case=name):
+                expected = [["/usr/bin/true", "one", "two"]] if name == "two-arguments" else []
+                self.assertEqual(installer.service_commands(text.encode()), expected)
+
     def test_interrupted_release_publish_can_retry_without_overwrite(self):
         with patch.object(Path, "rename", side_effect=OSError("simulated interruption")):
             with self.assertRaises(OSError):
@@ -1415,12 +1518,12 @@ class RestoreCommandTests(unittest.TestCase):
         self.home = Path(self.temp.name)
         self.unit = self.home / ".config/systemd/user/debra-web.service"
 
-    def install(self, hosts=None, **kwargs):
-        return installer.install(self.home, SOURCE, SINK, "127.0.0.1", 8787,
+    def install(self, hosts=None, source=SOURCE, **kwargs):
+        return installer.install(self.home, source, SINK, "127.0.0.1", 8787,
                                  hosts or ["device.local:8787"], "/usr/bin/python3", **kwargs)
 
-    def run_cli(self, *arguments):
-        environment = dict(os.environ, HOME=str(self.home))
+    def run_cli(self, *arguments, home=None):
+        environment = dict(os.environ, HOME=str(home or self.home))
         return subprocess.run([sys.executable, "-B", str(SOURCE / "install.py"),
                                *arguments],
                               capture_output=True, text=True, env=environment, timeout=90)
@@ -1469,3 +1572,98 @@ class RestoreCommandTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no ExecStart line"):
             installer.restore_unit(self.home, previous)
         self.assertFalse(self.unit.exists())
+
+    def test_a_home_with_a_space_percent_and_dollar_restores_its_own_unit(self):
+        # The installer writes systemd quoting and escapes `%` and `$` for the
+        # same paths restore has to read back. Splitting on whitespace and
+        # stripping double quotes looked for `<space-split>/...`,
+        # `home%%percent/...` and `home$$dollar/...`, so the documented rollback
+        # refused the release the installer itself had just written.
+        awkward = tempfile.TemporaryDirectory(prefix="web restore %$100 -", dir="/tmp/opencode")
+        self.addCleanup(awkward.cleanup)
+        home = Path(awkward.name)
+        unit = home / ".config/systemd/user/debra-web.service"
+        first = installer.install(home, SOURCE, SINK, "127.0.0.1", 8787,
+                                  ["device.local:8787"], "/usr/bin/python3")
+        old_unit = unit.read_bytes()
+        second = installer.install(home, SOURCE, SINK, "127.0.0.1", 8787,
+                                   ["other.local:8787"], "/usr/bin/python3")
+        self.assertTrue(second["changed"])
+        text = unit.read_text()
+        self.assertIn("%%", text)
+        self.assertIn("$$", text)
+        self.assertIn(" ", text)
+        # The unit really names the retained release, and only the decoder says so.
+        release = home / ".local/share/debra/web/releases" / first["release"]
+        arguments = installer.service_commands(unit.read_bytes())[0]
+        self.assertIn(str(release / "server.py"), arguments)
+        self.assertIn(str(home / ".config/debra/web"), arguments)
+        result = self.run_cli("--restore", second["previous_unit"], home=home)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Unit restored", result.stdout)
+        self.assertEqual(unit.read_bytes(), old_unit)
+
+    def test_a_rollback_across_two_releases_refuses_a_gone_release(self):
+        # The older missing-release test changed only the hostname, so both
+        # units named one release and removing it said nothing about the
+        # release the *previous* unit names.
+        first = self.install()
+        second = self.install(source=payload_copy(self.home, changed=True))
+        self.assertNotEqual(first["release"], second["release"])
+        previous = Path(second["previous_unit"])
+        self.assertIn(first["release"], previous.read_text())
+        self.assertIn(second["release"], self.unit.read_text())
+        releases = self.home / ".local/share/debra/web/releases"
+        gone = releases / first["release"]
+        gone.rename(gone.with_name(gone.name + ".preserved"))
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not installed", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before, "a refusal still changed the unit")
+        self.assertTrue((releases / (first["release"] + ".preserved")).is_dir(),
+                        "the fixture removed a release instead of preserving it")
+        # With the release back, the same command restores the same bytes: the
+        # refusal was about the release, not about the unit.
+        (releases / (first["release"] + ".preserved")).rename(gone)
+        again = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(self.unit.read_bytes(), previous.read_bytes())
+
+    def test_a_restore_refuses_an_incomplete_release(self):
+        # `server.py` existing is not proof the service imports: an interrupted
+        # copy leaves a release without `discovery.py`, and the restored unit
+        # fails before it listens.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        (release / "discovery.py").rename(release / "preserved-discovery.py")
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("incomplete", result.stderr)
+        self.assertIn("discovery.py", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before, "a refusal still changed the unit")
+        self.assertTrue((release / "preserved-discovery.py").exists())
+
+    def test_a_restore_refuses_a_release_path_the_installer_does_not_keep(self):
+        # Any recognisable `server.py` under `releases/` used to be accepted, so
+        # a unit naming a release this installer never wrote restored happily.
+        previous = self.home / "previous.service"
+        previous.write_text(installer.MARKER + "[Service]\nExecStart="
+                            "/usr/bin/python3 '/not/installed/releases/abc/server.py' serve\n")
+        with self.assertRaisesRegex(ValueError, "not a release this installer keeps"):
+            installer.restore_unit(self.home, previous)
+        self.assertFalse(self.unit.exists())
+
+    def test_a_dash_prefixed_start_command_is_checked_without_the_dash(self):
+        # `-` means "ignore failure" to systemd, not part of the executable: the
+        # old code looked for a file whose path began with a dash and refused a
+        # release that was present.
+        first = self.install()
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        previous = self.home / "previous.service"
+        previous.write_text(installer.MARKER + "[Service]\nExecStart=-"
+                            + str(release / "server.py") + " serve\n")
+        self.assertEqual(installer.restore_unit(self.home, previous), self.unit)
+        self.assertEqual(self.unit.read_bytes(), previous.read_bytes())

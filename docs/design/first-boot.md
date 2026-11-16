@@ -54,10 +54,10 @@ does not restart the journey from nothing.
 
 | Phase | Entered when | What is recorded |
 | --- | --- | --- |
-| `unconfigured` | No state file exists yet, so a blank record is returned and written on first change | `schema: 1`, an empty hostname, every other field null, `attempts: 0` |
-| `hotspot` | `resume()` finds no routable Wi-Fi uplink, or a fresh start; also what a failed attempt falls back to | `phase`, `hotspot: {ssid, interface}`, `last_error: null` |
-| `connecting` | A submission was accepted by the page and the worker entered `join()` | `phase`, `ssid`, `attempts` incremented, `last_error: null` |
-| `online` | The adapter returned a Wi-Fi device with a routable IPv4 address | `phase`, `ssid`, `address`, `hotspot: null`, and `baseline` once the capture succeeds |
+| `unconfigured` | No state file exists yet, so a blank record is returned and written on first change | `schema: 3`, a `revision: 0`, an empty hostname, every other field null, `attempts: 0` |
+| `hotspot` | `resume()` finds no routable Wi-Fi uplink, or a fresh start; also what a failed attempt falls back to | `phase`, `hotspot: {ssid, interface}`, `last_error: null`. The setup password is **not** here: it has its own owner-only file beside the state |
+| `connecting` | A submission was accepted by the page and the worker entered `join()` | `phase`, `ssid`, `attempts` incremented, `attempt_token`, `attempt_claimed`, `last_error: null` |
+| `online` | The adapter returned a Wi-Fi device with a routable IPv4 address | `phase`, `ssid`, `address`, `hotspot: null`, and `baseline` once the capture succeeds; `attempt_token` and `attempt_claimed` are cleared |
 | `failed` | The join raised; the setup network could not be raised; or a boot found the device was `online`/`connecting` and is not now | `phase`, a one-line `last_error`, and the `hotspot` record when the setup network came back |
 
 Transitions, in full:
@@ -107,7 +107,7 @@ the operating system is at most `partial`.
 | --- | --- | --- | --- |
 | Repeatable name | Hostname derived from the board serial and recorded once | implemented | Nothing on the decision itself; the derivation is pure code and tested |
 | Applying the name | `hostnamectl set-hostname`, so the running system answers to the recorded name | partial | The call now exists and a name that would not resolve is refused before it runs. No boot has applied one on a device, and a failure is logged rather than retried |
-| State across reboots | Versioned JSON schema (`SCHEMA = 2`), atomic owner-only writes, refuses unknown keys and phases; an older record is migrated on read | implemented | Nothing on the schema. A record from an earlier schema is dropped of retired keys and filled from a blank one, then written back; a record from a *newer* schema, or one whose version never existed, is still refused, so a corrupt file is an error and not a silent reset. Both directions are tested offline; no device has carried a record across an upgrade |
+| State across reboots | Versioned JSON schema (`SCHEMA = 3`), atomic owner-only writes, refuses unknown keys and phases; a schema-1 or schema-2 record is migrated on read | implemented | Nothing on the schema. A record from an earlier schema is dropped of retired keys and filled from a blank one, then written back; schema 2's `hotspot_password` is dropped, because the setup password now lives in its own owner-only file. A record from a *newer* schema, or one whose version never existed, is still refused, so a corrupt file is an error and not a silent reset. 1→3 and 2→3 are tested offline; no device has carried a record across an upgrade |
 | Boot decision | `resume()`: uplink already up, or raise the setup network with a reason | partial | The [system unit and installer](../../control/setup/README.md) exist and are tested offline. Neither has been enabled or started on a device, and there is no image |
 | Raising the setup network | An explicit NetworkManager profile this code writes (`wifi.mode=ap`, `ipv4.method=shared`, `wifi-sec.key-mgmt` of `wpa-psk` or `none`), reloaded and activated | partial | Never executed on a radio. `nmcli device wifi hotspot` was the first mechanism and is **unusable**: its manual says a password is *generated* when none is given, so it cannot express an open setup network at all, and a password-less call would have raised a WPA2 network nobody could join. The password now lives in the profile file (`0600`), never in argv; the address the profile got is what the page is bound to. The mode is read back after activation and a mismatch removes the profile. `none` is the **current default** (`DEFAULT_SETUP_SECURITY`), and the page can switch modes without a reinstall. No idle timeout, no pinned channel |
 | Setup page | Real HTML/JS page, same-origin check, strict request validation | partial | Exercised only on `127.0.0.1` against the fake. The operating systems' captive-portal probe paths are answered with a redirect to the page, built from the bound address rather than the request's `Host`, but whether a phone's probe reaches the access point at all depends on the setup network's DNS, which Debra does not configure; that is unverified, and the card-note address remains the fallback. No phone has been tried. Nearby networks are scanned once, before the access point is raised, and offered in a picker; typing the name still works and is the fallback when the scan finds nothing |
@@ -279,10 +279,12 @@ python3 -B -m unittest tests.test_onboarding -v
 DEBRA_BROWSER_TEST=1 python3 -B -m unittest tests.test_setup_browser -v
 ```
 
-136 onboarding tests, 28 installer tests and 16 browser scenarios, all passing
-on 2026-11-15. They check the decisions and the HTTP contract against the fake
-NetworkManager, with the page driven in a real Chromium. They prove nothing
-about a radio, a real keyfile read, or systemd.
+163 onboarding tests, 28 installer tests and 19 browser scenarios, all passing
+on 2026-11-15 against the then-current tree. They check the decisions and the
+HTTP contract against the fake NetworkManager, with the page driven in a real
+Chromium. They prove nothing about a radio, a real keyfile read, or systemd.
+The browser scenarios run only with `DEBRA_BROWSER_TEST=1` and an installed
+Chromium, so a plain run of this suite does not drive the page at all.
 
 ## Where the code and the older notes disagree
 

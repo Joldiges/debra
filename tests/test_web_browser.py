@@ -24,6 +24,11 @@ window.testState = {
   posts: [], percent: 36, muted: false, delay: false, release: null, fail: false,
   dropWrite: false, dropAfterApply: false, reject: false,
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
+  holdSetup: false, releaseSetup: null,
+  // Every request the page makes, recorded at the entry point it calls. This
+  // fixture script runs before app.js, so startup attempts are included, not
+  // only what arrives after a check has installed a wrapper of its own.
+  requests: [],
   probe: new URLSearchParams(location.search).get("probe"), probes: 0, html401: false,
   cpu: {cpu: 12, cpu0: 24},
   longSink: new URLSearchParams(location.search).get("sink") === "long",
@@ -46,13 +51,15 @@ const setupPayload = () => ({
     retained_label: "ReSpeaker 2-Mics Pi HAT v2", retained_note: "fixture",
     cards: ["seeed2micvoicec", "vc4hdmi0"], cards_source: "/proc/asound/cards",
     selectable: false, reason: "Changing the HAT is a device-tree and driver write (A02).",
+    // The shape the server really sends: the alternative is not a board the
+    // EEPROM can name, so the server reports no verdict for it.
     options: [
       {id: "respeaker-2mic-hat-v2", label: "ReSpeaker 2-Mics Pi HAT v2",
        summary: "Two microphones and a codec.", detected: true,
        card: {name: "seeed2micvoicec", present: true}, applied: true,
        caveats: ["Positions are an estimate, not a measurement."]},
       {id: "none", label: "No HAT: 3.5 mm jack or USB audio", summary: "Board output.",
-       detected: false, card: {name: null, present: null}, applied: null,
+       detected: null, card: {name: null, present: null}, applied: null,
        caveats: ["This page cannot tell which output is in use."]}
     ]
   },
@@ -85,10 +92,15 @@ const setupPayload = () => ({
   }
 });
 window.fetch = async (path, options) => {
+  // Recorded here, before any of the branches below, so a request is counted
+  // even when the fixture refuses it later. Startup attempts are included
+  // because this script runs before app.js.
+  state.requests.push({path: String(path), method: String(options && options.method || "GET").toUpperCase()});
   if (path === "/api/setup") {
     if (options && options.method && options.method !== "GET") {
       throw new Error("the page must not write to /api/setup");
     }
+    if (state.holdSetup) await new Promise(resolve => { state.releaseSetup = resolve; });
     return {ok: true, status: 200, json: async () => setupPayload()};
   }
   if (path === "/api/devices") {
@@ -171,6 +183,11 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("output").textContent.includes("<img"), "label not literal");
     assert(document.getElementById("output").textContent.includes("test"), "native sink name hidden");
     assert(testState.posts.length === 0, "startup wrote audio");
+    // Every request, not only the accepted posts: the fixture records them from
+    // before app.js runs, so a startup write cannot hide behind the counter.
+    const startupWrites = testState.requests.filter(request => request.method !== "GET");
+    assert(startupWrites.length === 0,
+           "startup sent a request that is not a read: " + JSON.stringify(startupWrites));
     const cores = document.querySelectorAll("#cores .core");
     assert(cores.length === 1, "per-core rows not rendered as separate rows");
     assert(cores[0].querySelector(".core-name").textContent === "CPU0", "core label missing");
@@ -238,7 +255,7 @@ window.addEventListener("load", async () => {
     assert(volume.value === "31", "applied change lost after a dropped response");
     assert(!document.getElementById("volume-value").textContent.includes("not applied"),
            "dropped response claimed the change was not applied");
-    assert(document.getElementById("error").textContent === "", "confirmed change still reported as uncertain");
+    assert(document.getElementById("audio-notice").textContent === "", "confirmed change still reported as uncertain");
     assert(testState.posts.filter(p => p.body.percent === 31).length === 1, "dropped response replayed the write");
     testState.dropWrite = true;
     volume.value = "42";
@@ -251,23 +268,27 @@ window.addEventListener("load", async () => {
            "unanswered write hid the device reading");
     assert(!document.getElementById("volume-value").textContent.includes("not applied"),
            "unanswered write claimed the change was not applied");
-    assert(document.getElementById("error").textContent.length > 0, "unanswered write not reported");
+    assert(document.getElementById("audio-notice").textContent.length > 0, "unanswered write not reported");
+    assert(document.getElementById("audio-notice").closest("#audio"),
+           "the write outcome is not inside the Audio card it belongs to");
+    assert(document.getElementById("audio-notice").getBoundingClientRect().height > 0,
+           "the write outcome has no visible box");
     assert(!document.getElementById("apply").disabled, "cannot deliberately retry after an unanswered write");
     assert(testState.posts.filter(p => p.body.percent === 42).length === 1, "unanswered write replayed itself");
     document.getElementById("apply").click();
     await wait();
     assert(testState.percent === 42 && volume.value === "42", "deliberate retry after an unanswered write failed");
-    assert(document.getElementById("error").textContent === "", "retry left the unanswered notice behind");
+    assert(document.getElementById("audio-notice").textContent === "", "retry left the unanswered notice behind");
     // A refusal is definite: it must stay readable across the next status poll.
     testState.reject = true;
     volume.value = "55";
     volume.dispatchEvent(new Event("input"));
     document.getElementById("apply").click();
     await wait();
-    assert(document.getElementById("error").textContent.includes("fixture rejection"),
+    assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"),
            "rejection not shown");
     await refresh();
-    assert(document.getElementById("error").textContent.includes("fixture rejection"),
+    assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"),
            "HTTP rejection notice was erased by the status refresh");
     assert(volume.value === "55", "rejection discarded the preview");
     assert(document.getElementById("volume-value").textContent.includes("not applied"),
@@ -277,7 +298,7 @@ window.addEventListener("load", async () => {
     document.getElementById("apply").click();
     await wait();
     assert(testState.percent === 55, "deliberate retry after a rejection failed");
-    assert(document.getElementById("error").textContent === "", "successful retry left the rejection notice behind");
+    assert(document.getElementById("audio-notice").textContent === "", "successful retry left the rejection notice behind");
     // 503 after the command ran may mean applied: never claim otherwise.
     testState.failStatus = 503;
     volume.value = "24";
@@ -289,7 +310,7 @@ window.addEventListener("load", async () => {
     assert(volume.value === "24", "applied change hidden after a 503");
     assert(!document.getElementById("volume-value").textContent.includes("not applied"),
            "503 was treated as proof the change was not applied");
-    assert(document.getElementById("error").textContent === "", "resolved 503 left an uncertainty notice");
+    assert(document.getElementById("audio-notice").textContent === "", "resolved 503 left an uncertainty notice");
     // An unrelated success must not erase a rejection.
     testState.reject = true;
     volume.value = "30";
@@ -297,19 +318,19 @@ window.addEventListener("load", async () => {
     document.getElementById("apply").click();
     await wait();
     testState.reject = false;
-    assert(document.getElementById("error").textContent.includes("fixture rejection"), "rejection lost");
+    assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"), "rejection lost");
     const wasMuted = testState.muted;
     document.getElementById("mute").click();
     await wait();
     assert(testState.muted === !wasMuted, "mute did not toggle");
-    assert(document.getElementById("error").textContent.includes("fixture rejection"),
+    assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"),
            "an unrelated mute cleared the volume rejection");
     assert(document.getElementById("volume-value").textContent.includes("not applied"),
            "rejected volume no longer marked as not applied");
     document.getElementById("apply").click();
     await wait();
     assert(testState.percent === 30, "volume retry after rejection failed");
-    assert(document.getElementById("error").textContent === "", "volume retry left the rejection notice");
+    assert(document.getElementById("audio-notice").textContent === "", "volume retry left the rejection notice");
     // A submitted write must not keep claiming "not applied" while pending.
     testState.holdWrite = true;
     volume.value = "40";
@@ -346,18 +367,20 @@ window.addEventListener("load", async () => {
     testState.fail = false;
     const settled = document.getElementById("volume-value").textContent;
     assert(!settled.includes("applying"), "settled write still labelled applying after a failed read");
-    assert(document.getElementById("error").textContent.includes("fixture rejection"),
+    assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"),
            "rejection lost when the follow-up read failed");
     // A failed poll must not hide a rejection the user has not retried.
     testState.fail = true;
     await refresh();
-    assert(document.getElementById("error").textContent.includes("fixture rejection"),
+    assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"),
            "a failed poll hid the write-rejection evidence");
     assert(document.getElementById("error").textContent.includes("offline fixture"),
            "a failed poll did not report the read failure");
+    assert(!document.getElementById("error").textContent.includes("fixture rejection"),
+           "the read failure region repeated the write outcome that has its own notice");
     testState.fail = false;
     await refresh();
-    assert(document.getElementById("error").textContent.includes("fixture rejection"),
+    assert(document.getElementById("audio-notice").textContent.includes("fixture rejection"),
            "recovery poll lost the rejection");
     // Reconciling an old request must not discard a newer preview.
     testState.dropWrite = true;
@@ -422,6 +445,22 @@ window.addEventListener("load", async () => {
            "detected card not reported");
     assert(hats[1].textContent.includes("no sound card of its own to check"),
            "the no-HAT option claimed a card");
+    // The two rows describe one EEPROM string and must not contradict each
+    // other. The alternative is not a board the EEPROM can name, so "the EEPROM
+    // does not name it" was the exact opposite of the row above.
+    assert(hats[0].textContent.includes("the exact model and revision are not established"),
+           "the ReSpeaker row dropped its qualification: " + hats[0].textContent);
+    assert(!/exact v2|identified by the HAT EEPROM as/i.test(hats[0].textContent),
+           "the ReSpeaker row claims an identification the EEPROM cannot make");
+    assert(!/does not name a ReSpeaker/i.test(hats[1].textContent),
+           "the No-HAT row states the negation of the ReSpeaker row's evidence");
+    assert(/gives no family verdict for this row/.test(hats[1].textContent),
+           "the No-HAT row does not say what is actually known about it");
+    // What the EEPROM can and cannot say is stated once, above the rows.
+    const eepromNotes = [...document.querySelectorAll("#setup p")]
+      .filter(node => /can name a board family only/.test(node.textContent));
+    assert(eepromNotes.length === 1, "the EEPROM limitation is stated "
+           + eepromNotes.length + " times instead of once");
     assert(hats.every(row => row.textContent.includes("Positions are an estimate")
                         || row.textContent.includes("cannot tell which output")),
            "a caveat was dropped");
@@ -475,9 +514,38 @@ window.addEventListener("load", async () => {
     assert(testState.posts.length === before,
            "a planned control wrote to the device: "
            + JSON.stringify(testState.posts.slice(before)));
+    // A disabled control cannot be clicked by a person, but the <label> that
+    // names it is enabled and can be touched, and the label's own click reaches
+    // handlers on its row and on the whole card. Row-level and delegated label
+    // handlers both survived a control-only sweep, so the labels themselves are
+    // activated: the browser's own click plus the touch events a thumb makes.
+    const labels = [...document.querySelectorAll("#setup .choice-head label")];
+    assert(labels.length === 5, "expected five setup labels, saw " + labels.length);
+    for (const label of labels) {
+      const control = label.htmlFor ? document.getElementById(label.htmlFor) : null;
+      assert(control && control.disabled,
+             "a setup label points at a control that is not disabled: " + label.textContent);
+    }
+    const beforeLabels = testState.requests.length;
+    for (const label of labels) {
+      label.click();
+      label.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
+      label.dispatchEvent(new Event("touchstart", {bubbles: true}));
+      label.dispatchEvent(new Event("touchend", {bubbles: true}));
+    }
+    await wait();
+    await wait();
+    const labelWrites = testState.requests.slice(beforeLabels).filter(r => r.method !== "GET");
+    assert(labelWrites.length === 0,
+           "touching a planned label sent a request that is not a read: "
+           + JSON.stringify(labelWrites));
+    assert(testState.posts.length === before,
+           "touching a planned label wrote to the device: "
+           + JSON.stringify(testState.posts.slice(before)));
+    assert(selects.every(select => select.disabled), "touching a label made a setting selectable");
     assert(testState.posts.length === 0, "the setup card wrote to the device");
     result.textContent = "PASS: setup card renders disabled choices with reasons "
-      + "and writes nothing when they are clicked";
+      + "and writes nothing when they or their labels are touched";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -554,6 +622,13 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("bypass-note").hidden, "401 did not revoke bypass warning");
     assert(!bypass, "401 retained active bypass");
     assert(testState.posts.length === 0, "mode change wrote audio");
+    // Nothing the page did before this check ran may have been a write: the
+    // fixture records requests from before app.js executes.
+    const startupWrites = testState.requests.filter(request => request.method !== "GET");
+    assert(startupWrites.length === 0,
+           "startup sent a request that is not a read: " + JSON.stringify(startupWrites));
+    assert(testState.requests.some(request => request.path === "/api/status"),
+           "the recorder saw no status read, so its silence proves nothing");
     result.textContent = "PASS: development bypass and one-stop device links";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
@@ -575,7 +650,47 @@ window.addEventListener("load", async () => {
     assert(document.getElementById("bypass").hidden,
            "bypass offered although the device still requires a key");
     assert(document.getElementById("bypass-note").hidden, "open-device warning shown in key mode");
-    result.textContent = "PASS: key mode offers no bypass";
+    // Nothing the page did before this check ran may have been a write. The
+    // fixture records requests from before app.js executes, so a startup write
+    // is visible here even though the key prompt stayed up.
+    const startupWrites = testState.requests.filter(request => request.method !== "GET");
+    assert(startupWrites.length === 0,
+           "startup sent a request that is not a read: " + JSON.stringify(startupWrites));
+    assert(testState.requests.some(request => request.path === "/api/status"),
+           "the recorder saw no status read, so its silence proves nothing");
+    result.textContent = "PASS: key mode offers no bypass and writes nothing at startup";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_TOKEN_NONE = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // The tab holds a key and the device reports `auth:none`. This is the mode
+    // where a "write when a key is present" handler would be most likely to
+    // slip through: the dashboard opens, so nothing looks wrong.
+    for (let i = 0; i < 60 && !testState.requests.some(r => r.path === "/api/setup"); i++) await wait();
+    await wait();
+    assert(!document.getElementById("dashboard").hidden, "the token-connected dashboard never opened");
+    assert(!document.getElementById("auth-mode-warning").hidden,
+           "a keyless device opened with no warning although a key is held");
+    assert(sessionStorage.getItem("debra-key"), "the tab key was not kept");
+    const startupWrites = testState.requests.filter(request => request.method !== "GET");
+    assert(startupWrites.length === 0,
+           "a token-present keyless session sent a write at startup: "
+           + JSON.stringify(startupWrites));
+    assert(testState.requests.some(request => request.path === "/api/setup"),
+           "the recorder saw no setup read, so its silence proves nothing");
+    assert(testState.posts.length === 0, "startup reached the synthetic write path");
+    result.textContent = "PASS: a token-present keyless session opened and wrote nothing at startup";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -684,6 +799,19 @@ window.addEventListener("load", async () => {
     assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
     const width = document.documentElement.clientWidth;
     assert(width === 390, "the harness did not emulate a 390 px phone: " + width);
+    // A phone lays the page out at 980 px when the viewport meta tag is gone;
+    // the page would still "fit" because the browser shrank it.
+    const meta = document.querySelector('meta[name="viewport"]');
+    assert(meta && /width=device-width/.test(meta.getAttribute("content") || ""),
+           "the page has no device-width viewport");
+    // The fixture has to hold the long content this test claims to lay out, or
+    // a shorter value would pass and prove nothing about long identities.
+    const output = document.getElementById("output");
+    assert(/stereo_fallback_1234567890abcdef/.test(output.textContent),
+           "the fixture served no long sink name: " + output.textContent);
+    assert([...document.querySelectorAll("#cores .core-value")].some(node =>
+             node.textContent === "Unavailable"),
+           "the fixture has no unavailable core value");
     const overflow = [];
     for (const node of document.querySelectorAll("main *, header *")) {
       const box = node.getBoundingClientRect();
@@ -696,7 +824,6 @@ window.addEventListener("load", async () => {
            "content is wider than the 390 px screen: " + overflow.slice(0, 4).join(", "));
     assert(document.documentElement.scrollWidth <= width,
            "the page scrolls sideways: " + document.documentElement.scrollWidth);
-    const output = document.getElementById("output");
     assert(output.getBoundingClientRect().right <= width + 0.5,
            "the sink identity runs off the screen");
     // A grid cell with a fixed width does not widen the page; the text just
@@ -707,6 +834,23 @@ window.addEventListener("load", async () => {
       .map(node => (node.textContent || "").slice(0, 24) + " (+"
                    + (node.scrollWidth - node.clientWidth) + "px)");
     assert(spilled.length === 0, "a core value overflows its cell: " + spilled.join(", "));
+    // Text cut off inside its own box is unreadable even when the box fits the
+    // screen: a fixed height, or a nowrap line clipped at 80 px, stayed inside
+    // the 390 px measurement. Form controls are skipped because a select shows
+    // a truncated option by design, not prose.
+    const clipped = [];
+    for (const node of document.querySelectorAll("main *, header *")) {
+      if (/^(INPUT|SELECT|OPTION|TEXTAREA|BUTTON)$/.test(node.tagName)) continue;
+      if (!(node.textContent || "").trim()) continue;
+      const inside = node.getBoundingClientRect();
+      if (!inside.width || !inside.height) continue;
+      if (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) {
+        clipped.push((node.id || node.className || node.tagName) + " shows "
+                     + node.clientWidth + "x" + node.clientHeight + " of "
+                     + node.scrollWidth + "x" + node.scrollHeight);
+      }
+    }
+    assert(clipped.length === 0, "an element clips its own text: " + clipped.slice(0, 4).join(", "));
     result.textContent = "PASS: a 390 px phone fits the long identity and an unavailable core";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
@@ -806,6 +950,106 @@ URL_CASES = {
     "http://bad-.local:8787/": None,
     "http://a..local:8787/": None,
 }
+CHECK_AUDIO_NOTICE = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    // The Setup card is what makes the page long: without it the global #error
+    // line would be near Audio anyway and the geometry proves nothing.
+    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    const width = document.documentElement.clientWidth, height = window.innerHeight;
+    assert(width === 390, "the harness did not emulate a 390 px phone: " + width);
+    const apply = document.getElementById("apply");
+    // Scroll Audio into view the way a person following the section link does,
+    // then apply a volume the device never answers.
+    document.getElementById("audio").scrollIntoView();
+    const volume = document.getElementById("volume");
+    testState.dropWrite = true;
+    volume.value = "42";
+    volume.dispatchEvent(new Event("input"));
+    apply.click();
+    const notice = document.getElementById("audio-notice");
+    for (let i = 0; i < 80 && !notice.textContent; i++) await wait();
+    testState.dropWrite = false;
+    assert(notice.textContent.includes("did not confirm this volume change"),
+           "the unanswered volume change was not explained: " + notice.textContent);
+    assert(notice.closest("#audio"), "the notice is not inside the Audio card");
+    const applyBox = apply.getBoundingClientRect();
+    const noticeBox = notice.getBoundingClientRect();
+    assert(applyBox.top >= 0 && applyBox.bottom <= height,
+           "Apply is not on screen after scrolling to Audio: "
+           + [applyBox.top, applyBox.bottom, height].join(", "));
+    assert(noticeBox.height > 0, "the notice has no visible box");
+    assert(noticeBox.top >= 0 && noticeBox.bottom <= height,
+           "the notice is outside the phone viewport: "
+           + [noticeBox.top, noticeBox.bottom, height].join(", "));
+    assert(noticeBox.top >= applyBox.top && noticeBox.top - applyBox.bottom < 180,
+           "the notice is not beside the Apply button: "
+           + [applyBox.bottom, noticeBox.top].join(" -> "));
+    // The point of moving it: the global line that used to carry this text is
+    // more than one screen away from the control it explains.
+    const errorBox = document.getElementById("error").getBoundingClientRect();
+    assert(errorBox.top > height || errorBox.bottom < 0,
+           "the global error line is on screen too, so this proves nothing");
+    assert(document.getElementById("error").textContent === "",
+           "the write outcome was also written to the distant error line");
+    result.textContent = "PASS: an unanswered volume change is explained beside Apply at 390 px";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_SETUP_RACE = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  const rows = () => ["setup-hats", "setup-settings", "setup-updates"]
+    .map(id => document.getElementById(id).children.length);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && !document.querySelector("#setup-settings .choice"); i++) await wait();
+    assert(rows().every(count => count > 0), "the setup rows never rendered: " + rows());
+    // Hold one Setup response across a Disconnect and release it afterwards.
+    testState.holdSetup = true;
+    const pending = loadSetup();
+    for (let i = 0; i < 40 && !testState.releaseSetup; i++) await wait();
+    assert(testState.releaseSetup, "the held setup read never started");
+    document.getElementById("disconnect").click();
+    assert(rows().every(count => count === 0), "disconnect did not clear the setup rows: " + rows());
+    testState.holdSetup = false;
+    testState.releaseSetup();
+    await pending;
+    await wait();
+    assert(rows().every(count => count === 0),
+           "a late setup response repopulated the rows after disconnect: " + rows());
+    assert(document.getElementById("setup-status").textContent === "",
+           "a late setup response wrote its status after disconnect: "
+           + document.getElementById("setup-status").textContent);
+    assert(document.getElementById("setup-hardware-source").textContent === "",
+           "a late setup response repopulated the hardware source line");
+    assert(document.getElementById("dashboard").hidden, "a late setup response reopened the dashboard");
+    assert(!sessionStorage.getItem("debra-key"), "disconnect retained the key");
+    assert(testState.posts.length === 0, "the setup race wrote to the device");
+    result.textContent = "PASS: a late setup response cannot repopulate cleared rows after disconnect";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_LABELS = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 40));
@@ -989,7 +1233,9 @@ class BrowserTests(unittest.TestCase):
                                    "/check-key.js", "/check-probe.js", "/check-urls.js",
                                    "/check-post-401.js", "/check-setup.js",
                                    "/check-auth-badge.js", "/check-phone-width.js",
-                                   "/check-self.js", "/check-labels.js"):
+                                   "/check-self.js", "/check-labels.js",
+                                   "/check-token-none.js", "/check-audio-notice.js",
+                                   "/check-setup-race.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
@@ -999,7 +1245,10 @@ class BrowserTests(unittest.TestCase):
                               "/check-auth-badge.js": CHECK_AUTH_BADGE,
                               "/check-phone-width.js": CHECK_PHONE_WIDTH,
                               "/check-self.js": CHECK_SELF,
-                              "/check-labels.js": CHECK_LABELS}[self.path]
+                              "/check-labels.js": CHECK_LABELS,
+                              "/check-token-none.js": CHECK_TOKEN_NONE,
+                              "/check-audio-notice.js": CHECK_AUDIO_NOTICE,
+                              "/check-setup-race.js": CHECK_SETUP_RACE}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -1063,6 +1312,23 @@ class BrowserTests(unittest.TestCase):
         # and an unavailable core value both used to widen the layout.
         self.run_browser("?auth=none&sink=long&cores=unavailable",
                          "check-phone-width.js", wrapper=True)
+
+    def test_an_unanswered_volume_change_is_explained_beside_the_controls(self):
+        # The explanation existed but sat in the global error line at the very
+        # end of the page: on a 390 px phone that is several screens below the
+        # Apply button it describes.
+        self.run_browser("?auth=none", "check-audio-notice.js", wrapper=True)
+
+    def test_a_late_setup_response_cannot_repopulate_cleared_rows(self):
+        # Setup reads were not bound to the session, so a response already in
+        # flight when the tab disconnected painted the old device's choices back
+        # into the rows disconnect had just cleared.
+        self.run_browser("?auth=none", "check-setup-race.js")
+
+    def test_a_token_held_against_a_keyless_device_writes_nothing_at_startup(self):
+        # The mode where a "write only if a key is present" handler hides: the
+        # dashboard opens normally, so nothing looks wrong.
+        self.run_browser("?auth=none#key=" + "x" * 40, "check-token-none.js")
 
     def test_a_keyless_dashboard_keeps_its_warning(self):
         self.run_browser("?auth=none", "check-auth-badge.js")

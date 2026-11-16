@@ -10,6 +10,22 @@ let busy = false;
 // the button. Rendering it replaced the form - and the advice just shown - with
 // an older screen.
 let generation = 0;
+// The state revision the person submitted from. A status answer that began
+// before the submission is stale only if it is not newer than this. Comparing
+// request start time with answer age discarded a genuinely new answer - a GET
+// started before the POST can receive the state the POST produced, and on a
+// single-radio handover there may be no later poll to repair that.
+let submittedRevision = null;
+// The revision of the answer currently on screen. It only moves forward, so an
+// answer that is older than what the page already shows can never replace it.
+// Ordering against the submission alone let two answers resolve out of order:
+// the newer failure appeared, then an older "still waiting" answer redrew the
+// form over it, because it had started after the submission.
+let lastRevision = null;
+// True only while the person has asked the uncertain card to check again. In
+// that case even an answer with the same revision is useful: it says the device
+// never received the request, which is exactly what the card cannot tell.
+let reconciling = false;
 // True while the person is filling the form after a failure. Without it the
 // 15-second poll re-rendered the failure screen and wiped the form mid-typing.
 let editing = false;
@@ -18,6 +34,29 @@ let editing = false;
 // without this flag a poll would put the form back over the handover that says
 // which network and password to reconnect with.
 let switching = false;
+
+function newerThanSubmit(answer) {
+  return typeof answer.revision === "number"
+    && typeof submittedRevision === "number"
+    && answer.revision > submittedRevision;
+}
+
+function acceptable(answer, started) {
+  // "Ask the device again" deliberately wants the same-revision answer: it is
+  // the proof that the device never received the request.
+  if (reconciling) return true;
+  const fresh = typeof answer.revision === "number";
+  if (fresh && typeof lastRevision === "number" && answer.revision <= lastRevision) {
+    // Not newer than the screen already showing. This is what stops two
+    // overlapping answers from resolving out of order, and it is why a request
+    // that started after the submission cannot restore a pre-submission form
+    // over the handover card: its revision is the one already drawn from.
+    return false;
+  }
+  // A request that began after the submission is news, unless it is older by
+  // revision, which is refused above.
+  return started === generation || (fresh && newerThanSubmit(answer));
+}
 
 // A short list covers most homes; "Other" swaps to a two-letter code so no
 // country is unreachable rather than silently missing from a long dropdown.
@@ -207,7 +246,13 @@ async function load() {
     const response = await fetch("/api/status", {cache: "no-store", signal: AbortSignal.timeout(8000)});
     if (!response.ok) throw new Error("The device did not answer");
     const answer = await response.json();
-    if (started !== generation) return;
+    if (!acceptable(answer, started)) return;
+    if (typeof answer.revision === "number") {
+      // Forward only. A regression here would let the next older answer be
+      // accepted as if it were new.
+      lastRevision = typeof lastRevision === "number"
+        ? Math.max(lastRevision, answer.revision) : answer.revision;
+    }
     status = answer;
     render();
   } catch {
@@ -282,6 +327,7 @@ el("join").addEventListener("click", async () => {
   error("");
   busy = true;
   editing = false;
+  submittedRevision = lastRevision;
   generation += 1;
   el("join").disabled = true;
   el("join").textContent = "Sending…";
@@ -388,6 +434,22 @@ el("retry").addEventListener("click", () => {
   show("form-card");
   el("psk").focus();
 });
+
+// The uncertain card used to have no way out except the next poll or a manual
+// reload. It now asks the device directly. The answer with the same revision is
+// the useful one here: it proves the device never received the request.
+el("check-again").addEventListener("click", async () => {
+  el("check-again").disabled = true;
+  reconciling = true;
+  try {
+    await load();
+  } finally {
+    reconciling = false;
+    el("check-again").disabled = false;
+  }
+});
+
+el("start-over").addEventListener("click", () => location.reload());
 
 load();
 // Keep polling while connecting too: the access point is down then, the fetch

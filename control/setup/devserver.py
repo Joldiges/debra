@@ -73,7 +73,16 @@ def main():
                         if online and not args.baseline_error else None)
     data["baseline_error"] = (args.baseline_error or None) if online else None
     if args.phase == "hotspot":
+        # No password here: it lives in its own owner-only file beside this
+        # state, so that `/api/status` cannot report it. A preset record is
+        # enough to render the page; the file is created when the mode is
+        # switched on, exactly as it is on a device.
         data["hotspot"] = {"ssid": "Debra-Setup-demo1", "interface": "wlan0"}
+    if args.phase == "connecting":
+        # A connecting record carries the attempt it belongs to; the validator
+        # refuses one without a token.
+        data["hotspot"] = {"ssid": "Debra-Setup-demo1", "interface": "wlan0"}
+        data["attempt_token"] = "0123456789abcdef"
     state_module.write(state_path, data)
 
     network = FakeNetwork(country=args.country, behaviour=args.behaviour)

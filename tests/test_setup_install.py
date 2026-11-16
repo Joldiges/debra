@@ -519,6 +519,14 @@ class ServiceTests(Fixture):
                 time.sleep(0.02)
             else:
                 self.fail("the setup page never reached the hotspot phase")
+            # The state write and the note are separate steps, so a fast poll
+            # can observe `hotspot` in the window before the note exists. Read
+            # only once it is there; otherwise this test is a load-dependent
+            # FileNotFoundError rather than a measurement.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and not note.exists():
+                time.sleep(0.02)
+            self.assertTrue(note.exists(), "the setup note was never written")
             # The service writes the note a person needs before any page loads.
             self.assertIn("Debra-Setup-", note.read_text())
             self.assertEqual(file_mode(state_path), 0o600)
@@ -583,3 +591,80 @@ class PortalAddressTests(unittest.TestCase):
     def test_no_hotspot_means_no_address_to_read(self):
         self.assertEqual(installer.hotspot_address(self.Network("192.168.4.1"), {}),
                          installer.PORTAL_ADDRESS)
+
+
+class EnableTests(Fixture):
+    """A tree prepared from a host, for a card that has no running systemd.
+
+    Without the wants link nothing in this repository makes the setup service
+    run on a first boot, and the first boot is the only place the journey is
+    ever tried before a person has a console.
+    """
+
+    def wants_link(self):
+        return self.root / installer.WANTS / installer.UNIT_NAME
+
+    def test_enable_links_the_unit_where_systemd_looks_for_it_at_boot(self):
+        result = self.install()
+        path = installer.enable(self.root)
+        link = Path(path)
+        self.assertTrue(link.is_symlink(), "enable did not create a link")
+        self.assertEqual(os.readlink(link), os.path.join("..", installer.UNIT_NAME))
+        self.assertEqual(link.resolve(), self.unit.resolve(),
+                         "the link does not resolve to the installed unit")
+        self.assertTrue(self.unit.read_text(encoding="utf-8").startswith(installer.MARKER))
+        self.assertEqual(result["changed"], True)
+
+    def test_a_plain_install_still_enables_nothing(self):
+        # Preparing files must not decide that a root network service runs from
+        # now on; that stays an explicit choice.
+        self.install()
+        self.assertFalse(self.wants_link().exists())
+        self.assertFalse((self.root / installer.WANTS).exists())
+
+    def test_enable_twice_changes_nothing(self):
+        self.install()
+        first = installer.enable(self.root)
+        second = installer.enable(self.root)
+        self.assertEqual(first, second)
+        self.assertEqual(os.readlink(self.wants_link()), os.path.join("..", installer.UNIT_NAME))
+
+    def test_enable_refuses_a_unit_the_installer_did_not_write(self):
+        self.unit.parent.mkdir(parents=True, exist_ok=True)
+        self.unit.write_text("[Unit]\nDescription=not ours\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "this installer wrote"):
+            installer.enable(self.root)
+        self.assertFalse(self.wants_link().exists())
+
+    def test_enable_does_not_replace_a_file_that_happens_to_have_the_name(self):
+        self.install()
+        wants = self.root / installer.WANTS
+        wants.mkdir(parents=True)
+        link = wants / installer.UNIT_NAME
+        link.write_text("an operator's own file\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "not a link"):
+            installer.enable(self.root)
+        self.assertEqual(link.read_text(encoding="utf-8"), "an operator's own file\n")
+
+    def test_a_symlinked_wants_directory_is_refused_before_anything_is_written(self):
+        self.install()
+        elsewhere = self.scratch / "elsewhere"
+        elsewhere.mkdir()
+        wants = self.root / installer.WANTS
+        wants.parent.mkdir(parents=True, exist_ok=True)
+        wants.symlink_to(elsewhere)
+        # Either refusal is correct: the path resolves out of the root, or it is
+        # a symlinked directory on the way in.
+        with self.assertRaisesRegex(ValueError, "symlinked|resolves outside"):
+            installer.enable(self.root)
+        self.assertEqual(list(elsewhere.iterdir()), [],
+                         "enable wrote through a symlinked directory")
+
+    def test_the_command_line_enables_only_when_asked(self):
+        code = installer.main(["--root", str(self.root), "--python", "/usr/bin/python3"])
+        self.assertEqual(code, 0)
+        self.assertFalse(self.wants_link().exists())
+        code = installer.main(["--root", str(self.root), "--python", "/usr/bin/python3",
+                               "--enable"])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.wants_link().is_symlink())

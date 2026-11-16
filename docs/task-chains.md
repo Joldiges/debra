@@ -208,5 +208,8 @@ python -B -m unittest discover -s tests -v
 
 Tests use throwaway local Git fixtures, no remotes, devices, infrastructure,
 dependency installation, backup scripts, or actual model/permission pilot.
-They deliberately retain fixtures under `/tmp/opencode/debra-taskchain-tests-*`;
-no branches/worktrees or failed results are automatically deleted.
+Fixtures live under `/tmp/opencode/debra-taskchain-tests-*`; each run keeps the
+newest few and prunes older ones ([tmpfixtures.py](../tools/tmpfixtures.py)),
+because unlimited retention exhausts the tmpfs inode table and then fails
+unrelated work with "No space left on device". No branch, worktree or failed
+result is deleted from the run you just made.

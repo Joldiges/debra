@@ -38,8 +38,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `setup-r4` | — | `.local/reviews/setup-r4-20261115/` | independent, `gpt-6.1-sol`; frozen on `5c8fde4`, judging whether the nine r3 findings and both surviving mutations are closed |
-| Acceptance review `code-r8` | — | `.local/reviews/code-r8-20261115/` | independent, `gpt-6.1-sol`; frozen on `709b3df`, judging whether the nine r7 findings are closed and what the repairs broke |
+| Acceptance review `setup-r6` | — | `.local/reviews/setup-r6-20261115/` | independent, `gpt-6.1-sol`; frozen on `f9c5e7b`, running the full 38-row r5 sweep and judging the five r5 findings |
+| Acceptance review `code-r9` | — | `.local/reviews/code-r9-20261115/` | independent, `gpt-6.1-sol`; frozen on `e170448` (the `f974f7f` repair plus a setup-test flake fix), judging whether R8-01…R8-07 are closed and what the repairs broke |
 
 ## Done this round
 
@@ -51,13 +51,17 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Nearby-network picker in the setup page | N02 | this round — the radio is scanned once before the access point is raised, so a beginner chooses a name instead of typing it; 13 setup browser scenarios |
 | The r3 review's blockers | N02 | `5c8fde4` — the SSID is NetworkManager's byte list (proven against libnm), the hostname is reconciled every boot, the baseline pointer is verified or adopted, tar metadata comes from the read descriptor, claim/settle are atomic, and the page keeps a name's spaces and says "not known yet" instead of claiming a handover. Both surviving r3 mutations are now caught |
 | Four installer gaps: retained releases re-verified, staging files created 0600, the device list validated in `install()`, and a start limit in `[Unit]` | B13, WEB03 | `6b762ba` — each checked by reverting it and watching a named test fail; `--restore` now refuses a unit whose release no longer matches its content address |
+| The r4 review's blockers | N02 | `a550a96` — a claim no longer survives a reboot, the failure rearm holds the admission lock, the setup password is generated once and reused, state schema 2 carries a monotonic revision and its consistency rules, baseline adoption is one bounded validator, a failed pointer write is adopted rather than re-captured, and the page accepts a newer answer and can leave the uncertain card. All six surviving r4 mutations plus a request-time status guard now fail a named test |
+| The r5 review's narrow findings | N02 | `f9c5e7b` — answers are now ordered against each other by revision, `do_POST` has a fixed-sentence boundary, and the three properties a revert could silently remove (rearm-in-lock, superseded failure, persisted capture error) have tests. Schema 2 is documented. R5-06 remains bounded and documented |
 | The r7 review's blockers | WEB03 | `709b3df` — the documented rollback command runs without `--host` and refuses an unstartable unit, the keyless dashboard carries its own warning, HAT detection needs a vendor and a two-mic word, parser refusals reach the page, a 390 px page holds a long sink identity, an oversized valid body is refused, same-device detection is the exact host or its `.local` alias, a Switch link is not refused as cross-site, and the labels name their sources |
+| The r8 review's blockers | WEB03 | `f974f7f` — restore reads `ExecStart` with a systemd decoder so a HOME with a space, `%` or `$` round-trips; the launchability guard reads only `[Service]`, honours a reset and `-`, and requires a complete release matching its content address; a write outcome sits beside Apply at 390 px; the No-HAT row reports no family verdict and `12-Mics` no longer matches two-mic; two equal advertisements count as two; a late Setup response cannot repaint cleared rows. Three test gaps closed, including labels beside disabled controls and pre-`app.js` request recording. 20 reversals all killed |
 | The r2 review's blockers | N02 | this round — the profile is written where NetworkManager keeps it and promoted to autoconnect only after the join is verified; a per-attempt token replaces the SSID check; the reservation is released when the reply cannot be written; the country is set after the AP is down; the portal prints the address it is served on; the baseline is never overwritten, never archives itself, and `latest()` verifies the hash; the page keeps what was typed across a poll and shows a baseline failure |
 | Browser proof of the device list | — | `test_development_bypass_and_device_links` already drives the configured and discovered badges, the same-device case, a literal label, a discovery start failure, an empty scan and a refused advertisement |
 | Browser proof of the setup page | N02 | `508a7f9` — 7 Chromium scenarios; the page was unreachable and the tests caught it |
 | Installed-artifact tests and atomic rollback | B13 | `508a7f9`, `9d11d08` — 16 tests; two real gaps recorded rather than asserted away |
 | Dashboard Setup card | WEB03 | `8b05215` — 21 tests, read-only, every choice disabled with its reason |
 | First-boot design page | N02 | `b136db2`, kept in step with the code by `40ef8dc` |
+| A card that can be booted into the trial, and a written trial | N02 | `92f31c7` — `--enable` links the unit into `multi-user.target.wants` so a tree prepared with `--root` starts at first boot; 7 tests. `docs/testing/first-boot-trial-plan.md` states what one run would prove, the run sheet, the recovery path and the three questions only James can answer. No card prepared, no service started |
 | Speaker cover carrying the four-screw pattern | — | `4b62ff6`; `SQ_PITCH` still an assumption |
 | Notices checklist in the activity TUI | — | `3f7236a` — 22 tests, driven in a real pty |
 | The v17 body as an editable source | A2 | `f7b2163` — reconstruction, honest about what it cannot reproduce |
@@ -81,7 +85,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 | Packet | Item ids | Why it is next |
 |---|---|---|
 | Device run of the onboarding flow | N02 | needs a spare card and one of the next Pis; nothing in `control/setup/` has touched a radio |
-| Captive-portal probes may never arrive | N02 | the portal answers Android/Apple/Windows/Firefox probe paths with a `302`, but whether a phone reaches them depends on the setup network's DNS, which Debra does not configure. The `getent`/`curl` check is in `control/setup/README.md` |
+| Captive-portal probes may never arrive | N02 | researched: NM shared mode starts dnsmasq without `--no-resolv`, so with no uplink the probe names cannot resolve. The smallest fix is one file, `dnsmasq-shared.d/50-debra-captive.conf` with `address=/#/<AP address>`; see [the note](notes/2026-11-15-captive-portal-dns-in-nm-shared-mode.md). Not implemented: `control/setup/` is frozen under review, the AP address should be made explicit first, and dnsmasq presence plus the real `--conf-dir` need a device check |
 | A real NetworkManager has never loaded the Wi-Fi profile | N02 | the profile is written into `/etc/NetworkManager/system-connections` with `autoconnect=false` and promoted after a verified join. That the keyfile plugin reads it, that it survives a reboot, and that the promotion takes effect are all unproven |
 | The radio handover has never run | N02 | stop the access point, associate, verify, and restore the access point on failure is only exercised against the fake. No `nmcli`, `hostnamectl` or `raspi-config` call has been made by Debra |
 | No baseline restore demo | N02 | a baseline is captured and can be inspected, but nothing restores from one, so "recovery" is untested in the direction that matters |
@@ -92,6 +96,7 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 |---|---|---|
 | v17 body reconstruction `f7b2163` | `gpt-6.1-sol`, independent | **approved with one fix** — the "no four-screw mount" sentence must be attributed to the audit, not stated as settled; sent to the STEP search worker, which owns the file. Verdict: `.local/reviews/cad-r1-20261115/verdict.md` |
 | Device switcher and discovery fixes | — | **not yet reviewed**; needs an independent acceptance review of the current commit |
+| Setup-network secret behind a page toggle (branch `setup-ap-secret`) | N02 | **approved at `c0a9bcd`, not yet re-reviewed since `main` was merged into it** — the merge moved the state schema to 3 and adopted main's revision ordering, so the approval no longer covers the tree |
 
 ## Accepted
 

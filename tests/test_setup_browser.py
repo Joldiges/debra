@@ -8,10 +8,14 @@ page in an already installed Chromium. The fake NetworkManager is the only
 backend: no radio, no root, no real network, no audio.
 
 The portal serves the page straight from the committed assets, so the test cannot
-rewrite it the way tests/test_web_browser.py rewrites its own fixture page. A thin
-proxy in front of the portal adds one script tag and, for the happy path, drops
-the connection after the join reply — which is what the single radio does. The
-HTML, setup.js, /api/status, /api/join and the state machine are the real ones.
+rewrite it the way tests/test_web_browser.py rewrites its own fixture page. The
+HTML, setup.js, /api/status, /api/join and the state machine are the real ones. A
+thin proxy in front of the portal adds one script tag and, for the happy path,
+stops answering after the join reply — the request ordering a single radio
+produces.
+These cases prove the page renders its handover before the proxy stops answering.
+They do not prove a phone received or displayed that reply before a real radio
+went away: nothing here touches a radio, a phone, or a second device.
 """
 
 import http.client
@@ -324,6 +328,108 @@ window.addEventListener("load", async () => {
              "a status answer from before the submission replaced the handover");
       assert(!shown("form-card"), "the older form came back over the handover");
       result.textContent = "PASS: a status answer that started before the submission is ignored";
+    } else if (mode === "needed-status") {
+      // A status request can start before the submission and still be answered
+      // with the state that submission produced. On a single-radio handover
+      // there may be no later poll to repair a discarded answer, so ordering by
+      // request start time threw away the only news the page would get.
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      let answer = null;
+      const before = window.fetch;
+      let held = false;
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/status"
+            && (options.method || "GET").toUpperCase() === "GET") {
+          if (!held) {
+            held = true;
+            await gate;
+            return new Response(JSON.stringify(answer),
+                                {status: 200, headers: {"Content-Type": "application/json"}});
+          }
+          // Later status requests stay unanswered for the rest of the case, so
+          // the only way the page can learn the outcome is by accepting the
+          // answer that started before the submission.
+          return new Promise(() => {});
+        }
+        return before(path, options);
+      };
+      const pending = load();           // starts, and is still unanswered
+      fill("HomeWiFi", "correct horse battery");
+      byId("join").click();
+      assert(await until(() => shown("handover")), "the handover screen never appeared");
+      // Wait for the device to record the real failure, then answer the held
+      // request with that state: nothing here is invented.
+      for (let i = 0; i < 250 && !answer; i++) {
+        const current = await (await realFetch("/api/status", {cache: "no-store"})).json();
+        if (current.phase === "failed") answer = current;
+        else await wait(20);
+      }
+      assert(answer, "the device never recorded the failed attempt");
+      release();
+      await pending;
+      assert(await until(() => shown("failed")),
+             "a status answer newer than the submission was thrown away");
+      assert(/refused/i.test(textOf("failed-reason")),
+             "the newer answer was not rendered: " + JSON.stringify(textOf("failed-reason")));
+      result.textContent = "PASS: a status answer newer than the submission is accepted";
+    } else if (mode === "uncertain-recovery") {
+      // The lost-reply card used to have no way out but a manual reload. Asking
+      // the device again must work: a card that can never be dismissed is a
+      // dead end, even though a later poll might rescue it.
+      const before = window.fetch;
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/join"
+            && (options.method || "GET").toUpperCase() === "POST") {
+          throw new TypeError("Failed to fetch");
+        }
+        return before(path, options);
+      };
+      assert(await formReady(), "the Wi-Fi form never appeared");
+      fill("HomeWiFi", "correct horse battery");
+      byId("join").click();
+      assert(await until(() => shown("uncertain")), "the uncertain card never appeared");
+      byId("check-again").click();
+      assert(await until(() => shown("form-card")),
+             "asking the device again did not return to the form");
+      assert(!shown("uncertain"), "the uncertain card stayed up after the device answered");
+      assert(byId("ssid").value === "HomeWiFi", "the retry form lost the network name");
+      result.textContent = "PASS: the uncertain card has a working way back to the form";
+    } else if (mode === "older-answer") {
+      // Two status answers are not ordered against each other by the request's
+      // start time: an older answer delivered last used to redraw a screen the
+      // person had already moved past.
+      assert(await until(() => shown("form-card")), "the Wi-Fi form never appeared");
+      const base = await (await realFetch("/api/status", {cache: "no-store"})).json();
+      const before = window.fetch;
+      let queued = [];
+      window.fetch = async (path, options = {}) => {
+        if (String(path) === "/api/status" && queued.length
+            && (options.method || "GET").toUpperCase() === "GET") {
+          const next = queued.shift();
+          return new Response(JSON.stringify(next),
+                              {status: 200, headers: {"Content-Type": "application/json"}});
+        }
+        return before(path, options);
+      };
+      const newer = Object.assign({}, base, {
+        revision: (base.revision || 0) + 1, phase: "failed",
+        last_error: "SENTINEL NEWER ANSWER"});
+      const older = Object.assign({}, base, {
+        revision: base.revision || 0, phase: "hotspot", last_error: null});
+      queued = [newer];
+      await load();
+      assert(shown("failed"), "the newer answer was not rendered");
+      assert(textOf("failed-reason") === "SENTINEL NEWER ANSWER",
+             "the newer answer's reason is not on screen: " + JSON.stringify(textOf("failed-reason")));
+      const shownRevision = lastRevision;
+      queued = [older];
+      await load();
+      assert(shown("failed"), "an older status answer replaced a newer screen");
+      assert(lastRevision === shownRevision,
+             "the page's revision went backwards: " + JSON.stringify(lastRevision));
+      result.textContent = "PASS: an older status answer cannot replace a newer one";
     } else if (mode === "validation") {
       assert(await formReady(), "the Wi-Fi form never appeared");
       fill("HomeWiFi", "short");
@@ -1039,6 +1145,21 @@ class SetupBrowserTests(unittest.TestCase):
 
     def test_a_status_answer_from_before_the_submission_is_ignored(self):
         self.assert_driven("stale-poll")
+
+    def test_a_status_answer_newer_than_the_submission_is_accepted(self):
+        # The answer started before the submission but carries the state it
+        # produced. Ordering by request start time threw that away, and on a
+        # single-radio handover it is the only news the page gets.
+        state = self.assert_driven("needed-status", "--behaviour", "bad-psk")
+        self.assertEqual(state["phase"], "failed")
+
+    def test_the_uncertain_card_can_ask_the_device_again(self):
+        state = self.assert_driven("uncertain-recovery")
+        self.assertEqual(state["phase"], "hotspot",
+                         "a lost reply changed the device's own state")
+
+    def test_an_older_status_answer_cannot_replace_a_newer_one(self):
+        self.assert_driven("older-answer")
 
     def test_bad_input_is_refused_in_the_page_without_a_request(self):
         self.assert_driven("validation")
