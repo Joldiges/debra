@@ -188,8 +188,9 @@ gives `wpa`, the random per-device password described above.
 | --- | --- | --- |
 | `/usr/local/lib/debra/setup/releases/<sha256>/` | `0700` | Fixed payload, content-addressed; old releases retained |
 | `/usr/local/lib/debra/setup/previous-units/` | `0700` | Previous generated units, retained for rollback |
-| `/var/lib/debra/setup/setup.json` | `0600` | The setup state; no passphrase |
+| `/var/lib/debra/setup/setup.json` | `0600` | The setup state; no household passphrase and no setup-network password |
 | `/var/lib/debra/setup/setup-secret` | `0600` | The setup-network password, so a re-raised access point matches the note |
+| `/var/lib/debra/setup/setup-security` | `0600` | The mode chosen on the page (`wpa` or `none`); one word, read at every start |
 | `/var/lib/debra/setup/baseline/` | `0700` | Baseline archive and manifest; contains secrets |
 | `/etc/NetworkManager/system-connections/<id>.nmconnection` | `0600` | The household Wi-Fi profile, written by the join and kept; it is the only copy of that passphrase |
 | `/etc/systemd/system/debra-setup.service` | `0644` | The rendered unit; no credential |
