@@ -1,5 +1,19 @@
 "use strict";
 const el = id => document.getElementById(id);
+// AbortSignal.timeout is newer than the rest of this page. A browser without it
+// threw before `fetch` ever ran, which left the welcome card with no bypass
+// button and no explanation. Fall back to a controller and a timer.
+function timeoutSignal(ms) {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  if (typeof AbortController !== "undefined") {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), ms);
+    return controller.signal;
+  }
+  return undefined;
+}
 let token = sessionStorage.getItem("debra-key") || "";
 // bypass: this tab deliberately connected without a key because the device is
 // running `--auth none`. It is never persisted; a reload asks again.
@@ -21,11 +35,22 @@ let revision = 0;
 // Only these mean "the device refused and changed nothing". Anything else,
 // including 503, may have run the native command before failing.
 const DEFINITE = new Set([400, 401, 403, 404, 405, 413]);
+// Read both before either rewrites the address: replaceState below changes what
+// location.search and location.hash report.
+const query = new URLSearchParams(location.search);
 const fragment = new URLSearchParams(location.hash.slice(1));
 if (fragment.has("key")) {
+  // Held in memory only. refresh() persists it once the device has accepted it,
+  // so a key that was never checked cannot be replayed by the next reload.
   token = fragment.get("key");
-  sessionStorage.setItem("debra-key", token);
   history.replaceState(null, "", location.pathname);
+}
+// A form submitted natively (Enter before this script ran, or scripting off)
+// sends the key as a query. It is not accepted there, and saying so is better
+// than the raw 404 the server used to return for /?key=...
+if (query.has("key")) {
+  showPairStatus("A key in the address is not accepted. Type it in the box below.");
+  history.replaceState(null, "", location.pathname + location.hash);
 }
 const fmt = (value, suffix = "") => value == null ? "Unavailable" : `${value}${suffix}`;
 const bytes = value => value == null ? "Unavailable" : `${(value / 1048576).toFixed(1)} MiB`;
@@ -51,7 +76,7 @@ async function api(path, body) {
     headers,
     ...(body ? {method: "POST", body: JSON.stringify(body)} : {}),
     cache: "no-store",
-    signal: AbortSignal.timeout(20000)
+    signal: timeoutSignal(20000)
   });
   let data;
   try { data = await response.json(); } catch (error) {
@@ -70,11 +95,45 @@ function setBypassAvailable(available) {
   el("bypass").hidden = !available;
   el("bypass-note").hidden = !available;
 }
-function revokeBypass() {
+function showPairStatus(message) {
+  // Pairing failures belong next to the key box, inside the welcome card. The
+  // global #error is a page-level region after the dashboard: once the
+  // dashboard is open it is far from the controls, and it never identifies
+  // which credential was refused.
+  // The node is never hidden, only emptied: a live region that is display:none
+  // is not reliably announced when it later gains text. `:empty` removes the
+  // spacing instead.
+  const node = el("pair-status");
+  if (!node) return;
+  node.textContent = message || "";
+}
+function forgetKey(message) {
+  // A key the device refused is not a key to retry on every reload. Clearing it
+  // is what lets the keyless probe run and what stops a dead credential from
+  // looking like a device that never offers a way in.
+  token = "";
+  sessionStorage.removeItem("debra-key");
+  bypass = false;
+  setBypassAvailable(false);
+  // Nothing read with the refused key is still current, and a read error from
+  // that session must not linger in the page-level error region.
+  currentAudio = null;
+  draft = false;
+  volumeOp = null;
+  muteOp = null;
+  el("error").textContent = "";
+  el("pair").hidden = false;
+  el("dashboard").hidden = true;
+  el("connection").textContent = "Not connected";
+  showPairStatus(message);
+  showNotices();
+}
+function revokeBypass(message) {
   setBypassAvailable(false);
   bypass = false;
   el("pair").hidden = false;
   el("dashboard").hidden = true;
+  if (message) showPairStatus(message);
 }
 function setOp(isVolume, value) {
   if (isVolume) volumeOp = value; else muteOp = value;
@@ -86,11 +145,12 @@ function showNotices() {
   // A write outcome belongs beside the control that caused it. The global
   // #error sits after every other card, which on a phone is several screens
   // below Apply: a beginner could retry an unanswered change without ever
-  // seeing why it may not have applied. #error keeps the read/pairing failures
-  // it is the only home for. The element is never hidden, only emptied, so the
-  // live region exists when its text changes. It is assigned on every refresh,
-  // including when the text is unchanged; whether a screen reader announces an
-  // identical re-assignment is not established here.
+  // seeing why it may not have applied. #error keeps the read failures; a
+  // refused key is named on the welcome card instead. The element is never
+  // hidden, only emptied, so the live region exists when its text changes. It
+  // is assigned on every refresh, including when the text is unchanged;
+  // whether a screen reader announces an identical re-assignment is not
+  // established here.
   const message = notices();
   el("audio-notice").textContent = message;
 }
@@ -128,6 +188,7 @@ function audio(data) {
 }
 function render(data) {
   el("pair").hidden = true;
+  showPairStatus("");
   el("dashboard").hidden = false;
   el("hostname").textContent = data.hostname;
   el("model").textContent = data.model || "Board model unavailable";
@@ -412,28 +473,45 @@ async function loadSetup() {
   }
 }
 async function refresh() {
-  if ((!token && !bypass) || busy || refreshing) return;
+  if ((!token && !bypass) || busy || refreshing) return false;
   const started = revision;
   refreshing = true;
   try {
     const result = await api("/api/status");
-    if (started !== revision || busy) return;
+    if (started !== revision || busy) return false;
     if (bypass && result.auth !== "none") {
-      revokeBypass();
+      revokeBypass("This device now requires its access key.");
       throw new Error("Device no longer reports keyless access");
     }
     if (bypass) setBypassAvailable(true);
     render(result);
+    // Only a key the device has just accepted is persisted. A credential that
+    // could not be checked is kept in memory for the retry but never written to
+    // the tab, so a reload cannot start by replaying it.
+    if (token) sessionStorage.setItem("debra-key", token);
     // A successful read clears the read failure; a write's own outcome stays
     // next to its control until a reading agrees with it.
     el("error").textContent = "";
     showNotices();
+    return true;
   } catch (error) {
-    if (started !== revision || busy) return;
-    setBypassAvailable(false);
+    if (started !== revision || busy) return false;
     if (error.status === 401) {
-      revokeBypass();
+      // The stored key is dead: a rotation, a reinstall, or a typo. Forget it so
+      // the three-second poll cannot keep retrying it, name the refusal where
+      // the key was entered, and still look for keyless access.
+      const wasBypass = bypass;
+      forgetKey(wasBypass
+        ? "This device now requires its access key. Enter it to continue."
+        : "The device refused that key. It has been forgotten; enter it again.");
+      const available = await probeKeyless();
+      if (available && !wasBypass) {
+        showPairStatus("The device refused that key. It has been forgotten; " +
+                       "continue without one, or enter a different key.");
+      }
+      return false;
     }
+    setBypassAvailable(false);
     // A read failure is not a write outcome: it is named here, and the write's
     // rejection or uncertainty stays in its own region rather than replacing
     // or being replaced by it.
@@ -441,6 +519,7 @@ async function refresh() {
     showNotices();
     el("connection").textContent = "Not connected · readings may be stale";
     for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
+    return false;
   } finally {
     refreshing = false;
     // A pre-write/pre-pair response is stale even if the write already finished.
@@ -464,7 +543,7 @@ async function change(path, body) {
     audio(result);
   } catch (error) {
     if (started !== session) return;
-    if (error.status === 401) revokeBypass();
+    if (error.status === 401) revokeBypass("The device refused this tab's access. Enter its key again.");
     if (DEFINITE.has(error.status)) {
       setOp(isVolume, {status: "rejected", target,
         message: `${error.message} Read the current state before retrying.`});
@@ -495,18 +574,33 @@ async function change(path, body) {
 }
 el("pair-form").addEventListener("submit", async event => {
   event.preventDefault();
-  token = el("key").value.trim();
+  // refresh() returns early while a read is in flight or a write is pending.
+  // Clearing the box and the message first would make the click look ignored,
+  // so say what is happening and keep what the person typed.
+  if (busy || refreshing) {
+    showPairStatus("Still checking the device. Wait a moment, then press Connect again.");
+    return;
+  }
+  const candidate = el("key").value.trim();
+  el("key").value = "";
+  if (!candidate) {
+    showPairStatus("Enter the device access key, or continue without one if the device offers that.");
+    return;
+  }
+  token = candidate;
   bypass = false;
   session++;
   revision++;
   draft = false;
   volumeOp = null;
   muteOp = null;
-  sessionStorage.setItem("debra-key", token);
-  el("key").value = "";
+  showPairStatus("");
+  el("error").textContent = "";
   showNotices();
-  await refresh();
-  await loadSetup();
+  if (await refresh()) await loadSetup();
+  // A failed read has already been named: forgetKey() reports a refusal, and
+  // the non-401 branch names the read failure and keeps the candidate in
+  // memory for the retry.
 });
 el("bypass").addEventListener("click", async () => {
   // Only reachable when the device itself reported that it runs without a key.
@@ -519,6 +613,7 @@ el("bypass").addEventListener("click", async () => {
   draft = false;
   volumeOp = null;
   muteOp = null;
+  showPairStatus("");
   showNotices();
   await refresh();
   await loadSetup();
@@ -533,6 +628,7 @@ el("disconnect").addEventListener("click", () => {
   volumeOp = null;
   muteOp = null;
   currentAudio = null;
+  showPairStatus("");
   showNotices();
   // Clear the previous device's build choices so a reconnect cannot show them
   // for a different device, even for one frame.
@@ -629,7 +725,7 @@ async function loadDevices() {
   if (loadingDevices) return;
   loadingDevices = true;
   try {
-    const response = await fetch("/api/devices", {cache: "no-store", signal: AbortSignal.timeout(20000)});
+    const response = await fetch("/api/devices", {cache: "no-store", signal: timeoutSignal(20000)});
     if (!response.ok) return;
     const data = await response.json();
     const list = el("device-links");
@@ -664,31 +760,62 @@ async function loadDevices() {
   }
 }
 
+async function probeKeyless() {
+  // True when the device says it runs without a key. A probe that cannot
+  // complete is named on the welcome card: an unexplained missing button is the
+  // failure this page exists not to have. Whatever the card already says (a
+  // refused key, for example) is kept in front of that failure rather than
+  // replaced by it.
+  const started = revision;
+  const before = el("pair-status")?.textContent || "";
+  let failure = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let available = false, refused = false;
+    failure = "";
+    try {
+      const probe = await fetch("/api/status", {cache: "no-store", signal: timeoutSignal(20000)});
+      refused = probe.status === 401;
+      if (probe.status === 200) {
+        try {
+          const auth = (await probe.json())?.auth;
+          if (auth === "none") available = true;
+          // A definite "key" answer is not a transient failure: the device has
+          // said it wants a key, so retrying cannot change the answer.
+          else if (auth === "key") refused = true;
+          else failure = "The device's answer did not name its access mode.";
+        } catch { failure = "The device's answer could not be read."; }
+      } else if (!refused) {
+        failure = `The device answered ${probe.status}.`;
+      }
+    } catch {
+      failure = "The device did not answer.";
+    }
+    if (started !== revision) return false;
+    setBypassAvailable(available);
+    if (available || refused) return available;
+    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+  }
+  showPairStatus((before ? before + " " : "") + failure +
+                 " Could not check whether this device offers keyless access; " +
+                 "reload the page, or enter the key.");
+  return false;
+}
+
 async function start() {
   loadDevices();
   if (token) {
-    await refresh();
-    await loadSetup();
+    if (await refresh()) {
+      await loadSetup();
+      return;
+    }
+    // A refused key was forgotten and already probed. A read that failed for
+    // another reason keeps the key, but the probe still runs so a device that
+    // offers keyless access is not hidden behind a dead token.
+    if (token) await probeKeyless();
     return;
   }
   el("pair").hidden = false;
-  // A transient failure should not require a reload, but an old probe must not
-  // overwrite a newer pairing or disconnect decision.
-  const started = revision;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    let available = false, unauthorized = false;
-    try {
-      const probe = await fetch("/api/status", {cache: "no-store", signal: AbortSignal.timeout(20000)});
-      unauthorized = probe.status === 401;
-      if (probe.status === 200) available = (await probe.json())?.auth === "none";
-    } catch {
-      // A non-JSON response or failed request is not proof of keyless access.
-    }
-    if (started !== revision) return;
-    setBypassAvailable(available);
-    if (available || unauthorized) return;
-    if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
-  }
+  await probeKeyless();
 }
 
 start();

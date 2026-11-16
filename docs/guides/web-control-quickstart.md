@@ -37,8 +37,14 @@ volume card controls the computer running it.
 - **A device missing from the hub list** means discovery found nothing: a failed,
   empty or timed-out scan clears discovered entries, and the configured list
   still shows ([README](../../control/web/README.md)). If `avahi-browse` is not
-  installed on the hub's computer, the device section reports that as a
-  discovery problem instead of showing nothing.
+  installed, the device section reports that as a discovery problem instead of
+  showing nothing. The package is `avahi-utils` on Debian, and it must be on the
+  machine running the server — the device itself for a device page, the hub's
+  computer for the hub ([note](../notes/2026-11-16-web-page-requires-javascript-and-avahi.md)).
+- **The page needs JavaScript.** With scripting off it cannot read status, run
+  the keyless probe, or offer the development bypass, and the key form submits
+  natively to `/?key=...`. The page now states this in a `<noscript>` line; it
+  is not a supported mode.
 
 ## 3. The volume control
 

@@ -31,7 +31,8 @@ else:
 
 
 ASSETS = Path(__file__).with_name("assets")
-STATIC = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
+STATIC = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text/html"),
+          "/app.js": ("app.js", "text/javascript"),
           "/style.css": ("style.css", "text/css")}
 SERVICES = (
     ("Linux Voice Assistant", "linux-voice-assistant.service", True),
@@ -745,18 +746,37 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.close_connection = True
 
+    def page_route(self):
+        """The static page or asset this request names, or None.
+
+        The two page routes ignore a query: a form submitted without JavaScript
+        used to arrive as `GET /?key=...` (it is posted now, but old links and
+        typed addresses remain), and answering that with a JSON 404 explained
+        nothing. An asset keeps its exact path, so `/style.css?x=1` is still not
+        served.
+        """
+        # The request target is a path, not a URL: `urlsplit` raises ValueError
+        # on a malformed `//[...` target, which used to fall through to a clean
+        # 404 and would now become an unhandled traceback. Split on the query
+        # instead; an absolute-form target simply does not match a route.
+        path = self.path.partition("?")[0]
+        if path in STATIC and (self.path == path or path in ("/", "/index.html")):
+            return path
+        return None
+
     def safe_navigation(self):
         """Whether this is a browser following a link to this page.
 
         A Switch link goes from another Debra's page to this one, so the browser
         marks the request `cross-site`. That is an ordinary top-level navigation
         to a public page, and refusing it showed the person a JSON error instead
-        of the device. Only a GET for a static asset, with the Fetch Metadata of
-        a real navigation, qualifies: no key, no query, and the same bytes are
-        served to anyone who types the address. Everything else stays refused.
+        of the device. Only a GET for a page route, with the Fetch Metadata of a
+        real navigation, qualifies: the query is ignored and never reflected,
+        and the same bytes are served to anyone who types the address.
+        Everything else stays refused.
         """
         return (self.command == "GET"
-                and self.path in STATIC
+                and self.page_route() is not None
                 and self.headers.get("Sec-Fetch-Mode") == "navigate"
                 and self.headers.get("Sec-Fetch-Dest") == "document")
 
@@ -788,8 +808,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.permitted():
             return
-        if self.path in STATIC:
-            name, mime = STATIC[self.path]
+        # The key form is JavaScript-only. A native submit (Enter before app.js
+        # ran, or scripting blocked) reaches this page with a query or a POST
+        # body; matching the raw path answered it with a JSON 404 instead of the
+        # page that explains the problem. The query is not a route and is never
+        # reflected: the page is served, and the page itself rejects a key in
+        # the address.
+        route = self.page_route()
+        if route is not None:
+            name, mime = STATIC[route]
             self.reply(200, (ASSETS / name).read_bytes(), mime)
         elif self.path == "/api/devices":
             try:
@@ -823,6 +850,19 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"error": "Not found"})
 
     def do_POST(self):
+        route = self.page_route()
+        if route in ("/", "/index.html"):
+            # A form submitted without JavaScript posts the key here instead of
+            # putting it in the address. This is a read of a public page, so it
+            # uses permitted() rather than permitted(write=True): Host, cross-site
+            # and any present Origin are still checked, but a browser or
+            # extension that omits Origin still gets the page instead of raw
+            # JSON. Nothing is parsed or stored, so no body validation runs; the
+            # body is left unread and the connection closes.
+            if not self.permitted():
+                return
+            self.reply(200, (ASSETS / "index.html").read_bytes(), "text/html")
+            return
         if not self.permitted(write=True):
             return
         if self.path not in ("/api/audio/volume", "/api/audio/mute"):

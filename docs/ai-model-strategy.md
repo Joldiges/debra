@@ -89,6 +89,46 @@ The first Luna re-review is an **experiment**, not an assumption: if it misses a
 defect the coordinator can reproduce, that is evidence to move the ordinary floor
 to Terra, and it gets recorded.
 
+### Applied evidence, 2026-11-16 web-auth slice
+
+Recorded because the practice did not match the table above. A coordinator
+session fixing the device page's key handling ran **three** reviews, all
+`openrouter/deepseek/deepseek-v4.1-flash-1017#high`, at $0.032 + $0.035 + $0.056.
+That is Tier 1, the same model and family as the author, so by rule 1 none of
+them was an independent acceptance review — the slice has had **zero**
+independent reviews, not three expensive ones. Two causes are worth keeping
+visible:
+
+1. `.opencode/agents/debra-review.md` sets no `model`, so every review silently
+   inherits the parent session's model. The coordinator must pass `model`
+   explicitly and say which tier it is buying; otherwise "independent review"
+   quietly becomes self-review.
+2. Round count, not tier, drove the cost. The coordinator session itself was
+   $0.702 against $0.123 of review. Every extra round costs a full re-read and
+   repair cycle on the author's side, so batching findings into one round is the
+   larger lever.
+
+The reviewer still caught a real regression the coordinator had introduced
+(`urlsplit` on a malformed request target). Cheap and non-independent is not
+worthless; it is just not an acceptance review, and the record must say so.
+
+### Open question: is Sol the right *first* review?
+
+James's 2026-11-16 position, recorded rather than resolved because it contests
+the table above: in rapid development he would rather have **tests** carry the
+validation, keep cheap models for ordinary changes, and reserve expensive models
+for work genuinely complex enough to justify them; documenting or tweaking
+something should not buy a big review. He is not convinced Sol should be a
+*first* review, on the grounds that a cheap model may surface the items a
+Sol review would have to be paid to find anyway.
+
+That is in direct tension with the ladder's "no start-cheap-and-escalate" rule.
+It is unresolved: either the rule stays (independence is the product, so buy it
+first) or the ladder becomes cheap-first with a stated escalation trigger. Until
+someone decides, this section records the disagreement instead of silently
+picking a side. Note that this paragraph is a user statement, not a reviewed
+change to the tiers above.
+
 This changes no provider default, account billing, or host configuration, and it
 does not authorize new work. It is a selection policy for work already approved.
 

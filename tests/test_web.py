@@ -349,6 +349,72 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(self.request(Authorization=auth)[0], 401)
         self.assertEqual(self.request(path="/api/status?key=" + TOKEN, Authorization="")[0], 401)
 
+    def test_the_page_answers_a_native_form_submit_and_index_html(self):
+        # The key form is JavaScript-only. A native submit (Enter before app.js
+        # ran, or scripting off) sends GET /?key=...; matching the raw path
+        # answered that with a JSON 404 instead of the page that explains it.
+        for path in ("/?key=not-a-real-key", "/index.html", "/", "/?x=1",
+                     "/index.html?x=1"):
+            code, headers, body = self.request(path=path, Authorization="")
+            self.assertEqual(code, 200, path)
+            self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8", path)
+            self.assertIn(b"<html", body, path)
+            self.assertIn(b'id="pair-status"', body, path)
+            # The query is not a route and must not be reflected into the page.
+            self.assertNotIn(b"not-a-real-key", body, path)
+
+    def test_a_posted_key_gets_the_page_and_is_never_reflected(self):
+        # With scripting off the form posts the key instead of putting it in the
+        # address. Nothing parses or stores it, and the reply must not echo it.
+        self.commands.calls.clear()
+        code, headers, body = self.request("POST", "/", "key=not-a-real-key",
+                                           Authorization="")
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertIn(b"<html", body)
+        self.assertNotIn(b"not-a-real-key", body)
+        self.assertEqual(self.commands.calls, [])
+        # This branch is a read of a public page, not a write: a browser or
+        # extension that omits Origin must still get the page, not raw JSON.
+        code, _, body = self.request(
+            "POST", "/", "key=not-a-real-key", Authorization="", Origin=None,
+            **{"Content-Type": "application/x-www-form-urlencoded"})
+        self.assertEqual(code, 200)
+        self.assertIn(b"<html", body)
+        # A wrong Origin is still refused.
+        self.assertEqual(self.request("POST", "/", "key=x", Authorization="",
+                                      Origin="http://attacker.test")[0], 403)
+        # So is a cross-site POST: the page branch is a read, but the
+        # navigation exemption still requires GET.
+        self.assertEqual(self.request(
+            "POST", "/", "key=x", Authorization="",
+            **{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+               "Sec-Fetch-Dest": "document"})[0], 403)
+        self.assertEqual(self.commands.calls, [])
+
+    def test_a_malformed_request_target_is_a_clean_404(self):
+        # urlsplit raises ValueError on "//]"; routing must not turn that into
+        # an unhandled traceback and an empty response.
+        request = (f"GET //] HTTP/1.1\r\nHost: {self.host}\r\n"
+                   "Connection: close\r\n\r\n")
+        with socket.create_connection(self.server.server_address, timeout=5) as stream:
+            stream.sendall(request.encode())
+            chunks = []
+            while True:
+                chunk = stream.recv(4096)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        response = b"".join(chunks)
+        self.assertTrue(response, "the server closed without answering")
+        self.assertEqual(int(response.split()[1]), 404)
+        self.assertIn(b"Not found", response)
+        # http.server normalises a leading "//" in some versions; ask the helper
+        # directly so the parser that raises is exercised either way.
+        probe = web.Handler.__new__(web.Handler)
+        probe.path = "//]"
+        self.assertIsNone(probe.page_route())
+
     def test_audio_writes_require_key_before_any_command(self):
         for path, body in (("/api/audio/volume", '{"percent":20}'),
                            ("/api/audio/mute", '{"muted":true}')):
@@ -521,7 +587,8 @@ class HTTPTests(unittest.TestCase):
         self.assertFalse(any("set-sink" in " ".join(call) for call in self.commands.calls))
 
     def test_path_traversal_and_query_do_not_serve_files(self):
-        for path in ("/../server.py", "/%2e%2e/server.py", "/style.css?x=1", "/access.key"):
+        for path in ("/../server.py", "/%2e%2e/server.py", "/style.css?x=1",
+                     "/app.js?x=1", "/access.key"):
             self.assertEqual(self.request(path=path)[0], 404)
 
     def test_duplicate_and_ambiguous_headers_are_rejected(self):
