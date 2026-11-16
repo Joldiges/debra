@@ -155,12 +155,20 @@ working audio session. No dependency manager is needed for this stdlib slice.
 
 An unreadable, malformed or invalid `hardware.json` refuses server startup with
 an error message; correct it or preserve it elsewhere before starting again.
-The generated unit is configured to retry on failure.
+The generated unit retries on failure, and stops retrying after four attempts in
+five minutes (`StartLimitIntervalSec=300`, `StartLimitBurst=4`, in `[Unit]`).
+Without that limit a unit that cannot start — a refused `hardware.json`, for
+example — restarts every three seconds for ever and leaves only a journal line.
 
-State/application directories are owner-only. An identical installation preserves
-the key and service byte-for-byte. Unmanaged services and modified releases are
-refused, not overwritten. Interrupted copying retains private staging files;
-retry publishes a complete release. Interrupted unit replacement retains the old
+State/application directories are owner-only, and every file this installer
+creates is owner-only from the moment it exists rather than after a later
+`chmod`. An identical installation preserves the key and service byte-for-byte.
+Unmanaged services and modified releases are refused, not overwritten.
+Interrupted copying retains private staging files; retry publishes a complete
+release. Retained releases are content-addressed, and each install re-checks
+them: a retained release whose files no longer match its name is reported as a
+warning, and `--restore` refuses a unit that runs one. Otherwise a rollback
+would restore a service that cannot start. Interrupted unit replacement retains the old
 unit and its backup; retry uses a fresh pending file. No automatic cleanup.
 The key is fully written to a private staging file before atomic no-replacement
 publication; interrupted staging cannot poison the active key. Completed staging
@@ -240,9 +248,10 @@ systemctl --user start debra-web.service
 
 `--restore` writes a complete file and renames it over the unit, so an
 interruption leaves either the old unit or the new one and never a truncated
-file that cannot start. It refuses a file with no `ExecStart` line and starts
-nothing itself. A `cp` would truncate the destination before writing, which is
-why it is not used here.
+file that cannot start. It refuses a file with no real `ExecStart` line (a
+commented-out one is not a command), refuses a unit whose release directory is
+gone or no longer matches its content address, and starts nothing itself. A `cp`
+would truncate the destination before writing, which is why it is not used here.
 
 The old unit references the retained old release and its own device list, if any.
 Units created by older installers may instead reference a shared `devices.json`;

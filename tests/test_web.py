@@ -1377,7 +1377,8 @@ class InstallerTests(unittest.TestCase):
         stored.symlink_to(saved)
         with self.assertRaises(OSError):
             self.install(devices=devices)
-        self.assertEqual(json.loads(saved.read_text()), devices)
+        self.assertEqual(json.loads(saved.read_text()),
+                         [installer.validate_device(devices[0])])
 
     def test_upgrade_preserves_legacy_shared_list_for_previous_unit(self):
         first = [{"name": "first", "url": "http://first.local:8787/"}]

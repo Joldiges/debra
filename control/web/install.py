@@ -15,7 +15,8 @@ import stat
 import sys
 import tempfile
 
-from server import Backend, init_state, load_devices, valid_hosts, validate_listening_port
+from server import (Backend, init_state, load_devices, valid_hosts, validate_device,
+                    validate_listening_port)
 
 
 PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css", "assets/app.js")
@@ -28,6 +29,58 @@ def quoted(value):
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError("Control characters are not allowed in service arguments")
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$") + '"'
+
+
+def create_private(path, data):
+    """Create a new file that is owner-only from the instant it exists.
+
+    `open("xb")` creates with the process umask, so a 0644 file exists between
+    creation and the later `chmod`. An interruption in that window leaves it
+    readable. The containing directory is 0700, so this was never a leak in
+    practice, but the README says the staging files themselves are private and
+    they now are.
+    """
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def payload_digest(payload):
+    """The content address a release is named by."""
+    digest = hashlib.sha256()
+    for name, data in sorted(payload.items()):
+        digest.update(name.encode() + b"\0" + data + b"\0")
+    return digest.hexdigest()
+
+
+def release_digest(release):
+    """The digest of a release directory as it is on disk."""
+    return payload_digest({name: (release / name).read_bytes() for name in PAYLOAD})
+
+
+def damaged_releases(releases):
+    """Retained releases whose contents no longer match the name they carry.
+
+    A release is named by the digest of its payload, so a corrupted file is
+    detectable without a manifest. This matters for rollback: the previous unit
+    runs a retained release, and restoring one whose bytes changed starts a
+    service that fails immediately. Nothing is deleted here; the caller reports
+    it.
+    """
+    damaged = []
+    if not releases.is_dir():
+        return damaged
+    for path in sorted(releases.iterdir()):
+        if path.is_symlink() or not path.is_dir():
+            continue
+        try:
+            if release_digest(path) != path.name:
+                damaged.append(path.name)
+        except OSError:
+            damaged.append(path.name)
+    return damaged
 
 
 def directory(path, private=False):
@@ -75,11 +128,14 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
     for arg in (home, python, *hosts):
         quoted(arg)  # Reject service-file injection before any writes.
     Backend(sink, {})  # Validate selection before writing files; does not probe.
+    # `main()` validated the file it read; a programmatic caller did not, and
+    # the server would then refuse the list it was handed at the next start.
+    if devices:
+        if len(devices) > 50:
+            raise ValueError("Device list allows at most 50 entries")
+        devices = [validate_device(item) for item in devices]
     payload = {name: (source / name).read_bytes() for name in PAYLOAD}
-    digest = hashlib.sha256()
-    for name, data in sorted(payload.items()):
-        digest.update(name.encode() + b"\0" + data + b"\0")
-    release_id = digest.hexdigest()
+    release_id = payload_digest(payload)
     base = home / ".local/share/debra/web"
     state = home / ".config/debra/web"
     unit = home / ".config/systemd/user/debra-web.service"
@@ -106,9 +162,7 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
         for name, data in payload.items():
             target = staging / name
             target.parent.mkdir(mode=0o700, exist_ok=True)
-            with target.open("xb") as stream:
-                stream.write(data)
-            target.chmod(0o600)
+            create_private(target, data)
         staging.rename(release)
     args = [python, "-B", str(release / "server.py"), "serve", "--state-dir", str(state),
             "--bind", bind, "--port", str(port), "--sink", sink, "--auth", auth]
@@ -121,7 +175,11 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
         args.extend(["--host", host])
     text = MARKER + (
         "[Unit]\nDescription=Debra local browser controls (prototype)\n"
-        "After=pipewire-pulse.service\n\n"
+        "After=pipewire-pulse.service\n"
+        # Without a start limit a unit that cannot start restarts every three
+        # seconds for ever, and the only trace is a journal line. Four attempts
+        # in five minutes then "start request repeated too quickly".
+        "StartLimitIntervalSec=300\nStartLimitBurst=4\n\n"
         "[Service]\nType=simple\n"
         "ExecStart=" + " ".join(quoted(arg) for arg in args) + "\n"
         "Environment=PULSE_SERVER=unix:%t/pulse/native\n"
@@ -131,16 +189,16 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
     )
     directory(unit.parent)
     backup = None
+    damaged = damaged_releases(releases)
     if unit.exists() and unit.read_text() == text:
-        return {"release": release_id, "unit": str(unit), "previous_unit": None, "changed": False}
+        return {"release": release_id, "unit": str(unit), "previous_unit": None,
+                "changed": False, "damaged_releases": damaged}
     if unit.exists():
         snapshots = base / "previous-units"
         directory(snapshots, private=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup = snapshots / (stamp + ".service")
-        with backup.open("xb") as stream:
-            stream.write(unit.read_bytes())
-        backup.chmod(0o600)
+        create_private(backup, unit.read_bytes())
     # The previous unit (if any) is preserved before the atomic replacement.
     fd, name = tempfile.mkstemp(prefix="debra-web.service.", suffix=".pending", dir=unit.parent)
     candidate = Path(name)
@@ -159,7 +217,8 @@ def install(home, source, sink, bind, port, hosts, python, auth="key", devices=N
             pass
         raise
     return {"release": release_id, "unit": str(unit),
-            "previous_unit": str(backup) if backup else None, "changed": True}
+            "previous_unit": str(backup) if backup else None, "changed": True,
+            "damaged_releases": damaged}
 
 
 def restore_unit(home, source):
@@ -183,6 +242,10 @@ def restore_unit(home, source):
         # looks like a rollback that worked. Refuse instead of producing it.
         raise ValueError(f"That unit runs {gone}, which is not installed; "
                          "install instead of restoring it")
+    changed = changed_release(text)
+    if changed is not None:
+        raise ValueError(f"That unit runs {changed}, whose files no longer match "
+                         "the content it is named by; install instead of restoring it")
     directory(unit.parent)
     fd, name = tempfile.mkstemp(prefix="debra-web.service.", suffix=".restore",
                                 dir=unit.parent)
@@ -235,6 +298,31 @@ def missing_release(text):
     return None
 
 
+def changed_release(text):
+    """The release a unit runs when its bytes no longer match its name.
+
+    `missing_release` only proves the file exists. A retained release whose
+    files were truncated, replaced or half-copied still exists and still
+    starts, then fails. The directory name is the digest of the payload, so
+    the mismatch is checkable before the unit is restored.
+    """
+    command = executable_line(text)
+    if not command:
+        return None
+    for token in command.split():
+        token = token.strip('"')
+        if not (token.endswith("/server.py") and "/releases/" in token):
+            continue
+        release = Path(token).parent
+        try:
+            if release_digest(release) == release.name:
+                return None
+            return token
+        except OSError:
+            return None
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sink",
@@ -284,6 +372,11 @@ def main():
         parser.error(str(exc))
     for name, value in result.items():
         print(f"{name}: {value}")
+    damaged = result.get("damaged_releases") or []
+    if damaged:
+        print("WARNING: these retained releases no longer match the content they "
+              "are named by, so rolling back to one would start a broken service: "
+              + ", ".join(damaged), file=sys.stderr)
     print("Files prepared; no service started and no audio settings changed.")
     print("Next: systemctl --user daemon-reload")
     print("Then: systemctl --user enable --now debra-web.service")

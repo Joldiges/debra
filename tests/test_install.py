@@ -257,16 +257,17 @@ class InstalledArtifactTests(unittest.TestCase):
         source = self.source_copy("v2")
         (source / "server.py").write_bytes((source / "server.py").read_bytes() + b"\n# v2\n")
 
-        real_chmod = Path.chmod
+        real_create = installer.create_private
         calls = []
 
-        def dying_chmod(path, *args, **kwargs):
+        def dying_create(path, data):
             calls.append(path)
             if len(calls) == 2:
+                # The first file exists; the process dies before the second.
                 raise OSError("simulated process death during the copy")
-            return real_chmod(path, *args, **kwargs)
+            return real_create(path, data)
 
-        with patch.object(Path, "chmod", dying_chmod):
+        with patch.object(installer, "create_private", dying_create):
             with self.assertRaises(OSError):
                 self.install(source=source, hosts=["second.local:8787"])
 
@@ -285,6 +286,12 @@ class InstalledArtifactTests(unittest.TestCase):
                          [first["release"]])
         self.assertLess(len([path for path in staged[0].rglob("*") if path.is_file()]),
                         len(installer.PAYLOAD), "the copy should be incomplete")
+        # The directory is 0700, but the files themselves must not depend on the
+        # umask: `open("xb")` created them 0644 until the later chmod ran.
+        for path in staged[0].rglob("*"):
+            if path.is_file():
+                self.assertEqual(file_mode(path), 0o600,
+                                 f"{path.name} was created readable by others")
         self.assert_releases_are_addressable_and_complete()
 
         # Retry publishes a complete release, then moves the unit.
@@ -294,6 +301,43 @@ class InstalledArtifactTests(unittest.TestCase):
         self.assertEqual(content_address(self.payload_of(new_release)), second["release"])
         self.assertIn(str(new_release / "server.py"), self.unit.read_text())
         self.assert_releases_are_addressable_and_complete()
+
+    def test_a_damaged_retained_release_is_reported_and_never_restored(self):
+        # A release is named by the digest of its payload, and rollback runs a
+        # retained release. A corrupted one still exists, so the old check passed
+        # and the rollback produced a service that fails at startup.
+        first = self.install()
+        v2 = self.source_copy("v2")
+        (v2 / "server.py").write_bytes((v2 / "server.py").read_bytes() + b"\n# v2\n")
+        second = self.install(source=v2, hosts=["second.local:8787"])
+        self.assertNotEqual(first["release"], second["release"])
+        self.assertEqual(second["damaged_releases"], [])
+
+        old = self.releases / first["release"]
+        (old / "server.py").write_bytes((old / "server.py").read_bytes() + b"\n# corrupted\n")
+
+        v3 = self.source_copy("v3")
+        (v3 / "server.py").write_bytes((v3 / "server.py").read_bytes() + b"\n# v3\n")
+        third = self.install(source=v3, hosts=["third.local:8787"])
+        self.assertEqual(third["damaged_releases"], [first["release"]],
+                         "a corrupted retained release was not reported")
+        with self.assertRaisesRegex(ValueError, "no longer match"):
+            installer.restore_unit(self.home, second["previous_unit"])
+        # The refusal changed nothing.
+        self.assertIn(third["release"], self.unit.read_text())
+
+    def test_the_unit_stops_restarting_after_repeated_failures(self):
+        # Without a start limit, a unit that cannot start restarts every three
+        # seconds for ever and the only trace is a journal line.
+        self.install()
+        text = self.unit.read_text()
+        unit_section = text.split("[Unit]", 1)[1].split("[", 1)[0]
+        service_section = text.split("[Service]", 1)[1].split("[", 1)[0]
+        self.assertIn("StartLimitIntervalSec=300", unit_section)
+        self.assertIn("StartLimitBurst=4", unit_section)
+        self.assertNotIn("StartLimit", service_section,
+                         "the start limit belongs in [Unit]")
+        self.assertIn("Restart=on-failure", service_section)
 
     def test_interrupted_publication_leaves_the_old_version_runnable(self):
         first = self.install(hosts=["first.local:8787"])
@@ -465,10 +509,26 @@ class InstalledArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlinked install"):
             self.install(home=linked)
 
+    def test_an_invalid_device_list_is_refused_before_anything_is_written(self):
+        # Only main() validated the list. A programmatic caller could install a
+        # list the server then refused at startup, leaving a unit that cannot
+        # serve. The list is now validated before the first write.
+        for devices, reason in (
+                ([{"name": "../../../../etc/passwd", "url": "http://debra-1.local:8787/"}],
+                 "Device name"),
+                ([{"name": "debra-1", "url": "http://debra-1.local:80/"}], "port"),
+                ([{"name": "x"}] * 51, "at most 50")):
+            with self.subTest(reason=reason):
+                with self.assertRaisesRegex(ValueError, reason):
+                    self.install(devices=devices)
+        self.assertFalse(self.unit.exists(), "a refused list still wrote the unit")
+        self.assertFalse(self.state.exists(), "a refused list still wrote state")
+        self.assertFalse(self.releases.exists(), "a refused list still published a release")
+
     def test_device_list_path_comes_from_its_content_not_the_caller(self):
         # A caller-controlled name never becomes a path: the stored file is named
         # by a hash of the list's bytes, inside the private state directory.
-        devices = [{"name": "../../../../etc/passwd", "url": "http://debra-1.local:8787/",
+        devices = [{"name": "debra-1", "url": "http://debra-1.local:8787/",
                     "label": "not a path"}]
         outside = self.scratch / "outside"
         outside.mkdir()
@@ -477,7 +537,10 @@ class InstalledArtifactTests(unittest.TestCase):
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0].parent, self.state)
         self.assertRegex(stored[0].name, r"\Adevices-[0-9a-f]{64}\.json\Z")
-        self.assertEqual(json.loads(stored[0].read_text()), devices)
+        # The list is normalised by the same validator the server uses, so the
+        # stored bytes are what the server would accept, not what a caller typed.
+        self.assertEqual(json.loads(stored[0].read_text()),
+                         [installer.validate_device(devices[0])])
         self.assertEqual([str(path.relative_to(outside)) for path in outside.rglob("*")], [])
         # Everything the list produced sits in the private state directory.
         expected = {"access.key", stored[0].name}
@@ -485,11 +548,11 @@ class InstalledArtifactTests(unittest.TestCase):
             expected |= {path.name for path in self.state.glob(pattern)}
         self.assertEqual(sorted(path.name for path in self.state.iterdir() if path.is_file()),
                          sorted(expected))
-        # The list's content is validated by main()/load_devices before install;
-        # install() itself stores whatever a programmatic caller passes, and the
-        # installed server then refuses it at startup rather than serving it.
-        with self.assertRaises(ValueError):
-            web.load_devices(stored[0])
+        # install() validates the list itself, so what is stored is what the
+        # server accepts at startup. This used to raise: a programmatic caller
+        # could install a list the server then refused.
+        self.assertEqual(web.load_devices(stored[0]),
+                         [installer.validate_device(devices[0])])
 
 
 if __name__ == "__main__":
