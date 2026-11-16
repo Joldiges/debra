@@ -42,15 +42,20 @@ SERVICES = (
     ("WirePlumber", "wireplumber.service", True),
 )
 # The audio hardware this repository has evidence for, and how to recognise it.
-# `match` words are looked for in the device-tree HAT EEPROM product; `card` is
-# the ALSA card name the tested overlay creates. Neither proves a working
-# microphone, and no write exists to change either.
+# `match` needs a vendor word and a two-microphone model word, both present in
+# the device-tree HAT EEPROM product. One word alone is not recognition: the
+# previous test matched any product containing "seeed" or "respeaker", so a
+# ReSpeaker 4-mic array and an unrelated Seeed sensor HAT were both reported as
+# this exact board. Even a full match establishes the *family*, not the model or
+# revision. `card` is the ALSA card name the tested overlay creates. Neither
+# proves a working microphone, and no write exists to change either.
 HAT_OPTIONS = (
     {"id": "respeaker-2mic-hat-v2",
      "label": "ReSpeaker 2-Mics Pi HAT v2",
      "summary": "TLV320AIC3104 codec, two microphones, three APA102 LEDs, a user button, "
                 "3.5 mm and JST speaker outputs.",
-     "match": ("respeaker", "2-mics", "2mic", "seeed"),
+     "match": {"vendor": ("respeaker", "seeed"),
+               "model": ("2-mic", "2mic", "2 mic", "2mic")},
      "card": "seeed2micvoicec",
      "caveats": (
          "Microphone and LED positions are an estimate, not a measurement of this board: "
@@ -81,16 +86,30 @@ class DiscoveryCache:
         self.devices = ()
         self.last_scan = None      # monotonic; None means no scan has finished yet
         self.last_error = None
-        self.refused = ()          # named reasons for records this hub dropped
+        # One entry per refused advertisement, as "name: reason". Reasons are
+        # what a person needs; the count is advertisements, which is what the
+        # page says it is.
+        self.refused = ()
         self.thread = None
 
     def scan(self):
-        refused = []
+        refused = set()
         try:
             result = self.browse()
             if not isinstance(result, dict) or result.get("error") is not None:
                 devices = ()
             else:
+                # The parser drops records before this hub ever sees them. Its
+                # reasons have to travel with the result, or the page reports a
+                # successful empty scan while an advertisement was rejected.
+                reported = result.get("refused")
+                if isinstance(reported, list):
+                    for entry in reported:
+                        if (isinstance(entry, dict) and isinstance(entry.get("name"), str)
+                                and isinstance(entry.get("reason"), str)):
+                            refused.add(f"{entry['name']}: {entry['reason']}")
+                        else:
+                            raise ValueError("Invalid discovery refusal")
                 records = result["devices"]
                 if not isinstance(records, list):
                     raise ValueError("Invalid discovery result")
@@ -103,7 +122,11 @@ class DiscoveryCache:
                         # Revalidation is this hub's own boundary: the parser's
                         # warning never reaches this page, so name the reason
                         # here or the drop is silent.
-                        refused.append(reason)
+                        # A record can be any JSON value, None included, so
+                        # the name is read defensively: an AttributeError here
+                        # would empty the whole list instead of refusing one.
+                        name = record.get("name") if isinstance(record, dict) else None
+                        refused.add(f"{name or 'unnamed'}: {reason}")
                         discovery.LOGGER.warning("Refused discovered record: %s", reason)
                 devices = tuple(valid)
         except Exception:
@@ -113,7 +136,7 @@ class DiscoveryCache:
         with self.lock:
             self.devices = devices
             self.last_scan = time.monotonic()
-            self.refused = tuple(sorted(set(refused)))
+            self.refused = tuple(sorted(refused))
             self.last_error = (result or {}).get("error") if isinstance(result, dict) else None
 
     def snapshot(self):
@@ -231,6 +254,21 @@ def read_optional(root, name):
 
 
 CARD_LINE = re.compile(r"^\s*\d+\s+\[([^]]+)\]")
+
+
+def hat_family_match(product, option):
+    """Whether an EEPROM product string names this option's hardware family.
+
+    A family match is all this can establish. Two independent words are
+    required - one vendor and one model - so a different ReSpeaker board or an
+    unrelated Seeed HAT is not reported as this one. The revision is still
+    unknown: an EEPROM product string does not carry one.
+    """
+    words = (product or "").lower()
+    match = option.get("match") or {}
+    vendor = match.get("vendor") or ()
+    model = match.get("model") or ()
+    return any(word in words for word in vendor) and any(word in words for word in model)
 
 
 def alsa_cards(root):
@@ -477,8 +515,7 @@ class Backend:
         cards = alsa_cards(self.root)
         options = []
         for option in HAT_OPTIONS:
-            detected = None if product is None else any(
-                word in product.lower() for word in option["match"])
+            detected = None if product is None else hat_family_match(product, option)
             present = None
             if option["card"] and cards is not None:
                 present = option["card"] in cards
@@ -540,8 +577,9 @@ class Backend:
                     [{"id": "pinned",
                       "label": "Pinned versions, updated by hand (the intended default)"},
                      {"id": "auto", "label": "Update a chosen component automatically"}],
-                    "Nothing on the device can be pinned or updated yet (roadmap U01-U03), "
-                    "so there is no policy to record."),
+                    "Debra has no update mechanism, version manifest or pinning policy of "
+                    "its own yet (roadmap U01-U03), so there is no policy to record here. "
+                    "Packages can of course still be changed by hand on the device."),
             },
             "updates": {
                 "available": False,
@@ -657,12 +695,28 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
         self.close_connection = True
 
+    def safe_navigation(self):
+        """Whether this is a browser following a link to this page.
+
+        A Switch link goes from another Debra's page to this one, so the browser
+        marks the request `cross-site`. That is an ordinary top-level navigation
+        to a public page, and refusing it showed the person a JSON error instead
+        of the device. Only a GET for a static asset, with the Fetch Metadata of
+        a real navigation, qualifies: no key, no query, and the same bytes are
+        served to anyone who types the address. Everything else stays refused.
+        """
+        return (self.command == "GET"
+                and self.path in STATIC
+                and self.headers.get("Sec-Fetch-Mode") == "navigate"
+                and self.headers.get("Sec-Fetch-Dest") == "document")
+
     def permitted(self, write=False):
         host = self.headers.get("Host", "")
         if len(self.headers.get_all("Host", [])) != 1 or host not in self.server.hosts:
             self.reply(403, {"error": "Unrecognized host"})
             return False
-        if self.headers.get("Sec-Fetch-Site") == "cross-site":
+        if (self.headers.get("Sec-Fetch-Site") == "cross-site"
+                and not self.safe_navigation()):
             self.reply(403, {"error": "Cross-site request refused"})
             return False
         origin = self.headers.get("Origin")

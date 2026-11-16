@@ -174,8 +174,15 @@ def restore_unit(home, source):
     unit = home / ".config" / "systemd" / "user" / "debra-web.service"
     source = Path(source)
     text = source.read_bytes()
-    if b"ExecStart=" not in text:
+    command = executable_line(text)
+    if command is None:
         raise ValueError("That file is not a service unit: it has no ExecStart line")
+    gone = missing_release(text)
+    if gone is not None:
+        # A unit whose release was removed starts and immediately fails, which
+        # looks like a rollback that worked. Refuse instead of producing it.
+        raise ValueError(f"That unit runs {gone}, which is not installed; "
+                         "install instead of restoring it")
     directory(unit.parent)
     fd, name = tempfile.mkstemp(prefix="debra-web.service.", suffix=".restore",
                                 dir=unit.parent)
@@ -196,13 +203,47 @@ def restore_unit(home, source):
     return unit
 
 
+def executable_line(text):
+    """The unit's real ExecStart value, or None.
+
+    A comment mentioning `ExecStart=` is not a command, and a unit whose only
+    ExecStart is commented out cannot start. Testing for the bytes alone
+    accepted it.
+    """
+    for raw in text.decode("utf-8", "replace").splitlines():
+        line = raw.strip()
+        if line.startswith("ExecStart="):
+            value = line[len("ExecStart="):].strip()
+            return value or None
+    return None
+
+
+def missing_release(text):
+    """The release path a unit runs, when it is not on disk. None otherwise.
+
+    Restoring a unit whose code is gone produces a service that cannot start,
+    which is the failure a rollback is meant to avoid. Only a recognisable
+    release path is checked; a unit that runs something else is left alone.
+    """
+    command = executable_line(text)
+    if not command:
+        return None
+    for token in command.split():
+        token = token.strip('"')
+        if token.endswith("/server.py") and "/releases/" in token:
+            return None if Path(token).is_file() else token
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sink",
                         help="audio sink name the server should use")
     parser.add_argument("--bind", default="127.0.0.1", help="Explicit IPv4 address; LAN: 0.0.0.0")
     parser.add_argument("--port", type=int, default=8787)
-    parser.add_argument("--host", action="append", required=True, help="Allowed hostname:port; repeatable")
+    parser.add_argument("--host", action="append",
+                        help="Allowed hostname:port; repeatable, required when installing. "
+                             "Not needed with --restore")
     parser.add_argument("--auth", choices=["key", "none"], default="key",
                         help="key: require the device access key (default); none: development bypass")
     parser.add_argument("--devices", type=Path,
@@ -224,6 +265,11 @@ def main():
         return
     if not args.sink:
         parser.error("--sink is required unless --restore is given")
+    if not args.host:
+        # The guide stops the service and then restores it. Parsing used to
+        # refuse that command for a missing install argument before it ever
+        # reached the restore, leaving the person with a stopped service.
+        parser.error("--host is required when installing (it is not used by --restore)")
     devices = []
     if args.devices:
         try:

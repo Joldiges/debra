@@ -48,6 +48,13 @@ Disconnect clears that tab, not other tabs or already submitted operations.
 The service validates explicit Host authorities and same-origin requests, uses
 only local assets, refuses embedding, and bounds workers, bodies and command
 timeouts. These are useful safeguards, **not a hostile-LAN/DoS guarantee**.
+
+Requests a browser marks `Sec-Fetch-Site: cross-site` are refused, with one
+deliberate exception: a top-level navigation (`Sec-Fetch-Mode: navigate`,
+`Sec-Fetch-Dest: document`) for the page's own static files. That is what a
+Switch link from another Debra looks like, and refusing it showed the person a
+JSON error instead of the device. The exception covers no API path and no write,
+and the page it serves is the same one anyone reaches by typing the address.
 Production enrollment, TLS, key rotation and multi-user access remain backlog.
 An overall 15-second deadline closes slow-drip requests, bounds backend waiting
 and command timeouts, and prevents expired queued writes from starting. An

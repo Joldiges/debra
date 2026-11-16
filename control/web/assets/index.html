@@ -24,11 +24,12 @@
       <button id="bypass" class="secondary" type="button" hidden>Continue without a key (development)</button>
     </section>
     <div id="dashboard" hidden>
+      <p id="auth-mode-warning" class="bad" role="status" hidden>This device is running with its access key switched off. Anyone who can reach it can read its status, change its volume and change its mute.</p>
       <div class="heading"><div><p class="eyebrow">DEVICE OVERVIEW</p><h1 id="hostname">Debra</h1><p id="model"></p></div><button id="disconnect" class="secondary">Disconnect this tab</button></div>
       <nav aria-label="Sections"><a href="#audio">Audio</a><a href="#setup">Setup</a><a href="#device">Device</a><a href="#health">Health</a><a href="#components">Components</a></nav>
       <section id="audio" class="card">
         <p class="eyebrow">LIVE CONTROL</p><h2>Speaker volume</h2>
-        <p>Native device output · shared by speech and music</p>
+        <p>Native device output · the sink this page controls. It is not proof that speech and music share it.</p>
         <p id="output" class="detail"></p>
         <label for="volume">Output level <strong id="volume-value">—</strong></label>
         <input id="volume" type="range" min="0" max="100" step="1" disabled>

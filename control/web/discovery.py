@@ -111,8 +111,14 @@ def _txt(field: str) -> dict[str, str]:
     return pairs
 
 
-def parse(output: str) -> list[dict]:
-    """Turn ``avahi-browse -rtp`` output into one record per service."""
+def parse(output: str, refused: list | None = None) -> list[dict]:
+    """Turn ``avahi-browse -rtp`` output into one record per service.
+
+    A record this function refuses is dropped from the result, so `refused`
+    collects why. Without it the hub could only report refusals it made itself
+    and the parser's were invisible to the page: the reader saw a successful
+    empty scan where an advertisement had been rejected.
+    """
     found: dict[tuple[str, int], dict] = {}
     for line in output.splitlines():
         if not line.startswith("="):
@@ -120,6 +126,8 @@ def parse(output: str) -> list[dict]:
         fields = _split(line)
         if len(fields) < 10:
             LOGGER.warning("Dropped discovery record: malformed resolved avahi line")
+            if refused is not None:
+                refused.append({"name": "unparseable", "reason": "malformed resolved avahi line"})
             continue
         _, _iface, protocol, instance, service, _domain, host, address, port, txt = fields[:10]
         if protocol not in ("IPv4", "IPv6") or service != SERVICE:
@@ -134,6 +142,8 @@ def parse(output: str) -> list[dict]:
             # CLI stdout stays machine-readable in --json mode. The same
             # diagnostic reaches the service's stderr/journal on hub scans.
             LOGGER.warning("Dropped discovery record %r: %s", instance, reason)
+            if refused is not None:
+                refused.append({"name": str(instance), "reason": reason})
             continue
         authority = item["url"].split("/", 3)[2]
         canonical_host, canonical_port = authority.rsplit(":", 1)
@@ -154,7 +164,12 @@ def parse(output: str) -> list[dict]:
 
 
 def browse(timeout: float = BROWSE_TIMEOUT_S) -> dict:
-    """Browse for Debra devices. Returns ``{"devices": [...], "error": None|str}``."""
+    """Browse for Debra devices.
+
+    Returns ``{"devices": [...], "refused": [...], "error": None|str}``. `refused`
+    names each advertisement this parser dropped and why, so a hub can show the
+    refusal instead of an empty but successful scan.
+    """
     try:
         proc = subprocess.run(
             ["avahi-browse", "-rtp", "-t", SERVICE],
@@ -168,4 +183,6 @@ def browse(timeout: float = BROWSE_TIMEOUT_S) -> dict:
         return {"devices": [], "error": f"avahi-browse unavailable ({exc.__class__.__name__})"}
     if proc.returncode != 0:
         return {"devices": [], "error": f"avahi-browse exited {proc.returncode}"}
-    return {"devices": parse(proc.stdout), "error": None}
+    refused: list[dict] = []
+    devices = parse(proc.stdout, refused)
+    return {"devices": devices, "refused": refused, "error": None}

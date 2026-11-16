@@ -26,6 +26,8 @@ window.testState = {
   holdWrite: false, releaseWrite: null, failStatus: 0, sinkGone: false,
   probe: new URLSearchParams(location.search).get("probe"), probes: 0, html401: false,
   cpu: {cpu: 12, cpu0: 24},
+  longSink: new URLSearchParams(location.search).get("sink") === "long",
+  cores: new URLSearchParams(location.search).get("cores") === "unavailable",
   noAuth: new URLSearchParams(location.search).get("auth") === "none",
   devices: new URLSearchParams(location.search).get("auth") === "none"
     ? [{name: "debra-3c6b3f", url: "http://debra-3c6b3f.local:8787/", label: "Lab Pi 5"}]
@@ -125,14 +127,22 @@ window.fetch = async (path, options) => {
       return {ok: false, status: state.failStatus, json: async () => ({error: "fixture failure"})};
     }
   }
-  const audio = {available: !state.sinkGone, sink: "test", description: "<img src=x onerror=alert(1)>",
+  const audio = {available: !state.sinkGone,
+    sink: state.longSink
+      ? "alsa_output.platform_107c800000_sound.stereo_fallback_1234567890abcdef"
+      : "test",
+    description: "<img src=x onerror=alert(1)>",
     percent: state.percent, muted: state.muted};
+  const cores = state.cores
+    ? Object.fromEntries([["cpu", 12], ["cpu0", null], ["cpu1", null]])
+    : state.cpu;
   const data = path === "/api/status" ? {
     hostname: "Fixture device", model: "Test board", architecture: "fixture",
     os: "Fixture OS", selected_hardware: {speaker: "<script>untrusted</script>"},
-    uptime_s: 600, cpu_percent: state.cpu, memory: {},
-    power: {}, wifi: [], zram: [], swap_io: {}, zswap_enabled: null,
-    storage: null, temperature_c: null,
+    uptime_s: 600, cpu_percent: cores, memory: {},
+    power: {}, wifi: [{interface: "wlan0", signal_dbm: -42}], zram: [],
+    swap_io: {}, zswap_enabled: null,
+    storage: null, temperature_c: 48.2,
     components: [{name: "LVA", active: "active", configuration: "Not yet inspected"}],
     audio, auth: state.noAuth ? "none" : "key"
   } : audio;
@@ -395,6 +405,15 @@ window.addEventListener("load", async () => {
   document.body.append(result);
   try {
     await wait();
+    // Record every request the page makes, not only the ones the fixture
+    // accepts: an unauthenticated write is still a write attempt, and the
+    // fixture would drop it before counting it.
+    const sent = [];
+    const realFetch = window.fetch;
+    window.fetch = (path, options = {}) => {
+      sent.push([String(path), String(options && options.method || "GET").toUpperCase()]);
+      return realFetch(path, options);
+    };
     await loadSetup();
     const hats = [...document.querySelectorAll("#setup-hats .choice")];
     assert(hats.length === 2, "expected two HAT options, saw " + hats.length);
@@ -428,8 +447,37 @@ window.addEventListener("load", async () => {
            "the ALSA card list is not shown");
     assert(document.getElementById("setup-status").textContent.includes("cannot change"),
            "the read-only reason is missing");
+    // A disabled control cannot be clicked by a person, but a handler attached
+    // to it would run the moment someone made it selectable, and inspecting the
+    // `disabled` property cannot see that handler. Dispatch what a person would
+    // generate and prove nothing is written.
+    const planned = [...document.querySelectorAll("#setup .choice")]
+      .filter(row => row.querySelector(".badge.planned"))
+      .flatMap(row => [...row.querySelectorAll("input, select, button")]);
+    assert(planned.length === 8, "expected eight planned controls, saw " + planned.length);
+    const before = testState.posts.length;
+    const beforeSent = sent.length;
+    for (const control of planned) {
+      // `.click()` is a no-op on a disabled control, and so is a real click,
+      // so the event is dispatched directly: a handler that exists still runs.
+      control.dispatchEvent(new Event("click", {bubbles: true}));
+      control.dispatchEvent(new Event("change", {bubbles: true}));
+      control.dispatchEvent(new Event("input", {bubbles: true}));
+      if (control.form) {
+        control.form.dispatchEvent(new Event("submit", {bubbles: true, cancelable: true}));
+      }
+    }
+    await wait();
+    await wait();
+    const writes = sent.slice(beforeSent).filter(([, method]) => method !== "GET");
+    assert(writes.length === 0,
+           "a planned control sent a request that is not a read: " + JSON.stringify(writes));
+    assert(testState.posts.length === before,
+           "a planned control wrote to the device: "
+           + JSON.stringify(testState.posts.slice(before)));
     assert(testState.posts.length === 0, "the setup card wrote to the device");
-    result.textContent = "PASS: setup card renders disabled choices with reasons";
+    result.textContent = "PASS: setup card renders disabled choices with reasons "
+      + "and writes nothing when they are clicked";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
@@ -566,6 +614,132 @@ window.addEventListener("load", async () => {
 });
 """
 
+# Headless Chromium clamps --window-size to 500 CSS px, so the only reliable
+# 390 px viewport here is an iframe of exactly that width. The page's own CSP
+# forbids framing (frame-ancestors 'none'), which is correct for the product, so
+# the test serves the framed copy with `frame-ancestors 'self'` and keeps every
+# other directive. The verdict is posted back to the parent, because --dump-dom
+# prints only the top-level document.
+# The wrapper is served with the product's own CSP, which forbids inline
+# style, so the frame's size has to come from a stylesheet. An inline
+# `style="width:390px"` was silently dropped and the frame fell back to its
+# 300 px default, which would have tested the wrong width without saying so.
+PHONE_WRAPPER = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>phone</title>
+<link rel="stylesheet" href="/phone.css">
+<script src="/phone.js" defer></script></head>
+<body>
+<iframe id="phone" src="/frame{suffix}"></iframe>
+<pre id="browser-test-result"></pre>
+</body></html>
+"""
+
+PHONE_CSS = """
+html, body { margin: 0; }
+#phone { width: 390px; height: 844px; border: 0; }
+"""
+
+PHONE_SCRIPT = """
+// The frame is same-origin, so its verdict is read straight out of its DOM.
+// A message would race the parent's listener: the frame's check can finish
+// before this script is even parsed.
+const frame = document.getElementById("phone");
+const copy = () => {
+  try {
+    const inner = frame.contentDocument && frame.contentDocument.getElementById("browser-test-result");
+    if (inner && inner.textContent) {
+      document.getElementById("browser-test-result").textContent = inner.textContent;
+    }
+  } catch (error) {
+    document.getElementById("browser-test-result").textContent = "FAIL: " + error.message;
+  }
+};
+setInterval(copy, 50);
+frame.addEventListener("load", copy);
+"""
+
+CHECK_PHONE_WIDTH = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    // A 390 px viewport is the phone this page is meant to be usable on. The
+    // check is geometric: nothing may be wider than the screen.
+    assert(document.getElementById("pair").hidden === false, "pairing card not shown");
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 60 && document.getElementById("dashboard").hidden; i++) await wait();
+    assert(!document.getElementById("dashboard").hidden, "the dashboard never opened");
+    const width = document.documentElement.clientWidth;
+    assert(width === 390, "the harness did not emulate a 390 px phone: " + width);
+    const overflow = [];
+    for (const node of document.querySelectorAll("main *, header *")) {
+      const box = node.getBoundingClientRect();
+      if (box.width === 0 && box.height === 0) continue;
+      if (box.right > width + 0.5 || box.left < -0.5) {
+        overflow.push((node.id || node.className || node.tagName) + " right=" + box.right);
+      }
+    }
+    assert(overflow.length === 0,
+           "content is wider than the 390 px screen: " + overflow.slice(0, 4).join(", "));
+    assert(document.documentElement.scrollWidth <= width,
+           "the page scrolls sideways: " + document.documentElement.scrollWidth);
+    const output = document.getElementById("output");
+    assert(output.getBoundingClientRect().right <= width + 0.5,
+           "the sink identity runs off the screen");
+    // A grid cell with a fixed width does not widen the page; the text just
+    // spills over its neighbour. "Unavailable" did exactly that, so the cell
+    // itself is measured, not only the document.
+    const spilled = [...document.querySelectorAll(".core > *")]
+      .filter(node => node.scrollWidth > node.clientWidth + 0.5)
+      .map(node => (node.textContent || "").slice(0, 24) + " (+"
+                   + (node.scrollWidth - node.clientWidth) + "px)");
+    assert(spilled.length === 0, "a core value overflows its cell: " + spilled.join(", "));
+    result.textContent = "PASS: a 390 px phone fits the long identity and an unavailable core";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+  // The harness page holds this one in a 390 px iframe, so the verdict has to
+  // travel to the parent document that --dump-dom actually prints.
+  parent.postMessage({verdict: result.textContent}, location.origin);
+});
+"""
+
+CHECK_AUTH_BADGE = r"""
+"use strict";
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms || 30));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait(60);
+    const warning = document.getElementById("auth-mode-warning");
+    const dashboard = document.getElementById("dashboard");
+    assert(document.getElementById("pair").hidden === false, "pairing card not shown");
+    assert(warning.hidden, "the warning showed before anything was connected");
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 60 && dashboard.hidden; i++) await wait();
+    assert(!dashboard.hidden, "the keyless dashboard never opened");
+    // The pairing card, and its warning, are hidden now. The dashboard has to
+    // carry the fact itself, or the live controls look protected.
+    assert(document.getElementById("pair").hidden, "the pairing card stayed visible");
+    assert(!warning.hidden, "the keyless dashboard shows no warning");
+    assert(/access key switched off/i.test(warning.textContent),
+           "the dashboard warning does not say the key is off");
+    assert(warning.closest("#dashboard"), "the warning is not inside the dashboard");
+    assert(testState.posts.length === 0, "opening the dashboard wrote something");
+    result.textContent = "PASS: a keyless dashboard keeps its warning visible";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_POST_401 = r"""
 "use strict";
 const wait = () => new Promise(resolve => setTimeout(resolve, 30));
@@ -618,6 +792,86 @@ URL_CASES = {
     "http://bad-.local:8787/": None,
     "http://a..local:8787/": None,
 }
+CHECK_LABELS = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 40));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    document.getElementById("bypass").click();
+    for (let i = 0; i < 80 && document.getElementById("dashboard").hidden; i++) await wait();
+    const health = document.getElementById("health-values");
+    assert(health, "the health table never rendered");
+    const labels = [...health.querySelectorAll("dt")].map(node => node.textContent);
+    assert(labels.some(text => /^Thermal zone 0 \(sensor not identified\)$/.test(text)),
+           "the temperature row does not say which zone it reads: " + JSON.stringify(labels));
+    assert(!labels.some(text => /^CPU temperature$/.test(text)),
+           "the page still claims the sensor is the CPU");
+    assert(labels.some(text => /^RAM used \(total − available\) \/ total$/.test(text)),
+           "the RAM row does not say the value is derived: " + JSON.stringify(labels));
+    assert(labels.some(text => /^Wi-Fi signal \(driver value, unit not established\)$/.test(text)),
+           "the Wi-Fi row does not qualify its unit");
+    assert(!/dBm/.test(health.textContent),
+           "a unit is still claimed for the driver's Wi-Fi number");
+    assert(/not proof that speech and music share it/.test(document.body.textContent),
+           "the audio card still claims a shared output path");
+    result.textContent = "PASS: labels name the source and the estimate, not more";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
+CHECK_SELF = r"""
+"use strict";
+const wait = () => new Promise(resolve => setTimeout(resolve, 40));
+const assert = (ok, message) => { if (!ok) throw new Error(message); };
+window.addEventListener("load", async () => {
+  const result = document.createElement("pre");
+  result.id = "browser-test-result";
+  document.body.append(result);
+  try {
+    await wait();
+    testState.self = {hostname: "fixture-host", port: 8787};
+    testState.devices = [
+      {name: "exact", label: "Exact", url: "http://fixture-host:8787/"},
+      {name: "local", label: "Local", url: "http://fixture-host.local:8787/"},
+      {name: "other", label: "Other", url: "http://other-host:8787/"},
+      // Same first label, unrelated domain: this is a different device, and a
+      // "This device" badge here hides a working Switch link.
+      {name: "elsewhere", label: "Elsewhere",
+       url: "http://fixture-host.somewhere-else.example:8787/"},
+    ];
+    await loadDevices();
+    const rows = [...document.querySelectorAll("#device-links .device")];
+    assert(rows.length === 4, "expected four rows, saw " + rows.length);
+    const state = rows.map(row => ({
+      url: row.querySelector(".device-address").textContent,
+      self: Boolean(row.querySelector(".badge.this-device")),
+      link: Boolean(row.querySelector("a.switch")),
+    }));
+    const find = text => state.find(row => row.url === text);
+    for (const own of ["fixture-host:8787", "fixture-host.local:8787"]) {
+      const row = find(own);
+      assert(row && row.self && !row.link, own + " is not marked as this device");
+    }
+    const elsewhere = find("fixture-host.somewhere-else.example:8787");
+    assert(elsewhere, "the same-prefix device was dropped from the list");
+    assert(!elsewhere.self, "a different domain was marked as this device");
+    assert(elsewhere.link, "a different device lost its Switch link");
+    const other = find("other-host:8787");
+    assert(other && !other.self && other.link, "an unrelated device is not switchable");
+    result.textContent = "PASS: only the exact host and its .local alias are this device";
+  } catch (error) {
+    result.textContent = "FAIL: " + error.message;
+  }
+});
+"""
+
 CHECK_URLS = r"""
 "use strict";
 window.addEventListener("load", async () => {
@@ -647,7 +901,7 @@ window.addEventListener("load", async () => {
 @unittest.skipUnless(CHROMIUM and os.environ.get("DEBRA_BROWSER_TEST") == "1",
                      "opt-in; requires an already installed Chromium")
 class BrowserTests(unittest.TestCase):
-    def dump_dom(self, directory, host, suffix, attempts=3):
+    def dump_dom(self, directory, host, suffix, attempts=3, window=None, budget=3000):
         """Run headless Chromium, retrying a browser crash but never a verdict.
 
         A crashed Chromium exits on a signal (a negative code) and leaves no
@@ -660,7 +914,12 @@ class BrowserTests(unittest.TestCase):
                 CHROMIUM, "--headless", "--disable-gpu", "--no-first-run",
                 "--disable-background-networking", "--disable-component-update",
                 "--no-default-browser-check", "--user-data-dir=" + directory,
-                "--dump-dom", "--virtual-time-budget=3000",
+                # A visible scrollbar takes 15 px out of the framed viewport, so
+                # a 390 px frame laid out at 375 and the width assertion failed
+                # for a reason that had nothing to do with the page.
+                "--hide-scrollbars",
+                *([f"--window-size={window}"] if window else []),
+                "--dump-dom", f"--virtual-time-budget={budget}",
                 "http://" + host + "/" + suffix
             ], capture_output=True, text=True, timeout=30)
             if result.returncode >= 0:
@@ -669,24 +928,64 @@ class BrowserTests(unittest.TestCase):
                 time.sleep(0.5 * attempt)
         return result
 
-    def run_browser(self, suffix, check_name):
+    def run_browser(self, suffix, check_name, window=None, wrapper=False):
         class Handler(web.Handler):
             def do_GET(self):
+                path = self.path.split("?")[0]
+                if wrapper and path == "/":
+                    self.reply(200, PHONE_WRAPPER.format(suffix=suffix).encode(), "text/html")
+                    return
+                if wrapper and path == "/phone.js":
+                    self.reply(200, PHONE_SCRIPT.encode(), "text/javascript")
+                    return
+                if wrapper and path == "/phone.css":
+                    self.reply(200, PHONE_CSS.encode(), "text/css")
+                    return
+                framed = wrapper and path == "/frame"
+                if framed:
+                    # /frame?auth=none is the page itself: the query is what the
+                    # fixture reads to know which data to serve. Dropping the
+                    # "?" turned it into a 404 and the frame stayed blank.
+                    query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                    self.path = "/?" + query if query else "/"
                 if self.path.split("?")[0] == "/":
                     body = (web.ASSETS / "index.html").read_text().replace(
                         '<script src="/app.js" defer></script>',
                         '<script src="/fixture.js"></script><script src="/app.js" defer></script>'
                         f'<script src="/{check_name}" defer></script>')
-                    self.reply(200, body.encode(), "text/html")
+                    if framed:
+                        # Same directives as the server, except that this copy
+                        # may be framed by its own origin. Nothing else is
+                        # relaxed: the page under test is the real one.
+                        payload = body.encode()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(payload)))
+                        self.send_header("Content-Security-Policy",
+                                         "default-src 'self'; script-src 'self'; "
+                                         "style-src 'self'; connect-src 'self'; "
+                                         "frame-ancestors 'self'; base-uri 'none'; "
+                                         "form-action 'self'")
+                        self.send_header("Cache-Control", "no-store")
+                        self.end_headers()
+                        self.wfile.write(payload)
+                    else:
+                        self.reply(200, body.encode(), "text/html")
                 elif self.path in ("/fixture.js", "/check.js", "/check-noauth.js",
                                    "/check-key.js", "/check-probe.js", "/check-urls.js",
-                                   "/check-post-401.js", "/check-setup.js"):
+                                   "/check-post-401.js", "/check-setup.js",
+                                   "/check-auth-badge.js", "/check-phone-width.js",
+                                   "/check-self.js", "/check-labels.js"):
                     script = {"/fixture.js": FIXTURE, "/check.js": CHECK,
                               "/check-noauth.js": CHECK_NOAUTH,
                               "/check-key.js": CHECK_KEY, "/check-probe.js": CHECK_PROBE,
                               "/check-urls.js": CHECK_URLS,
                               "/check-post-401.js": CHECK_POST_401,
-                              "/check-setup.js": CHECK_SETUP}[self.path]
+                              "/check-setup.js": CHECK_SETUP,
+                              "/check-auth-badge.js": CHECK_AUTH_BADGE,
+                              "/check-phone-width.js": CHECK_PHONE_WIDTH,
+                              "/check-self.js": CHECK_SELF,
+                              "/check-labels.js": CHECK_LABELS}[self.path]
                     self.reply(200, script.encode(), "text/javascript")
                 elif self.path.startswith("/api/"):
                     raise AssertionError("Browser fixture must not reach a real backend")
@@ -702,7 +1001,11 @@ class BrowserTests(unittest.TestCase):
                 thread = threading.Thread(target=server.serve_forever, daemon=True)
                 thread.start()
                 try:
-                    result = self.dump_dom(directory, host, suffix)
+                    # A framed run loads the page twice (wrapper and frame) and
+                    # the check itself waits for the dashboard, so it needs a
+                    # larger virtual-time budget than a plain page.
+                    result = self.dump_dom(directory, host, suffix, window=window,
+                                           budget=8000 if wrapper else 3000)
                 finally:
                     server.shutdown()
                     thread.join()
@@ -741,6 +1044,15 @@ class BrowserTests(unittest.TestCase):
     def test_persistent_503_does_not_offer_bypass(self):
         self.run_browser("?auth=none&probe=503", "check-probe.js")
 
+    def test_a_phone_width_page_holds_a_long_identity(self):
+        # 390 px is the phone width the UI is judged at. A long ALSA sink name
+        # and an unavailable core value both used to widen the layout.
+        self.run_browser("?auth=none&sink=long&cores=unavailable",
+                         "check-phone-width.js", wrapper=True)
+
+    def test_a_keyless_dashboard_keeps_its_warning(self):
+        self.run_browser("?auth=none", "check-auth-badge.js")
+
     def test_non_json_post_401_revokes_bypass(self):
         self.run_browser("?auth=none", "check-post-401.js")
 
@@ -753,6 +1065,17 @@ class BrowserTests(unittest.TestCase):
                 else:
                     self.assertEqual(web.canonical_device_url(url), expected)
         self.run_browser("?auth=key", "check-urls.js")
+
+    def test_only_the_exact_host_and_its_local_alias_are_this_device(self):
+        # Comparing the first label alone marked `fixture-host.<any domain>` as
+        # this device, so a real second Debra lost its Switch link.
+        self.run_browser("?auth=none", "check-self.js")
+
+    def test_labels_name_the_source_and_the_estimate(self):
+        # "CPU temperature" was thermal zone 0, "RAM used" was total minus
+        # available, and a signed kernel integer was called dBm. Each label now
+        # says what was actually read.
+        self.run_browser("?auth=none", "check-labels.js")
 
     def test_setup_card_renders_disabled_choices_with_reasons(self):
         self.run_browser("#key=" + "x" * 40, "check-setup.js")

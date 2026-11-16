@@ -123,6 +123,15 @@ class SetupPayloadTests(unittest.TestCase):
         self.assertIsNone(none["card"]["name"])
         self.assertIsNone(none["applied"])
 
+    def test_the_update_policy_reason_is_scoped_to_debras_own_mechanism(self):
+        # "Nothing on the device can be pinned or updated yet" was false: apt and
+        # hand edits exist. What is true is that Debra has no update mechanism of
+        # its own, so there is no policy to record here.
+        settings = self.backend().setup()["settings"]
+        reason = settings["update_policy"]["reason"]
+        self.assertIn("Debra has no update mechanism", reason)
+        self.assertNotIn("Nothing on the device", reason)
+
     def test_an_unknown_hat_is_not_claimed_as_the_respeaker(self):
         self.put("/sys/firmware/devicetree/base/hat/product", "Some Other HAT\0")
         self.put("/proc/asound/cards", " 0 [Headphones     ]: bcm2835 - bcm2835\n")
@@ -131,6 +140,33 @@ class SetupPayloadTests(unittest.TestCase):
         self.assertFalse(respeaker["detected"])
         self.assertFalse(respeaker["card"]["present"])
         self.assertFalse(respeaker["applied"])
+
+    def test_another_board_from_the_same_makers_is_not_this_one(self):
+        # One vendor word was treated as an identification. A four-microphone
+        # array and an unrelated Seeed sensor HAT are neither of them this
+        # two-microphone board, and neither is a v2.
+        for product in ("ReSpeaker 4 Mic Array", "Seeed unrelated sensor HAT",
+                        "ReSpeaker 2-Mics Pi HAT v2 (demonstration)"):
+            with self.subTest(product=product):
+                label = " %s\0" % product
+                self.put("/sys/firmware/devicetree/base/hat/product", label)
+                self.put("/proc/asound/cards", " 0 [Headphones     ]: bcm2835\n")
+                respeaker = self.backend().setup()["hardware"]["options"][0]
+                if product.startswith("ReSpeaker 2-Mics"):
+                    self.assertTrue(respeaker["detected"],
+                                    "a two-mic ReSpeaker product was not recognised at all")
+                else:
+                    self.assertFalse(respeaker["detected"],
+                                     f"{product} was reported as this board")
+
+    def test_the_revision_is_never_claimed_from_the_eeprom(self):
+        # The family match is all the evidence supports, and the page must say
+        # so rather than telling a person their board is the v2.
+        self.put("/sys/firmware/devicetree/base/hat/product", "ReSpeaker 2-Mics Pi HAT\0")
+        self.put("/proc/asound/cards", " 0 [seeed2micvoicec]: simple-card\n")
+        respeaker = self.backend().setup()["hardware"]["options"][0]
+        self.assertTrue(respeaker["detected"])
+        self.assertNotIn("revision", (respeaker.get("summary") or "").lower())
 
     def test_card_list_that_cannot_be_read_leaves_applied_unknown(self):
         self.put("/sys/firmware/devicetree/base/hat/product", "ReSpeaker 2-Mics Pi HAT\0")

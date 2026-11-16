@@ -7,6 +7,7 @@ from io import StringIO
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -383,6 +384,38 @@ class HTTPTests(unittest.TestCase):
                         {"Sec-Fetch-Site": "cross-site"}):
             self.assertEqual(self.request(**headers)[0], 403)
 
+    def test_a_cross_site_link_to_the_page_is_served(self):
+        # A Switch link goes from another Debra's page to this one, so Chromium
+        # marks it cross-site. Refusing it showed a JSON error instead of the
+        # device. This is the exact header set the browser sends.
+        navigation = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+                      "Sec-Fetch-Dest": "document"}
+        code, headers, body = self.request(path="/", **navigation)
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertIn(b"<html", body)
+
+    def test_cross_site_is_still_refused_for_state_and_writes(self):
+        navigation = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+                      "Sec-Fetch-Dest": "document"}
+        # The navigation exemption is for the page, not for its data: a
+        # cross-site GET of the status, a cross-site write, and a cross-site
+        # subresource load are all still refused.
+        self.assertEqual(self.request(path="/api/status", **navigation)[0], 403)
+        self.assertEqual(self.request(path="/api/setup", **navigation)[0], 403)
+        self.assertEqual(self.request("POST", "/api/audio/volume", '{"percent":10}',
+                                      **navigation)[0], 403)
+        for headers in ({"Sec-Fetch-Site": "cross-site"},
+                        {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors",
+                         "Sec-Fetch-Dest": "empty"},
+                        {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+                         "Sec-Fetch-Dest": "iframe"},
+                        {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate",
+                         "Sec-Fetch-Dest": "document", "Origin": "http://other.test"}):
+            with self.subTest(headers=headers):
+                self.assertEqual(self.request(path="/", **headers)[0], 403)
+        self.assertEqual(self.commands.calls, [])
+
     def test_writes_require_same_origin_even_with_key(self):
         for origin in ("", "null", "http://attacker.test"):
             self.assertEqual(self.request("POST", "/api/audio/volume", '{"percent":36}', Origin=origin)[0], 403)
@@ -402,6 +435,20 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/audio/mute", '{"muted":true}',
                                      **{"Content-Type": "text/plain"})[0], 400)
         self.assertFalse(any("set-sink" in " ".join(call) for call in self.commands.calls))
+
+    def test_an_oversized_but_valid_json_body_is_refused_before_any_write(self):
+        # The old oversized case was `"x" * 1025`, which is not JSON: it was
+        # refused by the parser whether or not the size bound existed, so
+        # deleting the bound left every test green. JSON permits trailing
+        # whitespace, so this body is valid, has the one accepted key, and is
+        # over the limit. Only the bound can refuse it.
+        body = '{"percent": 36}' + " " * 1200
+        self.assertGreater(len(body), 1024)
+        code, _, raw = self.request("POST", "/api/audio/volume", body)
+        self.assertEqual(code, 400)
+        self.assertIn(b"Invalid audio request", raw)
+        self.assertFalse(any("set-sink" in " ".join(call) for call in self.commands.calls),
+                         "an oversized body reached the native volume command")
 
     def test_unavailable_write_is_sanitized_and_has_no_fallback(self):
         self.commands.present = False
@@ -828,6 +875,43 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("Port 80", status["refused"][0])
         self.assertIn("Port 80", "\n".join(logs.output))
 
+    def test_a_record_the_parser_refuses_is_reported_by_the_page(self):
+        # The parser drops a bad advertisement before the hub sees it, so the
+        # hub's own revalidation never ran and the page said "found 0" with no
+        # refusal. This drives the real browse() -> parse() -> scan() path with
+        # only the avahi process faked.
+        text = "\n".join([
+            '=;eth0;IPv4;Bad;_debra._tcp;local;debra.local;192.0.2.1;80;'
+            '"name=bad" "label=Bad"',
+            '=;eth0;IPv4;Good;_debra._tcp;local;good.local;192.0.2.2;8787;'
+            '"name=good" "label=Good"',
+        ]) + "\n"
+        cache = web.DiscoveryCache(browse=discovery.browse)
+        with patch.object(discovery.subprocess, "run",
+                          return_value=subprocess.CompletedProcess([], 0, text, "")):
+            cache.scan()
+        status = cache.status()
+        self.assertIsNone(status["error"])
+        self.assertEqual(status["found"], 1)
+        self.assertEqual(len(status["refused"]), 1,
+                         f"the parser's refusal never reached the page: {status['refused']}")
+        self.assertIn("bad", status["refused"][0])
+        self.assertIn("Port 80", status["refused"][0])
+        self.assertEqual([device["name"] for device in cache.snapshot()], ["good"])
+
+    def test_refusals_are_counted_per_advertisement_not_per_reason(self):
+        text = "\n".join([
+            '=;eth0;IPv4;One;_debra._tcp;local;one.local;192.0.2.1;80;"name=one"',
+            '=;eth0;IPv4;Two;_debra._tcp;local;two.local;192.0.2.2;80;"name=two"',
+        ]) + "\n"
+        cache = web.DiscoveryCache(browse=discovery.browse)
+        with patch.object(discovery.subprocess, "run",
+                          return_value=subprocess.CompletedProcess([], 0, text, "")):
+            cache.scan()
+        # The page says "Refused N advertisements"; two identical reasons are
+        # still two advertisements.
+        self.assertEqual(len(cache.status()["refused"]), 2)
+
     def test_error_timeout_exception_and_empty_clear_previous_cache(self):
         record = {"name": "new", "url": "http://new.local:8787/", "label": "New"}
         for outcome in ("error", "timeout", "exception", "empty", "malformed"):
@@ -943,8 +1027,8 @@ class DiscoveryTests(unittest.TestCase):
             '=;eth0;IPv4;Other;_http._tcp;local;other.local;192.0.2.2;80;',
         ])
         original_parse = discovery.parse
-        def changed_parse(output):
-            records = original_parse(output)
+        def changed_parse(output, refused=None):
+            records = original_parse(output, refused)
             for record in records:
                 record["label"] = "Changed parser"
             return records
@@ -1314,3 +1398,73 @@ class InstallerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RestoreCommandTests(unittest.TestCase):
+    """The rollback the README tells a person to run, run the way it says.
+
+    The supplied tests copied bytes by hand, so the actual entry point was never
+    executed: `--host` was required even in restore mode, and following the
+    guide stopped the service and then exited with an argument error.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="web-restore-", dir="/tmp/opencode")
+        self.addCleanup(self.temp.cleanup)
+        self.home = Path(self.temp.name)
+        self.unit = self.home / ".config/systemd/user/debra-web.service"
+
+    def install(self, hosts=None, **kwargs):
+        return installer.install(self.home, SOURCE, SINK, "127.0.0.1", 8787,
+                                 hosts or ["device.local:8787"], "/usr/bin/python3", **kwargs)
+
+    def run_cli(self, *arguments):
+        environment = dict(os.environ, HOME=str(self.home))
+        return subprocess.run([sys.executable, "-B", str(SOURCE / "install.py"),
+                               *arguments],
+                              capture_output=True, text=True, env=environment, timeout=90)
+
+    def upgraded(self):
+        first = self.install()
+        old_unit = self.unit.read_bytes()
+        second = self.install(["other.local:8787"])
+        self.assertTrue(second["changed"])
+        self.assertNotEqual(self.unit.read_bytes(), old_unit)
+        return first, second, old_unit
+
+    def test_the_documented_restore_command_needs_no_host(self):
+        # The guide stops the service, then restores. This is that command.
+        _, second, old_unit = self.upgraded()
+        before = self.unit.stat().st_ino
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Unit restored", result.stdout)
+        self.assertEqual(self.unit.read_bytes(), old_unit)
+        self.assertNotEqual(self.unit.stat().st_ino, before,
+                            "the unit was written in place, not published by rename")
+        self.assertEqual(list(self.unit.parent.glob("*.restore")), [],
+                         "a failed restore left its staging file behind")
+
+    def test_installing_without_a_host_is_refused_with_a_reason(self):
+        result = self.run_cli("--sink", SINK)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--host", result.stderr)
+        self.assertFalse(self.unit.exists())
+
+    def test_a_restore_refuses_a_unit_whose_release_is_gone(self):
+        first, second, _ = self.upgraded()
+        release = (self.home / ".local/share/debra/web/releases" / first["release"])
+        shutil.rmtree(release)
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not installed", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+
+    def test_a_restore_refuses_a_commented_out_exec_start(self):
+        previous = self.home / "previous.service"
+        previous.write_text(installer.MARKER + "[Service]\n# ExecStart=/bin/false\n")
+        with self.assertRaisesRegex(ValueError, "no ExecStart line"):
+            installer.restore_unit(self.home, previous)
+        self.assertFalse(self.unit.exists())

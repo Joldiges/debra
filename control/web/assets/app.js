@@ -120,6 +120,10 @@ function render(data) {
   el("hostname").textContent = data.hostname;
   el("model").textContent = data.model || "Board model unavailable";
   el("connection").textContent = "Connected · updates every 3 seconds";
+  // The warning must not live only on the pairing card: that card is hidden as
+  // soon as the dashboard opens, so a person could believe the live controls
+  // were protected by the key they may never have been asked for.
+  el("auth-mode-warning").hidden = data.auth !== "none";
   audio(data.audio);
   rows("device-values", [
     ["Board", data.model || "Unavailable"], ["Architecture", data.architecture],
@@ -132,10 +136,15 @@ function render(data) {
   const p = data.power;
   rows("health-values", [
     ["CPU total", cpuReading(data.cpu_percent.cpu)],
-    ["RAM used / total", `${bytes(m.MemTotal == null || m.MemAvailable == null ? null : m.MemTotal - m.MemAvailable)} / ${bytes(m.MemTotal)}`],
-    ["CPU temperature", fmt(data.temperature_c, " °C")],
+    // Both of these are weaker than their old labels said. The RAM figure is
+    // total minus available, not a measured "used"; the temperature is thermal
+    // zone 0, and nothing in the collector establishes which sensor that is.
+    ["RAM used (total − available) / total", `${bytes(m.MemTotal == null || m.MemAvailable == null ? null : m.MemTotal - m.MemAvailable)} / ${bytes(m.MemTotal)}`],
+    ["Thermal zone 0 (sensor not identified)", fmt(data.temperature_c, " °C")],
     ["Storage free", bytes(data.storage?.free_bytes)],
-    ["Wi-Fi signal", data.wifi.length ? data.wifi.map(w => `${w.interface}: ${fmt(w.signal_dbm, " dBm")}`).join(", ") : "Unavailable / not wireless"],
+    // The kernel reports an integer here; some drivers return a relative value
+    // rather than dBm, so the number is shown as reported, with no unit claimed.
+    ["Wi-Fi signal (driver value, unit not established)", data.wifi.length ? data.wifi.map(w => `${w.interface}: ${fmt(w.signal_dbm)}`).join(", ") : "Unavailable / not wireless"],
     ["5 V supply (PMIC)", fmt(p.supply_voltage_v, " V")],
     ["Undervoltage now", p.undervoltage_now == null ? "Unavailable" : p.undervoltage_now ? "Warning" : "Not flagged"],
     ["Undervoltage since boot", p.undervoltage_since_boot == null ? "Unavailable" : p.undervoltage_since_boot ? "Recorded" : "Not flagged"],
@@ -224,9 +233,14 @@ function setupRow(id, label, planned) {
   return row;
 }
 function hatStatus(option) {
-  const detected = option.detected === true ? "identified by the HAT EEPROM"
-    : option.detected === false ? "not identified by the HAT EEPROM"
-    : "HAT EEPROM unreadable, so detection is unknown";
+  // A family match, not an identification. The EEPROM product string does not
+  // carry a model or revision, so saying "identified" was stronger than the
+  // evidence and would have told a person their board was this exact one.
+  const detected = option.detected === true
+    ? "the HAT EEPROM product names a ReSpeaker/Seeed two-mic board — the exact model and revision are not established"
+    : option.detected === false
+    ? "the HAT EEPROM product does not name a ReSpeaker/Seeed two-mic board"
+    : "HAT EEPROM unreadable, so even that family match is unknown";
   let applied;
   if (!option.card || !option.card.name) {
     applied = "there is no sound card of its own to check";
@@ -505,9 +519,15 @@ function canonicalDeviceUrl(url) {
   return canonical.length <= 200 ? canonical : null;
 }
 let loadingDevices = false;
-// Is this row the server the page came from? Matching the origin is exact; the
+// Is this row the server the page came from? Matching the origin is exact. The
 // name comparisons cover the usual case where the page was opened by IP but the
-// device advertises a .local name (or the other way round).
+// device advertises a .local name (or the other way round), and they are
+// deliberately narrow: the exact reported host, or its .local alias.
+//
+// Comparing only the first label used to mark any `debra-x.<anything>` as this
+// device, so a real second Debra at `debra-x.somewhere-else.example` lost its
+// Switch link and was labelled "This device". A wrong "This device" hides a
+// working device; a needless Switch link only opens a page that looks the same.
 function isSelfDevice(url, self) {
   const authority = url.slice("http://".length).replace(/\/$/, "");
   if (authority.toLowerCase() === location.host.toLowerCase()) return true;
@@ -516,7 +536,7 @@ function isSelfDevice(url, self) {
   const port = authority.slice(authority.lastIndexOf(":") + 1);
   if (port !== String(self.port)) return false;
   const host = authority.slice(0, authority.lastIndexOf(":")).toLowerCase();
-  return host === hostname || host === `${hostname}.local` || host.split(".")[0] === hostname;
+  return host === hostname || host === `${hostname}.local`;
 }
 const DEVICE_SOURCES = {configured: "Configured", discovered: "Discovered",
                         "configured+discovered": "Configured + discovered"};
