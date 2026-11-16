@@ -1274,12 +1274,24 @@ window.addEventListener("load", async () => {
     await wait();
     assert(rows().every(count => count === 0),
            "the old session's answer painted the cleared rows: " + rows());
-    const beforeThird = testState.requests.length;
-    await loadSetup();
+    // Do not await this call: with the marker cleared, it starts a read that
+    // `holdAllSetup` holds, so awaiting it would hang before the assertion that
+    // says what went wrong. Count Setup requests specifically.
+    const setupReads = () => testState.requests.filter(r => r.path === "/api/setup").length;
+    const beforeThird = setupReads();
+    const third = loadSetup();
     await wait();
-    assert(testState.requests.length === beforeThird,
+    await wait();
+    const started = setupReads() - beforeThird;
+    assert(started === 0,
            "an old read settling cleared the new session's marker and let a third "
-           + "read start: " + (testState.requests.length - beforeThird));
+           + "read start: " + started);
+    if (started > 0) {
+      // Release the extra reads so the rest of the check still runs; the
+      // assertion above is the failure that should be reported.
+      testState.heldSetup.slice(2).forEach(resolve => resolve());
+      await third;
+    }
     // The new read still owns the marker, and releasing it paints the rows.
     testState.heldSetup[1]();
     for (let i = 0; i < 40 && !rows().every(count => count > 0); i++) await wait();
@@ -1288,10 +1300,10 @@ window.addEventListener("load", async () => {
     // Its owner clears the marker, so the next read is allowed through. Stop
     // holding reads first, or this call would be the one held forever.
     testState.holdAllSetup = false;
-    const beforeFourth = testState.requests.length;
+    const beforeFourth = setupReads();
     await loadSetup();
     await wait();
-    assert(testState.requests.length > beforeFourth,
+    assert(setupReads() > beforeFourth,
            "the marker was never cleared, so the card stopped reading");
     result.textContent = "PASS: an old read settling cannot clear a new session's in-flight marker";
   } catch (error) {

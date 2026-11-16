@@ -394,14 +394,42 @@ def start_command_problem(argv):
     options = argv[4:]
     if len(options) % 2:
         return "That unit's start command has an option without a value"
+    values = {}
+    hosts = []
     for index in range(0, len(options), 2):
         name, value = options[index], options[index + 1]
         if name not in START_OPTIONS:
             return (f"That unit's start command passes {name}, which this installer "
                     "does not write")
-        if name in ("--state-dir", "--devices") and not value.startswith("/"):
-            return (f"That unit's start command passes {name} {value}, which is not an "
-                    "absolute path and names nothing after boot")
+        if name == "--host":
+            hosts.append(value)
+        else:
+            # argparse keeps the last occurrence, so that is the one that runs.
+            values[name] = value
+    for name in ("--state-dir", "--devices"):
+        if name in values and not values[name].startswith("/"):
+            return (f"That unit's start command passes {name} {values[name]}, which is "
+                    "not an absolute path and names nothing after boot")
+    # The installed server refuses these before it opens a socket, so a rollback
+    # that publishes them reports success for a service that cannot start. They
+    # are static checks of the same argument parser, not a probe of the device.
+    if not values.get("--sink", "").strip():
+        return ("That unit's start command names no audio sink, which the installed "
+                "server refuses: it never follows a default or a hotplugged device")
+    if values.get("--auth") not in (None, "key", "none"):
+        return (f"That unit's start command passes --auth {values['--auth']}, which is "
+                "not a mode the installed server accepts")
+    port = values.get("--port")
+    if port is not None:
+        if not port.isdigit():
+            return f"That unit's start command passes --port {port}, which is not a number"
+        try:
+            validate_listening_port(int(port))
+        except ValueError as exc:
+            return f"That unit's start command passes --port {port}: {exc}"
+    if hosts and not valid_hosts(hosts):
+        return (f"That unit's start command allows {hosts[0]}, which is not a "
+                "hostname:port the installed server accepts")
     return None
 
 
