@@ -392,6 +392,15 @@ class Onboarder:
         # out loud: the journal line that reports an open setup network. Only
         # the page can store `none` (an upgrade can only carry `wpa` forward),
         # so that line cannot be reached with a carried-over mode.
+        #
+        # "page" therefore means "the mode stored on the device, not the flag",
+        # and a carried-forward `wpa` reports it too - adoption writes the mode
+        # file before this line runs. That is an overload of the name, not a
+        # wrong answer at the one use site: the only reader prints it on the
+        # `none` branch, which an adopted mode never takes.
+        # `test_an_upgraded_record_is_named_as_why_the_mode_is_not_the_flag`
+        # pins that, by asserting the open-network line is absent from that
+        # boot's journal. Add a second reader only by splitting this value.
         self.security_source = "page" if stored else "install"
         self._last_submit = 0.0
         # Reentrant: a failure path may settle and then re-raise the access

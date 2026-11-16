@@ -134,10 +134,10 @@ and are waiting for the review rows below.
 The harvest of 2026-11-15 found **zero L-sized engineering items** in the
 repository — the backlog was documentation, evidence and test gaps, not missing
 features. That has changed: Wi-Fi onboarding, hardware-derived identity and the
-first baseline now have an implementation (`control/setup/`, 265 onboarding tests
+first baseline now have an implementation (`control/setup/`, 266 onboarding tests
 and 46 installer tests) that has
 **never run on a device**, and the activity TUI has a notices checklist. The
-whole offline suite is 755 tests, 49 of which are the opt-in browser cases that
+whole offline suite is 756 tests, 49 of which are the opt-in browser cases that
 skip in an ordinary run (`-p 'test_*browser.py'` with `DEBRA_BROWSER_TEST=1`).
 
 Still without an implementation: update and rollback, the SSH maintenance TUI,

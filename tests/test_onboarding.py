@@ -249,6 +249,12 @@ class StateTests(Temp):
         self.assertIsNone(data["baseline_error"])
         self.assertIsNone(data["last_attempt"])
         self.assertFalse(data["attempt_claimed"])
+        # `revision` arrived with schema 3, so its absence is the same ordinary
+        # upgrade and must be filled rather than refused. `migrate` itself is
+        # asked, because `read` writes the record back and that bumps the
+        # counter - which is the correct value for the returned record and the
+        # wrong value for this question.
+        self.assertEqual(state_module.migrate(old)["revision"], 0)
         # The described hot spot had no stored password, so it is dropped.
         self.assertIsNone(data["hotspot"])
         self.assertEqual(data["phase"], "failed")
@@ -298,9 +304,19 @@ class StateTests(Temp):
         self.assertIn("did not finish", data["last_error"])
 
     def test_a_hotspot_phase_with_no_described_network_is_resolved(self):
+        # `validate` refuses a `hotspot` phase with no access point described.
+        # A record can be left that way by a build that dropped the description
+        # - schema 1 does exactly that on a device whose hotspot was not
+        # running - and refusing it here stops the service before any access
+        # point is raised, which is the failure the migration exists to prevent.
         legacy = dict(state_module.blank("debra-345678"), schema=2,
                       phase="hotspot", hotspot=None)
         self.state_path.write_text(json.dumps(legacy), encoding="utf-8")
+        data = state_module.read(self.state_path)
+        self.assertEqual(data["phase"], "failed")
+        self.assertIsNone(data["hotspot"])
+        self.assertIn("raised again", data["last_error"])
+
     def test_a_schema_one_object_that_was_never_a_record_is_refused(self):
         # Filling every missing field turned a file that described nothing into
         # an `unconfigured` device, which then raised a new access point as
@@ -323,6 +339,21 @@ class StateTests(Temp):
                           "country": "GB", "ssid": "HomeWiFi", "address": None,
                           "last_error": None, "attempts": 0, "hotspot": None,
                           "baseline": None})
+
+    def test_a_schema_one_record_without_its_timestamp_is_refused(self):
+        # `updated` is the one key in both sets. It is mandatory: the first
+        # prototype revision already wrote it, so a record without it was not
+        # written by this software. The floor is checked before the fill, so
+        # this is a refusal and not a quietly timestamped upgrade.
+        old = {"schema": 1, "phase": "online", "hostname": "debra-1",
+               "country": "GB", "ssid": "HomeWiFi", "address": "192.0.2.40",
+               "last_error": None, "attempts": 1, "hotspot": None,
+               "baseline": None}
+        self.state_path.write_text(json.dumps(old))
+        with self.assertRaisesRegex(ValueError, "updated missing"):
+            state_module.read(self.state_path)
+        self.assertEqual(json.loads(self.state_path.read_text()), old,
+                         "the damaged record was rewritten rather than left alone")
 
     def test_an_online_record_that_still_describes_an_access_point_is_resolved(self):
         legacy = dict(state_module.blank("debra-345678"), schema=2,

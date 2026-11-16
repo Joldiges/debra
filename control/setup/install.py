@@ -461,9 +461,9 @@ def serve(state_dir, card_note=None, network=None, address=None,
 
     wait_for_uplink(network, uplink_wait)
     status = onboarder.resume()
-    # The phase and the device name are the only status fields logged. The
-    # setup-network password is not a status field at all, so it cannot reach
-    # the journal from here.
+    # The phase, the device name and (on failure) the reason are the only status
+    # fields logged. The setup-network password is not a status field at all, so
+    # it cannot reach the journal from here.
     #
     # Read with `.get`: `resume` returns the worker-shaped fallback when the
     # access point is up but the state cannot be read, and that dict has no

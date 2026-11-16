@@ -62,9 +62,10 @@ DROPPED = ("hotspot_password",)
 # file without one was not written by this module. Filling those too would turn
 # a corrupt file into a fresh device - a record with no `phase` came back as
 # `unconfigured` and was written back that way - which `read` promises never to
-# do.
+# do. `updated` is deliberately *not* here: the first prototype wrote it, so a
+# record without it is damage like a record without `phase` (`MANDATORY_1`).
 FILLED = ("last_attempt", "attempt_token", "attempt_claimed", "baseline_error",
-          "revision", "updated")
+          "revision")
 
 # Paths whose migrated record could not be written back. `read` is on the status
 # path, so a read-only state directory would otherwise log the same warning on
@@ -74,6 +75,8 @@ _WRITE_BACK_FAILED = set()
 # The fields every schema-1 revision wrote, and therefore the floor below which a
 # record is not a record this software wrote. The keys the revisions added later
 # are deliberately not here: their absence is an ordinary upgrade and is filled.
+# `updated` is here because the first prototype revision already wrote it, so its
+# absence is damage rather than an upgrade even though `FILLED` covers the rest.
 # `phase` matters most: every revision required it, and filling it produced an
 # `unconfigured` device from a file that described nothing, which then raised a
 # new access point as though the device had never been set up.

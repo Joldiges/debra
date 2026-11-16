@@ -217,9 +217,10 @@ sudo python3 -B control/setup/install.py --python "$(command -v python3)" \
     --setup-security wpa
 ```
 
-`--setup-security wpa` installs the protected setup network: a random per-device
-password on the boot-partition note. Whatever is chosen is written into the unit
-as an argument, so the mode a device **starts** in is something the unit says and
+`--setup-security wpa` installs the protected setup network: it writes the mode
+into the unit as an argument, and the service generates the random per-device
+password and writes the boot-partition note on its first start. Whatever is
+chosen is written into the unit as an argument, so the mode a device **starts** in is something the unit says and
 not a default that a later change can reinterpret. It is not the last word on
 the mode: the page can switch the running device between the two without a
 reinstall, and from then on the stored choice in
@@ -246,13 +247,16 @@ and after boot it names nothing. On a running device, `systemctl enable` remains
 the right command: it also reloads the daemon. Neither route has been booted,
 and no real `systemctl enable` was run to confirm which link it writes.
 
-`setup.json` is migrated on read from schema 1, because a device that already
-ran an earlier prototype must not be left with a state file that stops the
-service. The migration fills every field the old record never wrote, which is
-what makes it an upgrade rather than a refusal. It has a floor: a record missing
-any field **every** schema-1 revision wrote (the phase, hostname, country, Wi-Fi
-name, address, last error, attempts, setup-network description, baseline pointer
-and timestamp) is damage or a foreign file, and is refused with a message saying
+`setup.json` is migrated on read from schema 1 and from schema 2, because a
+device that already ran an earlier prototype must not be left with a state file
+that stops the service. Schema 2 kept the setup password inside this record; it
+is moved to its own file before the record is read, and then dropped. The
+migration fills the fields a later revision added (`revision`, `last_attempt`,
+`attempt_token`, `attempt_claimed`, `baseline_error`), which is what makes those
+an upgrade rather than a refusal. It has a floor: a record missing any field
+**every** schema-1 revision wrote (the phase, hostname, country, Wi-Fi name,
+address, last error, attempts, setup-network description, baseline pointer and
+timestamp) is damage or a foreign file, and is refused with a message saying
 so. Filling that in would turn a damaged file into an apparently unconfigured
 device that raises a new setup access point. A record that is refused is left
 untouched, so the evidence survives.
@@ -283,7 +287,7 @@ therefore this reviewed file and not a generated second program.
 An identical install changes nothing and creates no rollback copy. They are not
 treated alike: a **release** that differs from what the installer would write is
 refused, and so is one whose content address is already used by different bytes.
-A **unit** that differs is snapshotted to `debra-setup.service.previous-<stamp>`
+A **unit** that differs is snapshotted to `previous-units/<stamp>.service`
 and then replaced, because updating the unit is the whole reason the install
 path exists; `--restore <unit>` puts the retained copy back atomically. Nothing
 is ever deleted.
