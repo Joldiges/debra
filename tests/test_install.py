@@ -572,15 +572,21 @@ class RestoreTests(unittest.TestCase):
         self.home = Path(self._temp.name)
         self.unit = self.home / ".config" / "systemd" / "user" / "debra-web.service"
         self.unit.parent.mkdir(parents=True)
-        # A unit this installer could have written: the marker, and an argument
-        # in the installer's own quoting. Restore refuses anything else, so a
-        # fixture that is merely systemd-shaped would test the refusal, not the
-        # atomic replacement.
-        self.unit.write_text(installer.MARKER + '[Service]\nExecStart="new"\n',
-                             encoding="utf-8")
+        # A unit this installer could have written: the marker, the installer's
+        # quoting, its command shape, and a release it actually keeps. Restore
+        # refuses anything else, so a fixture that is merely systemd-shaped
+        # would test the refusal, not the atomic replacement. Two installs
+        # differ only in the allowed host, so the first unit is a real previous
+        # version of the second.
+        def install(hosts):
+            return installer.install(self.home, SOURCE, SINK, "127.0.0.1", 8787,
+                                     hosts, "/usr/bin/python3")
+
+        install(["first.local:8787"])
         self.previous = self.home / "previous.service"
-        self.previous.write_text(installer.MARKER + '[Service]\nExecStart="old"\n',
-                                 encoding="utf-8")
+        self.previous.write_bytes(self.unit.read_bytes())
+        install(["second.local:8787"])
+        self.assertNotEqual(self.previous.read_bytes(), self.unit.read_bytes())
 
     def tearDown(self):
         self._temp.cleanup()
@@ -588,7 +594,7 @@ class RestoreTests(unittest.TestCase):
     def test_a_restore_replaces_the_unit_with_a_complete_file(self):
         installer.restore_unit(self.home, self.previous)
         self.assertEqual(self.unit.read_text(encoding="utf-8"),
-                         installer.MARKER + '[Service]\nExecStart="old"\n')
+                         self.previous.read_text(encoding="utf-8"))
         self.assertEqual(stat.S_IMODE(self.unit.stat().st_mode), 0o600)
 
     def test_an_interrupted_restore_leaves_the_old_unit_untouched(self):

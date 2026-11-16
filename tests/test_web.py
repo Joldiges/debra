@@ -1688,12 +1688,48 @@ class RestoreCommandTests(unittest.TestCase):
         # a unit naming a release this installer never wrote restored happily.
         previous = self.home / "previous.service"
         command = " ".join(installer.quoted(part) for part in
-                           ("/usr/bin/python3", "/not/installed/releases/abc/server.py",
-                            "serve"))
+                           ("/usr/bin/python3", "-B",
+                            "/not/installed/releases/abc/server.py", "serve"))
         previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
         with self.assertRaisesRegex(ValueError, "not a release this installer keeps"):
             installer.restore_unit(self.home, previous)
         self.assertFalse(self.unit.exists())
+
+    def test_a_restore_refuses_a_relative_script(self):
+        # `release_problem` used to skip every argument not starting with `/`,
+        # so a start command that named no managed entrypoint at all was
+        # accepted: there was simply nothing for the release check to inspect.
+        # `python3 not-installed/server.py serve` is refused by systemd itself,
+        # and restore published it as a successful rollback.
+        first = self.install()
+        previous = self.home / "previous.service"
+        command = " ".join(installer.quoted(part) for part in
+                           ("/usr/bin/python3", "-B", "not-installed/server.py", "serve"))
+        previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
+        before = self.unit.read_bytes()
+        with self.assertRaisesRegex(ValueError, "not a release this installer keeps"):
+            installer.restore_unit(self.home, previous)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+        self.assertTrue((self.home / ".local/share/debra/web/releases"
+                         / first["release"]).is_dir(),
+                        "the fixture removed the release it should still have")
+
+    def test_a_restore_refuses_a_start_command_that_names_no_release(self):
+        # The same hole without a path at all: a marker-bearing unit whose
+        # command runs something else entirely. Every argument is relative or an
+        # option, so the release check found nothing to check and reported a
+        # complete, verified release.
+        self.install()
+        previous = self.home / "previous.service"
+        command = " ".join(installer.quoted(part) for part in
+                           ("/usr/bin/python3", "-B", "-c", "print(1)"))
+        previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")
+        before = self.unit.read_bytes()
+        with self.assertRaisesRegex(ValueError, "does not run the server's serve mode"):
+            installer.restore_unit(self.home, previous)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
 
     def test_a_restore_refuses_a_unit_without_the_installer_marker(self):
         # Restore is for a snapshot this installer wrote. An arbitrary unit may
@@ -1753,7 +1789,8 @@ class RestoreCommandTests(unittest.TestCase):
         first = self.install()
         release = self.home / ".local/share/debra/web/releases" / first["release"]
         command = " ".join(installer.quoted(part)
-                           for part in (str(release / "server.py"), "serve"))
+                           for part in ("/usr/bin/python3", "-B",
+                                        str(release / "server.py"), "serve"))
         previous = self.home / "previous.service"
         previous.write_text(installer.MARKER + f"[Service]\nExecStart=-{command}\n")
         self.assertEqual(installer.restore_unit(self.home, previous), self.unit)
@@ -1819,6 +1856,84 @@ class RestoreCommandTests(unittest.TestCase):
         self.assertIn("is a link", result.stderr)
         self.assertEqual(self.unit.read_bytes(), before)
 
+    def test_a_restore_refuses_a_linked_releases_directory(self):
+        # own-02 in the r10 review: the immediate parent check covered `web/`
+        # and `releases/`, but renaming `releases` and pointing the name at the
+        # preserved copy repoints every release at once, with every byte and
+        # digest inside still matching.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        releases = self.home / ".local/share/debra/web/releases"
+        preserved = releases.with_name("releases.preserved")
+        releases.rename(preserved)
+        releases.symlink_to(preserved)
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is a link", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+        self.assertTrue((preserved / first["release"]).is_dir(),
+                        "the fixture removed the release instead of preserving it")
+
+    def test_a_restore_refuses_a_linked_managed_ancestor(self):
+        # own-02's other half: `.local/share` is two levels above `releases`,
+        # and installation already refuses a linked ancestor there. Restore
+        # checked only `web/` and `releases/`, so the same tree installed and
+        # then restored through a link.
+        self.install()
+        second = self.install(["other.local:8787"])
+        share = self.home / ".local/share"
+        preserved = share.with_name("share.preserved")
+        share.rename(preserved)
+        share.symlink_to(preserved)
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is a link", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+
+    def test_a_restore_refuses_a_linked_non_entry_payload_file(self):
+        # own-07 in the r10 review: the entry file was covered, but the other
+        # four payload files were only checked for existence, so a same-content
+        # link at `discovery.py` passed every web test.
+        first = self.install()
+        second = self.install(["other.local:8787"])
+        release = self.home / ".local/share/debra/web/releases" / first["release"]
+        (release / "discovery.py").rename(release / "discovery-real.py")
+        (release / "discovery.py").symlink_to(release / "discovery-real.py")
+        before = self.unit.read_bytes()
+        result = self.run_cli("--restore", second["previous_unit"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is a link", result.stderr)
+        self.assertEqual(self.unit.read_bytes(), before,
+                         "a refusal still changed the unit")
+
+    def test_a_restore_refuses_a_start_command_that_is_not_the_installed_shape(self):
+        # The command line itself is checked, not only the paths that happen to
+        # appear in it. Each of these is a unit this installer never writes.
+        release = "/home/x/.local/share/debra/web/releases/abc/server.py"
+        refusals = {
+            "too short": ["/usr/bin/python3", "-B", release],
+            "relative interpreter": ["python3", "-B", release, "serve"],
+            "no -B": ["/usr/bin/python3", release, "serve", "x"],
+            "no serve": ["/usr/bin/python3", "-B", release, "run"],
+            "unknown option": ["/usr/bin/python3", "-B", release, "serve", "--exec", "sh"],
+            "option without value": ["/usr/bin/python3", "-B", release, "serve", "--port"],
+            "relative state directory": ["/usr/bin/python3", "-B", release, "serve",
+                                         "--state-dir", "state"],
+        }
+        for name, argv in refusals.items():
+            with self.subTest(name):
+                self.assertIsNotNone(installer.start_command_problem(argv),
+                                     f"{name} was accepted as the installed shape")
+        written = ["/usr/bin/python3", "-B", release, "serve",
+                   "--state-dir", "/home/x/.config/debra/web", "--bind", "0.0.0.0",
+                   "--port", "8787", "--sink", "s", "--auth", "key",
+                   "--host", "device.local:8787", "--host", "other.local:8787"]
+        self.assertIsNone(installer.start_command_problem(written))
+
     def test_a_restore_refuses_an_entrypoint_that_is_not_payload(self):
         # The five files hash correctly, so the release check passes, while the
         # unit starts a different script that is not covered by that digest.
@@ -1828,14 +1943,15 @@ class RestoreCommandTests(unittest.TestCase):
         (release / "helper.sh").write_text("#!/bin/sh\nexit 0\n")
         previous = self.home / "previous.service"
         command = " ".join(installer.quoted(part)
-                           for part in ("/bin/sh", str(release / "helper.sh")))
+                           for part in ("/usr/bin/python3", "-B",
+                                        str(release / "helper.sh"), "serve"))
         # Keep the release the retained unit names, so completeness alone would
         # not refuse it.
         retained = second["previous_unit"]
         text = Path(retained).read_text()
         line = next(line for line in text.splitlines() if line.startswith("ExecStart="))
         previous.write_text(text.replace(line, f"ExecStart={command}", 1))
-        with self.assertRaisesRegex(ValueError, "not one of the files"):
+        with self.assertRaisesRegex(ValueError, "not the server.py of a release"):
             installer.restore_unit(self.home, previous)
 
     def test_a_restore_refuses_a_traversing_entrypoint(self):
@@ -1846,7 +1962,7 @@ class RestoreCommandTests(unittest.TestCase):
         (releases / "elsewhere.py").write_text("print('not in a release')\n")
         previous = self.home / "previous.service"
         command = " ".join(installer.quoted(part)
-                           for part in ("/usr/bin/python3",
+                           for part in ("/usr/bin/python3", "-B",
                                         str(releases / first["release"] / ".." / "elsewhere.py"),
                                         "serve"))
         previous.write_text(installer.MARKER + f"[Service]\nExecStart={command}\n")

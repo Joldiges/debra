@@ -364,6 +364,47 @@ def service_commands(text):
     return [argv for argv in commands if argv]
 
 
+START_OPTIONS = ("--state-dir", "--bind", "--port", "--sink", "--auth", "--devices", "--host")
+
+
+def start_command_problem(argv):
+    """Why this argv is not the start command this installer writes, or None.
+
+    `install()` writes exactly one shape: the interpreter, `-B`, the release's
+    own `server.py`, `serve`, then option/value pairs. Restore used to check only
+    the arguments that happened to look like paths, which made the command line
+    itself unexamined: `python3 not-installed/server.py serve` names a relative
+    script systemd would refuse, and `python3 -B -c 'print(1)'` names no release
+    at all - and both passed, because the release check found nothing to look at
+    and reported success. The entry point *is* the release, so it is required
+    here rather than searched for.
+    """
+    if len(argv) < 4:
+        return ("That unit's start command is not the one this installer writes "
+                "(interpreter, -B, server.py, serve)")
+    if not argv[0].startswith("/"):
+        return (f"That unit's start command {argv[0]} is not an absolute path, "
+                "which systemd would refuse")
+    if argv[1] != "-B":
+        return ("That unit's start command does not run Python with -B, which is the "
+                "form this installer writes")
+    if argv[3] != "serve":
+        return ("That unit's start command does not run the server's serve mode, which "
+                "is the form this installer writes")
+    options = argv[4:]
+    if len(options) % 2:
+        return "That unit's start command has an option without a value"
+    for index in range(0, len(options), 2):
+        name, value = options[index], options[index + 1]
+        if name not in START_OPTIONS:
+            return (f"That unit's start command passes {name}, which this installer "
+                    "does not write")
+        if name in ("--state-dir", "--devices") and not value.startswith("/"):
+            return (f"That unit's start command passes {name} {value}, which is not an "
+                    "absolute path and names nothing after boot")
+    return None
+
+
 def release_problem(home, commands):
     """Why the releases these commands name cannot start, or None.
 
@@ -375,49 +416,46 @@ def release_problem(home, commands):
     directory name is the digest of the payload, so changed content is
     detectable as well.
 
-    The boundary is the tree this installer manages. Every argument naming a
-    Python file outside `releases/` is refused, because it is not code this
-    installer wrote; every file named inside a release must be one of the five
+    The boundary is the tree this installer manages. The start command must be
+    the shape `install()` writes, and its entry point must be `server.py` at the
+    top of a release; every file inside that release must be one of the five
     payload files, reached without `..`, through real directories and as a real
     file - a link under the release would let the digested files be replaced
     without changing the name the unit is checked against.
+
+    Every ancestor of the release tree is checked for links, not only `web/` and
+    `releases/`: renaming `~/.local/share` and pointing the name at a preserved
+    copy repoints every release without changing a byte inside one. This is the
+    policy `install()` already applies, and the two have to agree about what the
+    managed tree is or the check means nothing.
     """
     home = Path(home)
     releases = home / ".local/share/debra/web/releases"
-    for managed in (releases.parent, releases):
-        if managed.is_symlink():
-            return f"The managed tree {managed} is a link; restore cannot vouch for what it reaches"
+    for ancestor in (releases, *releases.parents):
+        if ancestor.is_symlink():
+            return f"The managed tree {ancestor} is a link; restore cannot vouch for what it reaches"
     named = {}
     for argv in commands:
         if not argv:
             continue
-        executable = argv[0]
-        if "/" in executable and not executable.startswith("/"):
-            return (f"That unit's start command {executable} is not an absolute path, "
-                    "which systemd would refuse")
-        for argument in argv:
-            if not argument.startswith("/"):
-                continue
-            path = Path(argument)
-            try:
-                inside = path.relative_to(releases)
-            except ValueError:
-                if path.suffix == ".py":
-                    return f"That unit runs {argument}, which is not a release this installer keeps"
-                continue
-            parts = inside.parts
-            if ".." in parts:
-                return f"That unit runs {argument}, which leaves the release it names"
-            if len(parts) < 2:
-                return f"That unit runs {argument}, which is not a file in a release"
-            name = Path(*parts[1:]).as_posix()
-            if name not in PAYLOAD:
-                return (f"That unit runs {argument}, which is not one of the files this "
-                        "installer writes into a release")
-            named.setdefault(parts[0], set()).add(name)
-    for release_id, files in sorted(named.items()):
+        problem = start_command_problem(argv)
+        if problem is not None:
+            return problem
+        entry = Path(argv[2])
+        try:
+            inside = entry.relative_to(releases)
+        except ValueError:
+            return f"That unit runs {argv[2]}, which is not a release this installer keeps"
+        parts = inside.parts
+        if ".." in parts:
+            return f"That unit runs {argv[2]}, which leaves the release it names"
+        if len(parts) != 2 or parts[1] != "server.py":
+            return (f"That unit runs {argv[2]}, which is not the server.py of a release "
+                    "this installer keeps")
+        named.setdefault(parts[0], set()).add(parts[1])
+    for release_id in sorted(named):
         release = releases / release_id
-        script = release / sorted(files)[0]
+        script = release / "server.py"
         if release.is_symlink() or not release.is_dir():
             return f"That unit runs {script}, which is not installed"
         missing = []

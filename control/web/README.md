@@ -64,9 +64,11 @@ this is not a browser enrollment or revocation status.
 The key is kept in
 an owner-only file on the device and browser `sessionStorage` for the tab;
 Disconnect clears that tab, not other tabs or already submitted operations.
-Every read is bound to the session it started in, so a status or Setup response
-that was still in flight when the tab disconnected is discarded instead of
-repainting the previous device's readings or build choices.
+Protected status and Setup reads are bound to the session they started in, so a
+response that was still in flight when the tab disconnected is discarded instead
+of repainting the previous device's readings or build choices. The public
+pre-pairing device inventory is deliberately not session-bound: it carries no
+device state and is fetched before a session exists.
 The service validates explicit Host authorities and same-origin requests, uses
 only local assets, refuses embedding, and bounds workers, bodies and command
 timeouts. These are useful safeguards, **not a hostile-LAN/DoS guarantee**.
@@ -284,23 +286,35 @@ interruption leaves either the old unit or the new one and never a truncated
 file that cannot start. A `cp` would truncate the destination before writing,
 which is why it is not used here.
 
-**`--restore` accepts only a unit this installer wrote** — it must carry the
-installer's marker line and its `ExecStart` must use the installer's own quoting
-(every argument double-quoted, with only `\\`, `\"`, `%%` and `$$` escaped). A
-hand-written unit is refused rather than half-understood: systemd accepts a
-larger language (`\x20`, single quotes, `$VAR`), and a decoder that accepts more
-than it can reproduce has already validated a different path from the one
-systemd would start. Within that form it checks:
+**`--restore` accepts only the form this installer writes** — the unit must
+carry the installer's marker line, and its `ExecStart` must use the installer's
+own quoting (every argument double-quoted, with only `\\`, `\"`, `%%` and `$$`
+escaped) and the installer's own command shape. A hand-written unit is refused
+rather than half-understood: systemd accepts a larger language (`\x20`, single
+quotes, `$VAR`), and a decoder that accepts more than it can reproduce has
+already validated a different path from the one systemd would start. The marker
+is a **format** check, not proof of authorship: anything that reproduces the
+marker and the quoting is accepted, so this does not defend against someone who
+can already write to the account's files. Within that form it checks:
 
 - an `ExecStart` inside `[Service]` — systemd ignores one in `[Unit]`, and an
   empty `ExecStart=` resets the list, so neither unit has a start command;
 - exactly one start command, because `Type=simple` runs one and this installer
   writes one;
 - a leading `-` is "ignore failure", not part of the executable path;
-- every file the command names is one of the five payload files, reached inside
-  a release directory without `..`, through real directories and as a real file
-  — a link under the release would let the digested files be replaced without
-  changing the name the unit is checked against;
+- the start command is the shape `install()` writes: an absolute interpreter,
+  `-B`, the release's own `server.py`, `serve`, then option/value pairs from the
+  installer's own set. A relative script, a command naming no release at all
+  (`python3 -B -c 'print(1)'`), or an unknown option is refused instead of being
+  checked vacuously — the earlier check skipped every argument that did not
+  start with `/`, so those commands passed with nothing examined;
+- the entry point is `server.py` at the top of a release under the managed tree,
+  and every ancestor of that tree is a real directory. Renaming
+  `~/.local/share` and pointing the name at a preserved copy repoints every
+  release at once without changing a byte inside one;
+- every payload file inside that release is a real file, reached through real
+  directories without `..` — a link under the release would let the digested
+  files be replaced without changing the name the unit is checked against;
 - that release is complete (all five fixed payload files) and still matches the
   content address it is named by;
 - nothing else named by the command is a Python file outside the managed

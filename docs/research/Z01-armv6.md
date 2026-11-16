@@ -332,7 +332,8 @@ household service.
   run, with paths that make sense inside it. The proposed mechanism is a
   **bubblewrap mount namespace** (`bwrap`) whose root is the extracted image,
   bound read-only, with the host's `qemu-arm-static` bound in **read-only** at a
-  path that demonstrably exists before the image goes read-only:
+  destination whose parent is writable when `bwrap` creates the mountpoint —
+  not a path that must already exist in the image:
 
   ```sh
   bwrap --ro-bind /mnt/raspios / \
