@@ -52,16 +52,15 @@ class DispatcherTests(unittest.TestCase):
         (self.repo / ".gitignore").write_text("/.local/\n")
         # The dispatcher tests need eligible starters, and packet states move as
         # work lands. Pin them in the fixture so these tests check the mechanism
-        # rather than the project's live review state. R01 is the chain the
-        # tests claim by name; Z01 is a second one, because `--chain any` has to
-        # be able to find a chain other than the claimed one - it was the only
-        # other `ready` starter by accident until Z01 was accepted, and that made
-        # this file fail as a side effect of a documentation commit.
+        # rather than the project's live review state. R01 is the chain the tests
+        # claim by name; R02 is a second one, because `--chain any` has to find a
+        # chain other than the claimed one. Relying on whatever else happened to
+        # be `ready` broke as soon as T01 and Z01 were accepted.
         roadmap = self.repo / "docs/roadmap.md"
         text = roadmap.read_text()
-        for packet in ("R01", "Z01"):
-            # Set the state whatever it happens to be now, so accepting a packet
-            # in the live roadmap cannot silently unpin the fixture.
+        for packet in ("R01", "R02"):
+            # Set the state whatever it currently is, so accepting a packet in
+            # the live roadmap cannot silently unpin the fixture.
             text = re.sub(rf"^\| {packet} / \w+ \|", f"| {packet} / ready |",
                           text, count=1, flags=re.MULTILINE)
         roadmap.write_text(text)

@@ -1262,7 +1262,10 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue(saved.exists())
 
     def test_insecure_state_rejected(self):
-        self.state.mkdir(parents=True, mode=0o755)
+        self.state.mkdir(parents=True)
+        # `mkdir(mode=…)` is masked by the process umask, so under `umask 0077`
+        # this fixture was 0700 and the test failed for the wrong reason.
+        self.state.chmod(0o755)
         with self.assertRaises(ValueError):
             web.init_state(self.state)
         self.assertFalse((self.state / "access.key").exists())
