@@ -11,6 +11,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 import tempfile
@@ -21,6 +22,8 @@ from server import (Backend, init_state, load_devices, valid_hosts, validate_dev
 
 PAYLOAD = ("server.py", "discovery.py", "assets/index.html", "assets/style.css", "assets/app.js")
 MARKER = "# Managed by Debra web prototype\n"
+HEADING = re.compile(r"\[([^]]+)\]")
+EXEC_START = re.compile(r"ExecStart\s*=\s*(.*)")
 
 
 def quoted(value):
@@ -228,24 +231,21 @@ def restore_unit(home, source):
     through leaves a file that is neither the old unit nor the new one, with no
     ExecStart line and no way to start. Writing a complete file and renaming it
     over the unit means the unit is always one of the two versions.
+
+    This restores the *file*. It starts nothing, so it cannot show that the
+    service recovers: a unit that passes every check here still has to be
+    loaded and started before anyone knows the rollback worked.
     """
     home = Path(home)
     unit = home / ".config" / "systemd" / "user" / "debra-web.service"
     source = Path(source)
     text = source.read_bytes()
-    command = executable_line(text)
-    if command is None:
-        raise ValueError("That file is not a service unit: it has no ExecStart line")
-    gone = missing_release(text)
-    if gone is not None:
-        # A unit whose release was removed starts and immediately fails, which
-        # looks like a rollback that worked. Refuse instead of producing it.
-        raise ValueError(f"That unit runs {gone}, which is not installed; "
-                         "install instead of restoring it")
-    changed = changed_release(text)
-    if changed is not None:
-        raise ValueError(f"That unit runs {changed}, whose files no longer match "
-                         "the content it is named by; install instead of restoring it")
+    commands = service_commands(text)
+    if not commands:
+        raise ValueError("That file is not a service unit: it has no ExecStart line in [Service]")
+    problem = release_problem(home, commands)
+    if problem is not None:
+        raise ValueError(problem + "; install instead of restoring it")
     directory(unit.parent)
     fd, name = tempfile.mkstemp(prefix="debra-web.service.", suffix=".restore",
                                 dir=unit.parent)
@@ -266,60 +266,133 @@ def restore_unit(home, source):
     return unit
 
 
-def executable_line(text):
-    """The unit's real ExecStart value, or None.
+def systemd_argv(value):
+    """Split one ExecStart value into arguments the way systemd does.
 
-    A comment mentioning `ExecStart=` is not a command, and a unit whose only
-    ExecStart is commented out cannot start. Testing for the bytes alone
-    accepted it.
+    Not `shlex`: systemd and a shell disagree about `$` and `%`, and only a
+    decoder that reverses `quoted()` exactly turns a generated unit back into
+    the paths it was written from. `quoted()` writes double quotes, a doubled
+    backslash for one backslash, a backslash before a quote for a quote, `%%`
+    for a percent and `$$` for a dollar. Splitting happens first and the
+    `%%`/`$$` decoding second, because that is the order systemd applies them.
+    An unterminated quote is not repaired: the path it leaves fails the release
+    checks rather than becoming some other path that happens to exist.
     """
+    arguments, current, quote, escaped = [], [], None, False
+    for char in value:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\" and quote != "'":
+            # Inside single quotes systemd takes every character literally.
+            escaped = True
+        elif quote is not None:
+            if char == quote:
+                quote = None
+            else:
+                current.append(char)
+        elif char in "\"'":
+            quote = char
+        elif char.isspace():
+            if current:
+                arguments.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+    if escaped:
+        current.append("\\")
+    if current:
+        arguments.append("".join(current))
+    return [argument.replace("%%", "%").replace("$$", "$") for argument in arguments]
+
+
+def service_commands(text):
+    """The argv lists systemd would start for this unit, in file order.
+
+    Only an `ExecStart` inside `[Service]` is a start command: systemd ignores
+    one in `[Unit]`, so a unit that has only that has no start command at all,
+    and restoring it would report success for a rollback that starts nothing.
+    An empty `ExecStart=` resets the list, so a trailing empty assignment leaves
+    no command. `ExecStart =` with spaces around `=` is the same assignment, and
+    a leading `-` means "ignore failure", not part of the executable path. A
+    commented-out line never matches the assignment pattern.
+    """
+    commands, section = [], None
     for raw in text.decode("utf-8", "replace").splitlines():
         line = raw.strip()
-        if line.startswith("ExecStart="):
-            value = line[len("ExecStart="):].strip()
-            return value or None
-    return None
-
-
-def missing_release(text):
-    """The release path a unit runs, when it is not on disk. None otherwise.
-
-    Restoring a unit whose code is gone produces a service that cannot start,
-    which is the failure a rollback is meant to avoid. Only a recognisable
-    release path is checked; a unit that runs something else is left alone.
-    """
-    command = executable_line(text)
-    if not command:
-        return None
-    for token in command.split():
-        token = token.strip('"')
-        if token.endswith("/server.py") and "/releases/" in token:
-            return None if Path(token).is_file() else token
-    return None
-
-
-def changed_release(text):
-    """The release a unit runs when its bytes no longer match its name.
-
-    `missing_release` only proves the file exists. A retained release whose
-    files were truncated, replaced or half-copied still exists and still
-    starts, then fails. The directory name is the digest of the payload, so
-    the mismatch is checkable before the unit is restored.
-    """
-    command = executable_line(text)
-    if not command:
-        return None
-    for token in command.split():
-        token = token.strip('"')
-        if not (token.endswith("/server.py") and "/releases/" in token):
+        heading = HEADING.fullmatch(line)
+        if heading:
+            section = heading.group(1)
             continue
-        release = Path(token).parent
+        if section != "Service":
+            continue
+        assignment = EXEC_START.fullmatch(line)
+        if not assignment:
+            continue
+        value = assignment.group(1)
+        if not value:
+            commands = []
+            continue
+        if value.startswith("-"):
+            value = value[1:]
+        commands.append(systemd_argv(value))
+    return [argv for argv in commands if argv]
+
+
+def release_problem(home, commands):
+    """Why the releases these commands name cannot start, or None.
+
+    Restoring a unit whose code is gone produces a service that fails
+    immediately, which looks like a rollback that worked. Existing is not proof
+    either: an interrupted copy leaves a release holding only part of the
+    payload, and the entry point alone does not show that `discovery.py` and the
+    assets beside it are there — the import fails before anything listens. The
+    directory name is the digest of the payload, so changed content is
+    detectable as well. Every argument naming a file inside the managed
+    releases directory is checked, not only the first `server.py`.
+    """
+    releases = Path(home) / ".local/share/debra/web/releases"
+    named = {}
+    for argv in commands:
+        for argument in argv:
+            if not argument.startswith("/"):
+                continue
+            path = Path(argument)
+            try:
+                inside = path.relative_to(releases)
+            except ValueError:
+                # A Python entry point outside the managed releases is not a
+                # unit this installer can vouch for. A plain executable such as
+                # the interpreter is not a release and is left alone.
+                if path.name.endswith(".py") and "/releases/" in argument:
+                    return f"That unit runs {argument}, which is not a release this installer keeps"
+                continue
+            parts = inside.parts
+            if not parts:
+                continue
+            named.setdefault(parts[0], set())
+            if len(parts) > 1:
+                named[parts[0]].add(Path(*parts[1:]))
+    for release_id, files in sorted(named.items()):
+        release = releases / release_id
+        script = release / sorted(files)[0] if files else release
+        if release.is_symlink() or not release.is_dir():
+            return f"That unit runs {script}, which is not installed"
+        for name in sorted(files):
+            target = release / name
+            if target.is_symlink() or not target.is_file():
+                return (f"That unit runs {script}, whose {target.name} is missing from the "
+                        "release it names")
+        missing = [name for name in PAYLOAD if not (release / name).is_file()]
+        if missing:
+            return (f"That unit runs the release in {release}, which is incomplete: "
+                    f"{', '.join(missing)} missing, so the service would fail to import")
         try:
-            if release_digest(release) == release.name:
-                return None
-            return token
+            if release_digest(release) == release_id:
+                continue
         except OSError:
-            return None
+            return f"That unit runs {script}, which cannot be read"
+        return f"That unit runs {script}, whose files no longer match the content it is named by"
     return None
 
 
@@ -348,8 +421,14 @@ def main():
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
         print(f"unit: {unit}")
-        print("Unit restored atomically; nothing was started or stopped.")
+        print("Unit restored: the file was replaced atomically. Nothing was started or stopped.")
+        # "Restored" is about the file. Saying more would claim the service
+        # recovered, and only a start that stays up can show that.
+        print("This does not prove the service starts: it checks the unit's start "
+              "command and that the release it names is complete.")
         print("Next: systemctl --user daemon-reload")
+        print("Then: systemctl --user start debra-web.service && "
+              "systemctl --user is-active debra-web.service")
         return
     if not args.sink:
         parser.error("--sink is required unless --restore is given")

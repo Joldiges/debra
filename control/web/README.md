@@ -12,6 +12,10 @@ and [roadmap](../../docs/roadmap.md#browser-first-device-control).
 
 - Moving the slider only previews. **Apply volume** writes the explicit native
   PulseAudio/PipeWire sink, linking its channels. Mute is a separate write.
+- The outcome of a write is reported beside the control that caused it, under
+  Apply and the slider: a rejection or an unanswered change explains itself
+  where the person is looking. The page's global error line carries read and
+  pairing failures, not write outcomes.
 - Starting, installing, polling, reconnecting and stopping never restore or set
   volume. No sound, microphone recording or test tone is generated.
 - Most status is cached for two seconds; the selected sink's audio state is
@@ -25,6 +29,13 @@ and [roadmap](../../docs/roadmap.md#browser-first-device-control).
 - Service found/active/enabled does **not** prove installation, configuration,
   pairing or successful end-to-end operation. Bluetooth proxy and Music
   Assistant server detection are not implemented.
+- The Setup card's HAT row reports a **family match**, not an identification: the
+  EEPROM product names a ReSpeaker/Seeed two-microphone board, and the exact
+  model and revision are not established. The two-microphone match has a number
+  boundary, so `12-Mics` in a product string is not read as `2-mic`. The "No HAT:
+  3.5 mm jack or USB audio" row is an alternative rather than a board, so it is
+  not asked of the EEPROM at all and does not claim the EEPROM fails to name a
+  ReSpeaker.
 
 ## Security boundary
 
@@ -45,6 +56,9 @@ this is not a browser enrollment or revocation status.
 The key is kept in
 an owner-only file on the device and browser `sessionStorage` for the tab;
 Disconnect clears that tab, not other tabs or already submitted operations.
+Every read is bound to the session it started in, so a status or Setup response
+that was still in flight when the tab disconnected is discarded instead of
+repainting the previous device's readings or build choices.
 The service validates explicit Host authorities and same-origin requests, uses
 only local assets, refuses embedding, and bounds workers, bodies and command
 timeouts. These are useful safeguards, **not a hostile-LAN/DoS guarantee**.
@@ -218,6 +232,15 @@ physical device are not generally recognized as one identity.
 `seconds_since_scan` and `error`. The configured list remains available without
 Avahi, even when discovery fails or cannot start.
 
+`refused` is one entry per **refused advertisement**, not per distinct sentence.
+The parser reports only an instance name and a reason, and two advertisements can
+share both (port 0 and port 65536 are refused for the same stated reason), so a
+per-list-entry identity is kept until the count is made; the hub's own
+revalidation is keyed by the record it refused. The cost is that avahi reports a
+resolved record once per interface and address family, so one refused
+advertisement seen on two families is counted twice. The count is what the page
+prints, and naming a refused device twice is better than dropping it.
+
 Discovery is a convenience, **never authentication or proof of reachability**:
 any local peer can make an announcement, and plain HTTP cannot authenticate the
 destination. Verify the destination before entering a key. Discovery can also
@@ -248,10 +271,25 @@ systemctl --user start debra-web.service
 
 `--restore` writes a complete file and renames it over the unit, so an
 interruption leaves either the old unit or the new one and never a truncated
-file that cannot start. It refuses a file with no real `ExecStart` line (a
-commented-out one is not a command), refuses a unit whose release directory is
-gone or no longer matches its content address, and starts nothing itself. A `cp`
-would truncate the destination before writing, which is why it is not used here.
+file that cannot start. A `cp` would truncate the destination before writing,
+which is why it is not used here.
+
+What it checks, reading the unit the way systemd does (systemd quoting, not a
+shell: `%%` and `$$` are the installer's spellings of `%` and `$`, and a path
+with a space, a percent or a dollar round-trips only if both are decoded):
+
+- an `ExecStart` inside `[Service]` — systemd ignores one in `[Unit]`, and an
+  empty `ExecStart=` resets the list, so neither unit has a start command;
+- a leading `-` is "ignore failure", not part of the executable path;
+- every file the command names inside `~/.local/share/debra/web/releases/`
+  exists, in a release directory that exists;
+- that release is complete (all five fixed payload files) and still matches the
+  content address it is named by.
+
+**It restores the file. It does not recover the service.** Nothing is started,
+and no check here proves the restored unit starts and stays up — that takes the
+`daemon-reload`, `start` and `is-active` steps above, and a rollback to a
+release that imports is what the checks are for, not a substitute for them.
 
 The old unit references the retained old release and its own device list, if any.
 Units created by older installers may instead reference a shared `devices.json`;

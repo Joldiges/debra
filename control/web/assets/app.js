@@ -82,6 +82,16 @@ function setOp(isVolume, value) {
 function notices() {
   return [volumeOp?.message, muteOp?.message].filter(Boolean).join(" ");
 }
+function showNotices() {
+  // A write outcome belongs beside the control that caused it. The global
+  // #error sits after every other card, which on a phone is several screens
+  // below Apply: a beginner could retry an unanswered change without ever
+  // seeing why it may not have applied. #error keeps the read/pairing failures
+  // it is the only home for. The element is never hidden, only emptied, so the
+  // live region exists when its text changes and is announced.
+  const message = notices();
+  el("audio-notice").textContent = message;
+}
 function reconcile(data) {
   // An unanswered write is resolved only by a fresh reading that matches it.
   if (volumeOp?.status === "uncertain" && data.available && data.percent === volumeOp.target) {
@@ -236,11 +246,20 @@ function hatStatus(option) {
   // A family match, not an identification. The EEPROM product string does not
   // carry a model or revision, so saying "identified" was stronger than the
   // evidence and would have told a person their board was this exact one.
-  const detected = option.detected === true
-    ? "the HAT EEPROM product names a ReSpeaker/Seeed two-mic board — the exact model and revision are not established"
-    : option.detected === false
-    ? "the HAT EEPROM product does not name a ReSpeaker/Seeed two-mic board"
-    : "HAT EEPROM unreadable, so even that family match is unknown";
+  //
+  // Only a verdict the device actually made is stated. "No HAT: 3.5 mm jack or
+  // USB audio" is an alternative rather than a board the EEPROM can name, and
+  // reporting that the EEPROM "does not name" it said the exact opposite of
+  // what the ReSpeaker row had just established from the same string. What the
+  // EEPROM can and cannot say is described once, in the card's source line.
+  let detected;
+  if (option.detected === true) {
+    detected = "the HAT EEPROM product names a ReSpeaker/Seeed two-mic board — the exact model and revision are not established";
+  } else if (option.detected === false) {
+    detected = "the HAT EEPROM product does not name a ReSpeaker/Seeed two-mic board";
+  } else {
+    detected = "the HAT EEPROM gives no family verdict for this row";
+  }
   let applied;
   if (!option.card || !option.card.name) {
     applied = "there is no sound card of its own to check";
@@ -366,10 +385,19 @@ async function loadSetup() {
   // Separate from the status poll: a failed read here must not look like a
   // device with no choices, and must not disturb the audio notices.
   if ((!token && !bypass) || setupLoading) return;
+  // Bound to the same session/revision discipline as status and audio: a
+  // response that was already in flight when the person disconnected used to
+  // paint the previous device's build choices back into the rows that
+  // disconnect had just cleared.
+  const started = session;
+  const startedRevision = revision;
   setupLoading = true;
   try {
-    renderSetup(await api("/api/setup"));
+    const result = await api("/api/setup");
+    if (started !== session || startedRevision !== revision) return;
+    renderSetup(result);
   } catch (error) {
+    if (started !== session || startedRevision !== revision) return;
     el("setup-status").textContent = `Build choices unavailable: ${error.message}`;
   } finally {
     setupLoading = false;
@@ -388,16 +416,21 @@ async function refresh() {
     }
     if (bypass) setBypassAvailable(true);
     render(result);
-    el("error").textContent = notices();
+    // A successful read clears the read failure; a write's own outcome stays
+    // next to its control until a reading agrees with it.
+    el("error").textContent = "";
+    showNotices();
   } catch (error) {
     if (started !== revision || busy) return;
     setBypassAvailable(false);
     if (error.status === 401) {
       revokeBypass();
     }
-    // A read failure is not a write outcome: keep any rejection or uncertainty
-    // visible next to it rather than replacing it.
-    el("error").textContent = [notices(), error.message].filter(Boolean).join(" ");
+    // A read failure is not a write outcome: it is named here, and the write's
+    // rejection or uncertainty stays in its own region rather than replacing
+    // or being replaced by it.
+    el("error").textContent = error.message;
+    showNotices();
     el("connection").textContent = "Not connected · readings may be stale";
     for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
   } finally {
@@ -434,7 +467,7 @@ async function change(path, body) {
       setOp(isVolume, {status: "uncertain", target,
         message: `The device did not confirm this ${isVolume ? "volume" : "mute"} change. Its reported state is shown; check it before trying again.`});
     }
-    el("error").textContent = notices();
+    showNotices();
   } finally {
     busy = false;
     // The POST has settled: repaint the controls from the state we now know,
@@ -444,7 +477,7 @@ async function change(path, body) {
     if (!token && !bypass) {
       for (const id of ["volume", "apply", "mute"]) el(id).disabled = true;
     }
-    el("error").textContent = notices();
+    showNotices();
     await refresh();
   }
 }
@@ -459,6 +492,7 @@ el("pair-form").addEventListener("submit", async event => {
   muteOp = null;
   sessionStorage.setItem("debra-key", token);
   el("key").value = "";
+  showNotices();
   await refresh();
   await loadSetup();
 });
@@ -473,6 +507,7 @@ el("bypass").addEventListener("click", async () => {
   draft = false;
   volumeOp = null;
   muteOp = null;
+  showNotices();
   await refresh();
   await loadSetup();
 });
@@ -486,6 +521,7 @@ el("disconnect").addEventListener("click", () => {
   volumeOp = null;
   muteOp = null;
   currentAudio = null;
+  showNotices();
   // Clear the previous device's build choices so a reconnect cannot show them
   // for a different device, even for one frame.
   for (const id of ["setup-hats", "setup-settings", "setup-updates"]) el(id).replaceChildren();

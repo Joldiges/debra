@@ -55,7 +55,10 @@ HAT_OPTIONS = (
      "summary": "TLV320AIC3104 codec, two microphones, three APA102 LEDs, a user button, "
                 "3.5 mm and JST speaker outputs.",
      "match": {"vendor": ("respeaker", "seeed"),
-               "model": ("2-mic", "2mic", "2 mic", "2mic")},
+               # Matched as a pattern, with a number boundary either side of the
+               # 2: plain substring matching read `2-mic` inside `12-Mics` and
+               # reported a twelve-microphone board as this two-microphone one.
+               "model": (r"(?<![0-9])2[-\s]?mics?\b",)},
      "card": "seeed2micvoicec",
      "caveats": (
          "Microphone and LED positions are an estimate, not a measurement of this board: "
@@ -88,12 +91,29 @@ class DiscoveryCache:
         self.last_error = None
         # One entry per refused advertisement, as "name: reason". Reasons are
         # what a person needs; the count is advertisements, which is what the
-        # page says it is.
+        # page says it is. Keeping only the display string merged two different
+        # devices that happened to be refused for the same reason.
         self.refused = ()
         self.thread = None
 
     def scan(self):
-        refused = set()
+        # Each entry is (identity, "name: reason"). The parser reports one
+        # refusal per advertisement it dropped but carries only the instance
+        # name and the reason, and two advertisements can share both (one port
+        # 0 and one port 65536, for example), so its position in the reported
+        # list is the identity that survives. This hub's own revalidation still
+        # has the record, so it is keyed by the name and URL it refused and a
+        # repeated scan cannot multiply it. The cost is honest: avahi reports a
+        # resolved record once per interface and address family, so one refused
+        # advertisement seen twice is counted twice. A count that can be high is
+        # better than silently dropping a device from the page.
+        refused = []
+
+        def note(identity, name, reason):
+            entry = (identity, f"{name}: {reason}")
+            if entry not in refused:
+                refused.append(entry)
+
         try:
             result = self.browse()
             if not isinstance(result, dict) or result.get("error") is not None:
@@ -104,10 +124,10 @@ class DiscoveryCache:
                 # successful empty scan while an advertisement was rejected.
                 reported = result.get("refused")
                 if isinstance(reported, list):
-                    for entry in reported:
+                    for index, entry in enumerate(reported):
                         if (isinstance(entry, dict) and isinstance(entry.get("name"), str)
                                 and isinstance(entry.get("reason"), str)):
-                            refused.add(f"{entry['name']}: {entry['reason']}")
+                            note(("parser", index), entry["name"], entry["reason"])
                         else:
                             raise ValueError("Invalid discovery refusal")
                 records = result["devices"]
@@ -126,7 +146,8 @@ class DiscoveryCache:
                         # the name is read defensively: an AttributeError here
                         # would empty the whole list instead of refusing one.
                         name = record.get("name") if isinstance(record, dict) else None
-                        refused.add(f"{name or 'unnamed'}: {reason}")
+                        url = record.get("url") if isinstance(record, dict) else None
+                        note(("hub", name, url), name or "unnamed", reason)
                         discovery.LOGGER.warning("Refused discovered record: %s", reason)
                 devices = tuple(valid)
         except Exception:
@@ -136,7 +157,7 @@ class DiscoveryCache:
         with self.lock:
             self.devices = devices
             self.last_scan = time.monotonic()
-            self.refused = tuple(sorted(refused))
+            self.refused = tuple(sorted(text for _, text in refused))
             self.last_error = (result or {}).get("error") if isinstance(result, dict) else None
 
     def snapshot(self):
@@ -263,12 +284,17 @@ def hat_family_match(product, option):
     required - one vendor and one model - so a different ReSpeaker board or an
     unrelated Seeed HAT is not reported as this one. The revision is still
     unknown: an EEPROM product string does not carry one.
+
+    An option with no `match` (the alternative below) is not a board the EEPROM
+    could name, so this is never the question to ask about it: `None` here.
     """
-    words = (product or "").lower()
     match = option.get("match") or {}
     vendor = match.get("vendor") or ()
     model = match.get("model") or ()
-    return any(word in words for word in vendor) and any(word in words for word in model)
+    if not vendor or not model:
+        return None
+    words = (product or "").lower()
+    return any(word in words for word in vendor) and any(re.search(word, words) for word in model)
 
 
 def alsa_cards(root):
@@ -515,6 +541,12 @@ class Backend:
         cards = alsa_cards(self.root)
         options = []
         for option in HAT_OPTIONS:
+            # "No HAT: 3.5 mm jack or USB audio" is an alternative, not a board:
+            # asking the EEPROM about it and reporting "not named" stated the
+            # exact opposite of the ReSpeaker row's evidence about the same
+            # string, so `hat_family_match` reports nothing established for it.
+            # The payload shape is unchanged: `detected` already has a null
+            # "nothing established".
             detected = None if product is None else hat_family_match(product, option)
             present = None
             if option["card"] and cards is not None:
