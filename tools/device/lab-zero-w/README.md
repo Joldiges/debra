@@ -47,6 +47,17 @@ git -C ~/linux-voice-assistant status --short
   #         ?? linux_voice_assistant/stop_word.py
 ```
 
+A silent check needs no speaker: it drives the shipped module with the real stop
+model and a 16 kHz mono "stop" clip, and asserts that the model does not run
+while the stop word is inactive and that it detects when active.
+
+```sh
+scp a-16kHz-mono-stop.wav debra@<board>:/tmp/stop16.wav
+ssh debra@<board> 'cd ~/linux-voice-assistant && \
+  .venv/bin/python ~/zero-w-workarounds/check-stop-word.py'
+# expect: [inactive] inferences=0 ... [active] stopped=yes ... RESULT: PASS
+```
+
 A functional check needs the speaker and microphone: play a positive wake-word
 clip through the HAT and look for `Detected wake word` in `~/lab/lva.log`, then
 play a "stop" clip during the reply and look for `Stop word detected`.

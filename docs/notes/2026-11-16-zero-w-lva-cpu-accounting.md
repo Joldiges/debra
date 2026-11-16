@@ -54,7 +54,7 @@ the V05 card with the roadmap/chain/progress wiring it needs.
 | hypothesis → observed | Gating the stop model on `active_wake_words` cuts idle LVA CPU by about a quarter, relatively | `/tmp/measure_lva.sh` on the device, 480 s each side, 2026-11-16 | Confirmed relatively (−26%); the absolute expectation was wrong, see the next row |
 | observed | LVA mean CPU fell from **41.9% to 30.9% of one core** (480 s idle each side), with a second 300 s sample at 32.8%: a 9–11 point saving, −26% relative | `BASELINE 480` at 11:24, `AFTER-PATCH 480` at 11:35, `AFTER-CONFIRM 300` at 11:50, device time | Same device and services, own `/proc/<pid>/stat`. The earlier "~26 points" estimate came from the 26%-of-realtime bench, which was contended and over-reads its shares |
 | observed | After moving the gate into the PR's `stop_word.py` module, the board still measures **31.1% of one core** over 480 s idle | `AFTER-HELPER 480` at 13:10, device time, `/tmp/measure_lva.sh` | Same method and services as the row above; the refactor did not change the saving |
-| observed | The shipped `stop_word.py` never invokes the model while the stop word is inactive, and detects the clip when active: 0 inferences / not stopped while inactive, 46 inferences / stopped at frame 46 of 78 while active | `/tmp/check_stop_word.py` in the device venv, real `stop` model and feature frontend, 2026-11-16 | Silent check, no speaker; it exercises the module, not the audio loop wiring |
+| observed | The shipped `stop_word.py` never invokes the model while the stop word is inactive, and detects the clip when active: 0 inferences / not stopped while inactive, 46 inferences / stopped at frame 46 of 78 while active | [`check-stop-word.py`](../../tools/device/lab-zero-w/check-stop-word.py) in the device venv, real `stop` model and feature frontend, 2026-11-16 | Silent check, no speaker; it exercises the module, not the audio loop wiring |
 | observed | `MicroWakeWord.reset()` costs 17–25 ms: it clears the feature and probability windows and reloads the TFLite model | Timed three times in the device venv | Small next to the sliding-window warm-up, so re-enabling the gate is cheap |
 | observed | Reset then feed the "stop" clip: detected at feature frame 44 of 78, 113–132 ms wall | Harness in the device venv, 2026-11-16 | The re-enable path detects; the added audio delay is the ~150 ms window fill plus ~20 ms reload |
 | observed | With the patch the wake word still detects and completes a cycle: probability 0.913, Home Assistant returned a TTS reply | `~/lab/lva.log`, 2026-11-16 11:46:16 | `~/sweep/s4_en-us+m3_180.wav` played through the HAT speaker into the real microphone path |
@@ -117,8 +117,9 @@ On the board, re-measured after the change with the same method
 30.9% and 32.8% samples for the inline form. So the refactor kept the saving.
 
 A silent check drove the shipped module with the real `stop` model and the
-feature frontend, no speaker involved (`/tmp/check_stop_word.py`, 78 frames of a
-synthetic "stop" clip):
+feature frontend, no speaker involved
+([`check-stop-word.py`](../../tools/device/lab-zero-w/check-stop-word.py),
+78 frames of a synthetic "stop" clip):
 
 | Case | Inferences | Result |
 | --- | --- | --- |
