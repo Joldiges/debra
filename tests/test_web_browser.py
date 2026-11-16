@@ -565,8 +565,27 @@ window.addEventListener("load", async () => {
            + JSON.stringify(testState.posts.slice(before)));
     assert(selects.every(select => select.disabled), "touching a label made a setting selectable");
     assert(testState.posts.length === 0, "the setup card wrote to the device");
+    // The planned task list is this page's statement of what the appliance
+    // will do. It has no control at all, so the lies available are a row that
+    // looks usable, a missing badge, or a reason that does not say what it
+    // waits on.
+    const tasks = [...document.querySelectorAll("#planned-actions .choice")];
+    assert(tasks.length === 5, "expected five planned tasks, saw " + tasks.length);
+    assert(tasks.every(row => row.querySelector(".badge.planned")),
+           "a planned task is not labelled");
+    const taskControls = tasks.flatMap(row =>
+      [...row.querySelectorAll("input, select, button, a")]);
+    assert(taskControls.length === 0,
+           "a planned task offers a control: " + taskControls.length);
+    assert(tasks.every(row => (row.querySelector(".choice-detail")?.textContent || "").length > 40),
+           "a planned task does not say why it is unavailable");
+    assert(tasks.every(row => /roadmap [A-Z][0-9]/.test(row.textContent)),
+           "a planned task does not cite what it waits on");
+    assert(/nothing here can be used/.test(document.getElementById("planned").textContent),
+           "the planned section does not say the rows cannot be used");
     result.textContent = "PASS: setup card renders disabled choices with reasons "
-      + "and writes nothing when they or their labels are touched";
+      + "and writes nothing when they or their labels are touched, and the planned "
+      + "tasks are labelled with what each waits on and offer no control";
   } catch (error) {
     result.textContent = "FAIL: " + error.message;
   }
