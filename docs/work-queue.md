@@ -42,7 +42,8 @@ item was raised, and a row that names an audit says which one. Roadmap packets
 
 | Packet | Item ids | Files | Notes |
 |---|---|---|---|
-| Acceptance review `code-r10` | WEB01 | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b16e0`, judging R9-01…R9-06 and re-running the nine r9 survivor transforms |
+| Acceptance review `code-r10` | WEB01 | `.local/reviews/code-r10-20261115/` | independent, `gpt-6.1-sol`; frozen on `e4b16e0` (re-verified byte-identical), judging R9-01…R9-06, re-running the nine r9 survivor transforms and five new ones, and running the offline and browser suites in a scratch copy |
+| Re-review `docs-r3` | Z01, T01 | `.local/reviews/docs-r3-20261115/` | independent, `gpt-6.1-sol`; hash-bound on the two documents (`Z01-armv6.md` `6b205f5b…`, `acceptance.md` `930e9d84…`), judging the seven docs-r2 findings and the new historical-library evidence |
 
 ## Done this round
 
