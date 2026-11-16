@@ -1311,6 +1311,34 @@ class Handler(BaseHTTPRequestHandler):
 
 
 HARDWARE_CHOICES = tuple(option["id"] for option in HAT_OPTIONS) + ("",)
+METADATA_LABELS = ("hat", "speaker")
+METADATA_LIMIT = 160
+
+
+def metadata_problem(metadata):
+    """Why this retained hardware.json cannot be used, or None.
+
+    `main()` refuses to start on a bad file rather than tracebacking into a
+    restart loop, and the file this server writes has to pass its own check: a
+    `hat_choice` written by `store_hardware_choice` once made the next start
+    fail, because only the label keys were allowed.
+    """
+    if not isinstance(metadata, dict):
+        return "hardware.json must hold an object"
+    unknown = set(metadata) - set(METADATA_LABELS) - {"hat_choice"}
+    if unknown:
+        return ("hardware.json allows only hat/speaker labels and hat_choice, not "
+                + ", ".join(sorted(unknown)))
+    for name in METADATA_LABELS:
+        if name in metadata:
+            value = metadata[name]
+            if not isinstance(value, str) or len(value) > METADATA_LIMIT:
+                return (f"hardware.json's {name} label must be a string up to "
+                        f"{METADATA_LIMIT} characters")
+    if "hat_choice" in metadata and metadata["hat_choice"] not in HARDWARE_CHOICES:
+        return ("hardware.json's hat_choice must name one of the boards this page "
+                "offers, or be empty")
+    return None
 
 
 def hardware_choice(state):
@@ -1509,9 +1537,9 @@ def main():
             metadata = json.loads(metadata_path.read_text())
         except (OSError, ValueError) as exc:
             parser.error(f"hardware.json is not readable JSON ({exc}); fix or remove it")
-        if (not isinstance(metadata, dict) or set(metadata) - {"hat", "speaker"} or
-                any(not isinstance(v, str) or len(v) > 160 for v in metadata.values())):
-            parser.error("hardware.json allows only hat/speaker labels up to 160 characters")
+        problem = metadata_problem(metadata)
+        if problem:
+            parser.error(problem + "; fix or remove it")
     backend = Backend(args.sink, metadata, state=state)
     scanner = DiscoveryCache()
     # A page nobody else can reach must not be advertised. This is the honest

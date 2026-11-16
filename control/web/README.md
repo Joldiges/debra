@@ -284,7 +284,11 @@ line. Neither dependency is installed by this installer.
 | `~/.local/share/debra/web/previous-units/` | Previous generated service files, retained for rollback |
 
 An unreadable, malformed or invalid `hardware.json` refuses server startup with
-an error message; correct it or preserve it elsewhere before starting again. A
+an error message; correct it or preserve it elsewhere before starting again. The
+allowed keys are the `hat` and `speaker` labels (up to 160 characters) and
+`hat_choice`, which must name one of the boards the page offers or be empty; the
+file this server writes always passes that check, because a file it writes but
+cannot start from is a service that stops coming back. A
 choice is written by `POST /api/setup/hat` with `{"choice": "<option id>"}` (or
 `""` to clear it), atomically and owner-only, keeping every other retained field;
 an unknown id is refused with a `400` and changes nothing.

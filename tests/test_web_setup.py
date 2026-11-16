@@ -8,9 +8,11 @@ is that the page tells the truth about what it cannot do.
 import http.client
 import json
 from pathlib import Path
+import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from control.web import server as web
 
@@ -316,12 +318,77 @@ class HatChoiceTests(unittest.TestCase):
         self.assertEqual(stored, {"speaker": "8 ohm 5 W",
                                   "hat_choice": "respeaker-2mic-hat-v2"})
 
+    def test_the_file_this_writes_is_one_the_server_can_start_from(self):
+        # The first version of this wrote `hat_choice` into a file whose startup
+        # check allowed only the label keys, so the next restart of the service
+        # refused the file the server itself had just written. On a device that
+        # is a service that stops coming back.
+        self.backend.choose_hat({"choice": "respeaker-2mic-hat-v2"})
+        stored = json.loads((self.state / "hardware.json").read_text())
+        self.assertIsNone(web.metadata_problem(stored), stored)
+        # And a retained label alongside it survives both.
+        (self.state / "hardware.json").write_text('{"speaker": "8 ohm 5 W"}\n')
+        self.backend.choose_hat({"choice": "none"})
+        stored = json.loads((self.state / "hardware.json").read_text())
+        self.assertIsNone(web.metadata_problem(stored), stored)
+
+    def test_the_startup_check_refuses_a_file_it_cannot_use(self):
+        # What it is for: a file the server cannot act on stops startup with a
+        # reason, rather than being half-read or tracebacking into a restart loop.
+        self.assertIsNone(web.metadata_problem({}))
+        self.assertIsNone(web.metadata_problem({"hat": "ReSpeaker 2-Mics Pi HAT v2",
+                                                "hat_choice": "none"}))
+        for bad, expected in (
+                ({"hat_choice": "respeaker-9mic"}, "hat_choice"),
+                ({"hat_choice": None}, "hat_choice"),
+                ({"hat": "x" * 161}, "hat"),
+                ({"speaker": 8}, "speaker"),
+                ({"hat": "a", "unknown": "b"}, "unknown"),
+                ([], "object")):
+            with self.subTest(bad=bad):
+                problem = web.metadata_problem(bad)
+                self.assertTrue(problem, f"{bad!r} was accepted")
+                self.assertIn(expected, problem)
+
     def test_a_choice_is_never_written_into_a_state_directory_others_can_read(self):
         self.state.chmod(0o755)
         with self.assertRaises(ValueError) as caught:
             self.backend.choose_hat({"choice": "none"})
         self.assertIn("owner-only", str(caught.exception))
         self.assertFalse((self.state / "hardware.json").exists())
+
+
+class StartupWithAChoiceTests(unittest.TestCase):
+    """The service has to start from the file the service wrote.
+
+    The first version of the board choice wrote `hat_choice` into hardware.json
+    while the startup check allowed only the label keys, so the next restart
+    refused the file: on the lab Pi 5 the unit failed three times and stopped.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="web-start-hat-", dir="/tmp/opencode")
+        self.addCleanup(self.temp.cleanup)
+        self.state = Path(self.temp.name) / "state"
+        self.state.mkdir(mode=0o700)
+        self.state.chmod(0o700)
+
+    def serve(self):
+        argv = ["server.py", "serve", "--state-dir", str(self.state), "--sink", SINK,
+                "--auth", "none"]
+        with patch.object(sys, "argv", argv), patch.object(web, "DiscoveryCache"), \
+                patch.object(web, "Server"), patch("builtins.print"):
+            web.main()
+
+    def test_a_recorded_choice_does_not_stop_the_next_start(self):
+        web.store_hardware_choice(self.state, "respeaker-2mic-hat-v2")
+        self.serve()  # Raises SystemExit if the file it wrote is refused.
+
+    def test_a_file_the_server_cannot_use_stops_it_with_a_reason(self):
+        (self.state / "hardware.json").write_text('{"hat_choice": "respeaker-9mic"}\n')
+        with self.assertRaises(SystemExit) as caught:
+            self.serve()
+        self.assertNotEqual(caught.exception.code, 0)
 
 
 class SetupHTTPTests(unittest.TestCase):
