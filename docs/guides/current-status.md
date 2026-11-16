@@ -127,9 +127,10 @@ is still `not-run`.
 - No recovery implementation: no on-target capture/restore tool and no verified
   device restore; web rollback is fixture-tested only, imaging deferred
   ([device backup](device-backup.md)).
-- No SSH-friendly setup and maintenance TUI, no supported hardware matrix: one
-  tested Pi 5 plus ReSpeaker v2 pairing is not a matrix, and Zero W/ARMv6 remain
-  unproven.
+- No SSH-friendly setup and maintenance TUI, no supported hardware matrix: the
+  tested pairs are one Pi 5 and one original Pi Zero W, each with a single
+  ReSpeaker 2-Mics v2, which is not a matrix; the Zero W needs pinned ARMv6
+  workarounds (see [its scripts](../../tools/device/lab-zero-w/README.md)).
 - No configuration model or component lifecycle layer, no tested duck/pause
   interruption, no multiroom acceptance, no measured echo-cancellation result.
 
